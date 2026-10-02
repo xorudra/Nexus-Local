@@ -441,7 +441,7 @@ function renderUsage(providers) {
         tot.mt += r.mt;
         tot.mtl += r.mtl || 0;
     });
-    combinedUsage.innerHTML = `<h3>Combined Usage</h3>${barRow('Daily Requests', tot.dr, tot.drl) || ''}${barRow('Monthly Requests', tot.mr, tot.mrl) || ''}${barRow('Daily Tokens', tot.dt, tot.dtl) || ''}${barRow('Monthly Tokens', tot.mt, tot.mtl) || ''}`;
+    combinedUsage.innerHTML = `<h3>Combined Usage</h3><div class="usage">Resets vary by provider — see individual cards below</div>${barRow('Daily Requests', tot.dr, tot.drl) || ''}${barRow('Monthly Requests', tot.mr, tot.mrl) || ''}${barRow('Daily Tokens', tot.dt, tot.dtl) || ''}${barRow('Monthly Tokens', tot.mt, tot.mtl) || ''}`;
     rows.forEach(r => {
         const div = document.createElement('div');
         div.className = 'card';
