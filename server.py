@@ -85,6 +85,7 @@ def wizard_collect_keys() -> dict:
 class Handler(BaseHTTPRequestHandler):
     server_version = "LocalDashboard/0.1"
     keys: dict | None = None
+    _head_only = False  # set True during do_HEAD so bodies are suppressed
 
     # Session helpers
     def _get_session(self):
@@ -107,7 +108,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(401)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"error": "not logged in"}).encode())
+            self._send_body(json.dumps({"error": "not logged in"}).encode())
             return False
         return True
 
@@ -117,6 +118,33 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        self._head_only = False
+        self._do_get_head()
+
+    def do_HEAD(self):
+        # HEAD mirrors GET routing/status codes but sends no body
+        # (uptime monitors use HEAD; without this BaseHTTPRequestHandler
+        # answers 501 Not Implemented).
+        self._head_only = True
+        try:
+            self._do_get_head()
+        finally:
+            self._head_only = False
+
+    def _send_body(self, data: bytes):
+        if not self._head_only:
+            self.wfile.write(data)
+
+    def send_error(self, code, message=None, explain=None):
+        # Suppress the HTML error page body on HEAD responses.
+        if self._head_only:
+            self.send_response(code, message)
+            self.send_header("Connection", "close")
+            self.end_headers()
+            return
+        super().send_error(code, message, explain)
+
+    def _do_get_head(self):
         parsed = urlparse(self.path)
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
@@ -154,7 +182,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            self.wfile.write(page.encode())
+            self._send_body(page.encode())
             return
         # Public login page
         if parsed.path == "/login":
@@ -163,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
-                self.wfile.write(content.encode())
+                self._send_body(content.encode())
             except Exception as e:
                 self.send_error(500, str(e))
             return
@@ -175,7 +203,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html")
                     self.end_headers()
-                    self.wfile.write(content.encode())
+                    self._send_body(content.encode())
                 except Exception as e:
                     self.send_error(500, str(e))
             else:
@@ -188,7 +216,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_session():
                 return
             self._set_json_headers(200)
-            self.wfile.write(json.dumps({"ok": True}).encode())
+            self._send_body(json.dumps({"ok": True}).encode())
             return
         if parsed.path == "/api/quotas":
             if not self._require_session():
@@ -228,7 +256,7 @@ class Handler(BaseHTTPRequestHandler):
                         quotas["daily_usage"]["tokens"] += pt + ct
                         quotas["monthly_usage"]["requests"] += 1
                         quotas["monthly_usage"]["tokens"] += pt + ct
-            self.wfile.write(json.dumps(quotas).encode())
+            self._send_body(json.dumps(quotas).encode())
             return
         if parsed.path == "/api/usage":
             if not self._require_session():
@@ -250,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
                         usage_data["per_provider"][provider]["tokens"] += pt + ct
                         usage_data["totals"]["requests"] += 1
                         usage_data["totals"]["tokens"] += pt + ct
-            self.wfile.write(json.dumps(usage_data).encode())
+            self._send_body(json.dumps(usage_data).encode())
             return
         self.send_error(404, "Not Found")
 
