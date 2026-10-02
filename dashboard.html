@@ -193,6 +193,45 @@ body {
     background: linear-gradient(90deg, #ff4d4d, #ff004d);
 }
 
+/* Usage trend sparklines */
+.spark {
+    display: block;
+    width: 100%;
+    max-width: 220px;
+    height: 36px;
+    margin: 8px 0 4px 0;
+}
+
+.spark .spark-line {
+    fill: none;
+    stroke: #4a9eff;
+    stroke-width: 1.5;
+}
+
+.spark .spark-area {
+    fill: rgba(74, 158, 255, 0.12);
+    stroke: none;
+}
+
+.spark .spark-grid {
+    stroke: #1e2430;
+    stroke-width: 1;
+}
+
+.trend-today {
+    font-size: 0.8rem;
+    color: #dde;
+    margin: 2px 0;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.trend-limit {
+    font-size: 0.72rem;
+    color: #6b7280;
+    margin: 2px 0;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
 /* Composer card */
 .composer {
     background: #11141b;
@@ -382,7 +421,7 @@ async function fetchQuotas() {
             return;
         }
         const data = await r.json();
-        renderUsage(data.providers);
+        renderUsage(data);
     } catch (e) {
         console.error(e);
         providerGrid.innerHTML = '<p style="color: #ff8">Failed to load quotas</p>';
@@ -414,47 +453,68 @@ function barRow(label, used, limit) {
     return `<div class="usage">${label}: ${used}/${limit}</div><div class="bar${hot}"><div style="width: ${pct}%"></div></div>`;
 }
 
-function renderUsage(providers) {
+function sparkline(data, label) {
+    const w = 220, h = 36, pad = 3;
+    const max = Math.max.apply(null, data.concat([1]));
+    const min = Math.min.apply(null, data.concat([0]));
+    const range = (max - min) || 1;
+    const stepX = (w - pad * 2) / (data.length - 1);
+    const pts = data.map(function(v, i) {
+        const x = (pad + i * stepX).toFixed(1);
+        const y = (h - pad - ((v - min) / range) * (h - pad * 2)).toFixed(1);
+        return x + ',' + y;
+    });
+    const line = pts.join(' ');
+    const area = pad + ',0 ' + line + ' ' + (w - pad).toFixed(1) + ',0';
+    const gridY = (h / 2).toFixed(1);
+    const esc = (label || '').replace(/"/g, '&quot;');
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + esc + '">'
+        + '<line class="spark-grid" x1="' + pad + '" y1="' + gridY + '" x2="' + (w - pad) + '" y2="' + gridY + '"/>'
+        + '<polygon class="spark-area" points="' + area + '"/>'
+        + '<polyline class="spark-line" points="' + line + '"/>'
+        + '</svg>';
+}
+
+function renderUsage(data) {
+    const providers = data.providers || [];
     providerGrid.innerHTML = '';
     combinedUsage.innerHTML = '';
-    const rows = providers.map(p => ({
-        name: p.display_name || p.provider,
-        dr: use(p, 'daily', 'requests'),
-        drl: lim(p, 'daily_requests'),
-        mr: use(p, 'monthly', 'requests'),
-        mrl: lim(p, 'monthly_requests'),
-        dt: use(p, 'daily', 'tokens'),
-        dtl: lim(p, 'daily_tokens'),
-        mt: use(p, 'monthly', 'tokens'),
-        mtl: lim(p, 'monthly_tokens'),
-        kc: p.key_configured,
-        reset: p.reset || ''
-    }));
-    const tot = { dr: 0, drl: 0, mr: 0, mrl: 0, dt: 0, dtl: 0, mt: 0, mtl: 0 };
-    rows.forEach(r => {
-        // Apples-to-apples: a provider's usage only counts toward the combined
-        // bar when that provider contributes to the combined limit.
-        if (typeof r.drl === 'number') { tot.dr += r.dr; tot.drl += r.drl; }
-        if (typeof r.mrl === 'number') { tot.mr += r.mr; tot.mrl += r.mrl; }
-        if (typeof r.dtl === 'number') { tot.dt += r.dt; tot.dtl += r.dtl; }
-        if (typeof r.mtl === 'number') { tot.mt += r.mt; tot.mtl += r.mtl; }
-    });
-    combinedUsage.innerHTML = `<h3>Combined Usage</h3><div class="usage">Resets vary by provider — see individual cards below</div>${barRow('Daily Requests', tot.dr, tot.drl) || ''}${barRow('Monthly Requests', tot.mr, tot.mrl) || ''}${barRow('Daily Tokens', tot.dt, tot.dtl) || ''}${barRow('Monthly Tokens', tot.mt, tot.mtl) || ''}`;
-    rows.forEach(r => {
+    // Combined 7-day history (d0 = today at index 6)
+    const ch = data.history || {requests: [0,0,0,0,0,0,0], tokens: [0,0,0,0,0,0,0]};
+    const totReqToday = ch.requests[6] || 0;
+    const totTokToday = ch.tokens[6] || 0;
+    combinedUsage.innerHTML = '<h3>Combined Usage</h3>'
+        + '<div class="usage">Resets vary by provider — see individual cards below</div>'
+        + sparkline(ch.requests, 'Combined 7-day requests')
+        + '<div class="trend-today">' + totReqToday + ' requests · ' + totTokToday.toLocaleString() + ' tokens today</div>';
+    providers.forEach(function(p) {
         const div = document.createElement('div');
         div.className = 'card';
-        const subtitle = (typeof r.drl === 'number') ? `<div class="provider-subtitle">${r.drl} requests/day</div>` : '';
-        div.innerHTML = `<div class="icon">◆</div><div><h3 class="provider-name">${r.name}</h3>${subtitle}<div class="usage">Key: <span class="pill${r.kc ? '' : ' missing'}">${r.kc ? '✓' : '✗'}</span></div><div class="usage">Reset: ${r.reset}</div>${barRow('Daily Requests', r.dr, r.drl)}${barRow('Monthly Requests', r.mr, r.mrl)}${barRow('Daily Tokens', r.dt, r.dtl)}${barRow('Monthly Tokens', r.mt, r.mtl)}</div>`;
+        const h = p.history || {requests: [0,0,0,0,0,0,0], tokens: [0,0,0,0,0,0,0]};
+        const reqToday = h.requests[6] || 0;
+        const tokToday = h.tokens[6] || 0;
+        // Only show a limit where one is really published — never invent.
+        let limitText = '';
+        const drl = p.limits && p.limits.daily_requests && p.limits.daily_requests.limit;
+        if (typeof drl === 'number') {
+            limitText = '<div class="trend-limit">Limit: ' + drl + '/day</div>';
+        }
+        div.innerHTML = '<div class="icon">◆</div><div>'
+            + '<h3 class="provider-name">' + escapeHtml(p.display_name || p.provider) + '</h3>'
+            + '<div class="usage">Key: <span class="pill' + (p.key_configured ? '' : ' missing') + '">'
+            + (p.key_configured ? '✓' : '✗') + '</span></div>'
+            + '<div class="usage">Reset: ' + escapeHtml(p.reset || '') + '</div>'
+            + sparkline(h.requests, (p.display_name || p.provider) + ' 7-day requests')
+            + '<div class="trend-today">' + reqToday + ' requests · ' + tokToday.toLocaleString() + ' tokens today</div>'
+            + limitText
+            + '</div>';
         providerGrid.appendChild(div);
     });
 }
 
-function lim(p, key) {
-    return p.limits[key].limit;
-}
-
-function use(p, period, metric) {
-    return p[period + '_usage'][metric];
+function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 populateComposer();

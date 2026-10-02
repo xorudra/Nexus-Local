@@ -47,6 +47,42 @@ _login_attempts = {}
 
 SESSION_EXPIRY = 1800
 
+def get_usage_history():
+    """Last 7 days of per-provider usage from usage.jsonl.
+
+    Returns {provider: {"requests": [d6..d0], "tokens": [d6..d0]}} where
+    d0 (index 6) is today. Zero-filled; never errors on missing/empty file.
+    """
+    days = [(datetime.date.today() - datetime.timedelta(days=i)).isoformat()
+            for i in range(7)]  # index 0 = today
+    hist = {name: {"requests": [0] * 7, "tokens": [0] * 7}
+            for name in PROVIDER_NAMES}
+    if not os.path.exists(USAGE_PATH):
+        return hist
+    try:
+        with open(USAGE_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                day = str(entry.get("ts", ""))[:10]
+                if day not in days:
+                    continue
+                prov = entry.get("provider")
+                if prov not in hist:
+                    continue
+                pos = 6 - days.index(day)  # index 6 = today
+                hist[prov]["requests"][pos] += 1
+                hist[prov]["tokens"][pos] += (entry.get("prompt_tokens", 0)
+                                             + entry.get("completion_tokens", 0))
+    except OSError:
+        pass
+    return hist
+
 PROVIDER_NAMES = [
     "aihorde",
     "cloudflare",
@@ -222,9 +258,19 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_session():
                 return
             self._set_json_headers()
+            history = get_usage_history()
+            combined_history = {
+                "requests": [0] * 7,
+                "tokens": [0] * 7,
+            }
+            for prov_hist in history.values():
+                for i in range(7):
+                    combined_history["requests"][i] += prov_hist["requests"][i]
+                    combined_history["tokens"][i] += prov_hist["tokens"][i]
             quotas = {
                 "daily_usage": {"requests": 0, "tokens": 0},
                 "monthly_usage": {"requests": 0, "tokens": 0},
+                "history": combined_history,
                 "providers": [],
             }
             if QUOTAS_PATH.exists():
@@ -236,6 +282,7 @@ class Handler(BaseHTTPRequestHandler):
                         "provider": name,
                         "display_name": provider_data.get("display_name", name.title()),
                         "reset": provider_data.get("reset", ""),
+                        "history": history.get(name, {"requests": [0] * 7, "tokens": [0] * 7}),
                         "limits": {
                             "daily_requests": provider_data.get("daily_requests", {"limit": None, "notes": "", "source": ""}),
                             "monthly_requests": provider_data.get("monthly_requests", {"limit": None, "notes": "", "source": ""}),
