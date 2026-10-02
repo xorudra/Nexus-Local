@@ -68,6 +68,29 @@
    "source": null
   }
  },
+ "freellmapi": {
+  "display_name": "FreeLLMAPI",
+  "daily_requests": {
+   "limit": null,
+   "notes": "Gateway/aggregator — quotas live on the underlying providers, not published for the gateway itself",
+   "source": null
+  },
+  "monthly_requests": {
+   "limit": null,
+   "notes": "not published",
+   "source": null
+  },
+  "daily_tokens": {
+   "limit": null,
+   "notes": "not published",
+   "source": null
+  },
+  "monthly_tokens": {
+   "limit": null,
+   "notes": "not published",
+   "source": null
+  }
+ },
  "google": {
   "display_name": "Google AI Studio",
   "daily_requests": {

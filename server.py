@@ -62,6 +62,7 @@ PROVIDER_NAMES = [
     "pollinations",
     "siliconflow",
     "zhipu",
+    "freellmapi",
 ]
 # Load quotas.json at startup (script-relative so it works from any cwd)
 with open(Path(__file__).parent / "quotas.json", "r") as f:
@@ -75,6 +76,9 @@ def wizard_collect_keys() -> dict:
         val = getpass(f"{name} API key (leave blank to skip): ")
         if val:
             keys[name] = val
+    gw_url = input("FreeLLMAPI gateway URL (leave blank to skip): ").strip()
+    if gw_url:
+        keys["freellmapi_url"] = gw_url
     return keys
 
 
@@ -125,6 +129,10 @@ class Handler(BaseHTTPRequestHandler):
                 '<label>' + n + '<input type="password" name="k_' + n + '" autocomplete="off"></label>'
                 for n in PROVIDER_NAMES
             )
+            gw_url_field = (
+                '<label>FreeLLMAPI gateway URL (optional, used with the freellmapi key above)'
+                '<input type="text" name="url_freellmapi" placeholder="http://127.0.0.1:3001" autocomplete="off"></label>'
+            )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                     "<title>Nexus Local - Setup</title><style>"
@@ -138,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
                     "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>"
                     "<h1>Set up <span>your</span> keys</h1>"
                     "<p style='color:#9aa3b2'>Enter provider API keys (leave blank to skip). Choose a strong password.</p>"
-                    "<form method='POST' action='/setup'>" + fields +
+                    "<form method='POST' action='/setup'>" + fields + gw_url_field +
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required></label>"
                     "<button type='submit'>Encrypt and Finish Setup</button>"
@@ -266,11 +274,21 @@ class Handler(BaseHTTPRequestHandler):
                 v = form.get("k_" + n, [""])[0].strip()
                 if v:
                     keys[n] = v
+            gw_url = form.get("url_freellmapi", [""])[0].strip()
+            if gw_url:
+                if not (gw_url.startswith("http://") or gw_url.startswith("https://")):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "gateway URL must start with http:// or https://"}).encode())
+                    return
+                keys["freellmapi_url"] = gw_url
             encrypt_keys(keys, pw, key_path)
             os.chmod(key_path, 0o600)
             self.send_response(302)
             self.send_header("Location", "/login")
-
+            self.end_headers()
+            return
+        if parsed.path == "/api/chat":
+            content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
             try:
                 data = json.loads(raw)
@@ -300,11 +318,20 @@ class Handler(BaseHTTPRequestHandler):
                 "kilo": "https://api.kilo.ai/v1",
                 "ovh": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
             }
-            if provider not in provider_endpoints:
+            if provider == "freellmapi":
+                # Unified gateway key; base URL comes from setup (not a fixed endpoint)
+                gw_url = ((Handler.keys or {}).get("freellmapi_url") or "").strip()
+                if not gw_url:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
+                    return
+                base = gw_url.rstrip("/")
+            elif provider not in provider_endpoints:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"chat not supported for {provider} in local version"}).encode())
                 return
-            base = provider_endpoints[provider]
+            else:
+                base = provider_endpoints[provider]
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {key}",
