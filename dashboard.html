@@ -432,14 +432,12 @@ function renderUsage(providers) {
     }));
     const tot = { dr: 0, drl: 0, mr: 0, mrl: 0, dt: 0, dtl: 0, mt: 0, mtl: 0 };
     rows.forEach(r => {
-        tot.dr += r.dr;
-        tot.drl += r.drl || 0;
-        tot.mr += r.mr;
-        tot.mrl += r.mrl || 0;
-        tot.dt += r.dt;
-        tot.dtl += r.dtl || 0;
-        tot.mt += r.mt;
-        tot.mtl += r.mtl || 0;
+        // Apples-to-apples: a provider's usage only counts toward the combined
+        // bar when that provider contributes to the combined limit.
+        if (typeof r.drl === 'number') { tot.dr += r.dr; tot.drl += r.drl; }
+        if (typeof r.mrl === 'number') { tot.mr += r.mr; tot.mrl += r.mrl; }
+        if (typeof r.dtl === 'number') { tot.dt += r.dt; tot.dtl += r.dtl; }
+        if (typeof r.mtl === 'number') { tot.mt += r.mt; tot.mtl += r.mtl; }
     });
     combinedUsage.innerHTML = `<h3>Combined Usage</h3><div class="usage">Resets vary by provider — see individual cards below</div>${barRow('Daily Requests', tot.dr, tot.drl) || ''}${barRow('Monthly Requests', tot.mr, tot.mrl) || ''}${barRow('Daily Tokens', tot.dt, tot.dtl) || ''}${barRow('Monthly Tokens', tot.mt, tot.mtl) || ''}`;
     rows.forEach(r => {
