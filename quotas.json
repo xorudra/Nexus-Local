@@ -1,6 +1,7 @@
 {
  "aihorde": {
   "display_name": "AI Horde",
+  "reset": "No quotas — queue-based",
   "daily_requests": {
    "limit": null,
    "notes": "not published",
@@ -24,6 +25,7 @@
  },
  "cloudflare": {
   "display_name": "Cloudflare Workers AI",
+  "reset": "Resets 00:00 UTC",
   "daily_requests": {
    "limit": null,
    "notes": "not published",
@@ -36,7 +38,7 @@
   },
   "daily_tokens": {
    "limit": null,
-   "notes": "Free tier allows 10,000 Neurons/day (Cloudflare's own unit \u2014 not tokens). No token-denominated daily limit published.",
+   "notes": "Free tier allows 10,000 Neurons/day (Cloudflare's own unit — not tokens). No token-denominated daily limit published.",
    "source": null
   },
   "monthly_tokens": {
@@ -47,6 +49,7 @@
  },
  "cohere": {
   "display_name": "Cohere",
+  "reset": "Monthly window — reset day not published",
   "daily_requests": {
    "limit": 33,
    "notes": "Gateway catalog rpd_limit=33 (uniform across all 15 Cohere models, source='catalog', 2026-10-02).",
@@ -70,6 +73,7 @@
  },
  "freellmapi": {
   "display_name": "FreeLLMAPI",
+  "reset": "No own limits — aggregator",
   "daily_requests": {
    "limit": null,
    "notes": "Gateway/aggregator — quotas live on the underlying providers, not published for the gateway itself",
@@ -93,9 +97,10 @@
  },
  "google": {
   "display_name": "Google AI Studio",
+  "reset": "Resets midnight PT",
   "daily_requests": {
    "limit": 20,
-   "notes": "Gateway catalog rpd_limit=20 on the flash line (gemini-3.5-flash / lite \u2014 the gateway workhorse, 2026-10-02). Vendor docs previously read 500 RPD for Flash Lite 3.5 (Sep 2026); gemma models allow 1000 RPD \u2014 range kept in quota_notes. Doc: https://ai.google.dev/gemini-api/docs/rate-limits",
+   "notes": "Gateway catalog rpd_limit=20 on the flash line (gemini-3.5-flash / lite — the gateway workhorse, 2026-10-02). Vendor docs previously read 500 RPD for Flash Lite 3.5 (Sep 2026); gemma models allow 1000 RPD — range kept in quota_notes. Doc: https://ai.google.dev/gemini-api/docs/rate-limits",
    "source": "catalog"
   },
   "monthly_requests": {
@@ -116,6 +121,7 @@
  },
  "groq": {
   "display_name": "Groq",
+  "reset": "Rolling — not published",
   "daily_requests": {
    "limit": 1000,
    "notes": "Tested 2026-10-02: x-ratelimit-limit-requests=1000 via live relay probe (openai/gpt-oss-20b, max_tokens=1). Matches Groq free-tier RPD. Same probe showed x-ratelimit-limit-tokens=8000 (per-minute window, not a daily limit).",
@@ -139,6 +145,7 @@
  },
  "huggingface": {
   "display_name": "Hugging Face",
+  "reset": "Monthly credits — grant timing not published",
   "daily_requests": {
    "limit": null,
    "notes": "not published - credit-based, not request-based (~300 req/hour rate limit)",
@@ -156,12 +163,13 @@
   },
   "monthly_tokens": {
    "limit": 1000000,
-   "notes": "Provider-reported via response headers (observed 2026-09-30: 999,917 of 1,000,000 remaining \u2014 the known HF inference balance). Credit-based; treated as a monthly token allowance.",
+   "notes": "Provider-reported via response headers (observed 2026-09-30: 999,917 of 1,000,000 remaining — the known HF inference balance). Credit-based; treated as a monthly token allowance.",
    "source": "observed"
   }
  },
  "kilo": {
   "display_name": "Kilo",
+  "reset": "Rolling — not published",
   "daily_requests": {
    "limit": null,
    "notes": "not published - only an hourly figure exists (200 requests/hour per IP); not extrapolated to a daily number",
@@ -185,6 +193,7 @@
  },
  "mistral": {
   "display_name": "Mistral",
+  "reset": "Monthly billing — reset not published",
   "daily_requests": {
    "limit": null,
    "notes": "not published (~1 req/sec reported - a rate limit, not a daily quota)",
@@ -197,20 +206,21 @@
   },
   "daily_tokens": {
    "limit": null,
-   "notes": "not published (one source: 500K TPM - conflicting)",
+   "notes": "not published (legacy 500K TPM figure was from the discontinued Experiment tier)",
    "source": null
   },
   "monthly_tokens": {
-   "limit": 1000000000,
-   "notes": "~1B tokens/month reported by multiple trackers; vendor docs do NOT publish a number. Treat as soft.",
+   "limit": null,
+   "notes": "Legacy Experiment tier (1 req/s / 500K TPM / ~1B tokens/mo) discontinued. Current Free plan = $10/month in API credits (credit-denominated, not tokens) — no token limit published.",
    "source": "docs"
   }
  },
  "nvidia": {
   "display_name": "NVIDIA NIM",
+  "reset": "Rate-only throttle — no daily cap",
   "daily_requests": {
-   "limit": 10000,
-   "notes": "build.nvidia.com model pages publish 'Up to 40 rpm' + '10,000 requests per day' (read off vendor pages Aug 2026; per-model, varies with traffic). 40 RPM is the community-acknowledged baseline (NVIDIA forum 2026-05-30). Doc: https://build.nvidia.com",
+   "limit": null,
+   "notes": "No daily cap — rate throttled only (~40 req/min per model). Prior 10,000/day figure superseded by 2026-10-03 research: NVIDIA dropped credit onboarding; accounts show unlimited requests.",
    "source": "docs"
   },
   "monthly_requests": {
@@ -231,6 +241,7 @@
  },
  "openrouter": {
   "display_name": "OpenRouter (:free)",
+  "reset": "Not published — see rate-limit headers",
   "daily_requests": {
    "limit": 50,
    "notes": "50/day across all :free models, account-wide (OpenRouter docs: 1,000/day once >=$10 lifetime credit purchases). 20 req/min. Live /auth/key check 2026-10-02: key active, free-tier, healthy (endpoint exposes credit limit/usage, not the 50/day free-model counter). Gateway catalog rpd_limit=50 (uniform, 2026-10-02) triple-confirms the docs figure. Doc: https://openrouter.ai/docs/api_reference/limits",
@@ -254,6 +265,7 @@
  },
  "ovh": {
   "display_name": "OVHcloud AI Endpoints",
+  "reset": "Not published",
   "daily_requests": {
    "limit": null,
    "notes": "not published (anonymous: 2 req/min per IP per model - a rate limit, not a daily quota)",
@@ -277,6 +289,7 @@
  },
  "pollinations": {
   "display_name": "Pollinations",
+  "reset": "No quota window — 15s throttle",
   "daily_requests": {
    "limit": null,
    "notes": "not published",
@@ -300,6 +313,7 @@
  },
  "siliconflow": {
   "display_name": "SiliconFlow",
+  "reset": "Not published",
   "daily_requests": {
    "limit": null,
    "notes": "not published",
@@ -323,6 +337,7 @@
  },
  "zhipu": {
   "display_name": "Zhipu (z.ai)",
+  "reset": "Not published",
   "daily_requests": {
    "limit": null,
    "notes": "not published",

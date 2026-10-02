@@ -427,7 +427,8 @@ function renderUsage(providers) {
         dtl: lim(p, 'daily_tokens'),
         mt: use(p, 'monthly', 'tokens'),
         mtl: lim(p, 'monthly_tokens'),
-        kc: p.key_configured
+        kc: p.key_configured,
+        reset: p.reset || ''
     }));
     const tot = { dr: 0, drl: 0, mr: 0, mrl: 0, dt: 0, dtl: 0, mt: 0, mtl: 0 };
     rows.forEach(r => {
@@ -444,7 +445,8 @@ function renderUsage(providers) {
     rows.forEach(r => {
         const div = document.createElement('div');
         div.className = 'card';
-        div.innerHTML = `<div class="icon">◆</div><div><h3 class="provider-name">${r.name}</h3><div class="provider-subtitle">1000 requests/day</div><div class="usage">Key: <span class="pill${r.kc ? '' : ' missing'}">${r.kc ? '✓' : '✗'}</span></div>${barRow('Daily Requests', r.dr, r.drl)}${barRow('Monthly Requests', r.mr, r.mrl)}${barRow('Daily Tokens', r.dt, r.dtl)}${barRow('Monthly Tokens', r.mt, r.mtl)}</div>`;
+        const subtitle = (typeof r.drl === 'number') ? `<div class="provider-subtitle">${r.drl} requests/day</div>` : '';
+        div.innerHTML = `<div class="icon">◆</div><div><h3 class="provider-name">${r.name}</h3>${subtitle}<div class="usage">Key: <span class="pill${r.kc ? '' : ' missing'}">${r.kc ? '✓' : '✗'}</span></div><div class="usage">Reset: ${r.reset}</div>${barRow('Daily Requests', r.dr, r.drl)}${barRow('Monthly Requests', r.mr, r.mrl)}${barRow('Daily Tokens', r.dt, r.dtl)}${barRow('Monthly Tokens', r.mt, r.mtl)}</div>`;
         providerGrid.appendChild(div);
     });
 }

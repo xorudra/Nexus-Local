@@ -207,6 +207,7 @@ class Handler(BaseHTTPRequestHandler):
                     quotas["providers"].append({
                         "provider": name,
                         "display_name": provider_data.get("display_name", name.title()),
+                        "reset": provider_data.get("reset", ""),
                         "limits": {
                             "daily_requests": provider_data.get("daily_requests", {"limit": None, "notes": "", "source": ""}),
                             "monthly_requests": provider_data.get("monthly_requests", {"limit": None, "notes": "", "source": ""}),
