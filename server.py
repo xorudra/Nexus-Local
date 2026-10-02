@@ -1,0 +1,376 @@
+#!/usr/bin/env python3
+"""Simple Nexus local Windows dashboard server.
+
+Features
+~~~~~~~~~
+* Requires :mod:`cryptography` (already listed in requirements.txt)
+* Prompts for the keys password on startup.  If ``keys.enc`` is missing,
+  a wizard collects keys for 14 providers and stores them encrypted.
+* Keeps decrypted keys **only** in memory; never writes them to disk.
+* Serves:
+  * GET  /api/status   -> 200 with JSON {"ok": true}
+  * GET  /api/quotas   -> provider list with placeholder quota structures
+  * GET  /api/usage    -> aggregate usage stats
+  * POST /api/chat     -> chat via provider APIs
+  * GET  /            -> dashboard.html (requires login)
+  * GET  /login        -> login.html
+  * POST /api/login    -> password auth, creates session
+  * POST /api/logout   -> end session
+
+* Listens on 127.0.0.1:8080 exclusively.
+"""
+
+from __future__ import annotations
+
+import os
+import json
+import datetime
+import base64
+import hashlib
+import secrets
+import time
+from pathlib import Path
+
+QUOTAS_PATH = Path(__file__).parent / "quotas.json"
+from http.cookies import SimpleCookie
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
+from getpass import getpass
+from key_security import encrypt_keys, decrypt_keys
+
+USAGE_PATH = Path(__file__).parent / "usage.jsonl"
+SESSIONS = {}
+SESSION_EXPIRY = 1800
+
+PROVIDER_NAMES = [
+    "aihorde",
+    "cloudflare",
+    "cohere",
+    "google",
+    "groq",
+    "huggingface",
+    "kilo",
+    "mistral",
+    "nvidia",
+    "openrouter",
+    "ovh",
+    "pollinations",
+    "siliconflow",
+    "zhipu",
+]
+# Load quotas.json at startup (script-relative so it works from any cwd)
+with open(Path(__file__).parent / "quotas.json", "r") as f:
+    QUOTAS_DATA = json.load(f)
+
+
+def wizard_collect_keys() -> dict:
+    print("--- First run wizard ---")
+    keys: dict = {}
+    for name in PROVIDER_NAMES:
+        val = getpass(f"{name} API key (leave blank to skip): ")
+        if val:
+            keys[name] = val
+    return keys
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "LocalDashboard/0.1"
+    keys: dict | None = None
+
+    # Session helpers
+    def _get_session(self):
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        token = cookie.get("session")
+        if token:
+            token = token.value
+            if token in SESSIONS:
+                ts = SESSIONS[token]
+                now = time.time()
+                if now - ts < SESSION_EXPIRY:
+                    SESSIONS[token] = now
+                    return token
+                else:
+                    del SESSIONS[token]
+        return None
+
+    def _require_session(self):
+        if not self._get_session():
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "not logged in"}).encode())
+            return False
+        return True
+
+    def _set_json_headers(self, status: int = 200):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        # Public login page
+        if parsed.path == "/login":
+            try:
+                content = (Path(__file__).parent / "login.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(content.encode())
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
+        # Root redirects based on session
+        if parsed.path == "/":
+            if self._get_session():
+                try:
+                    content = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.end_headers()
+                    self.wfile.write(content.encode())
+                except Exception as e:
+                    self.send_error(500, str(e))
+            else:
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+            return
+        # API endpoints
+        if parsed.path == "/api/status":
+            if not self._require_session():
+                return
+            self._set_json_headers(200)
+            self.wfile.write(json.dumps({"ok": True}).encode())
+            return
+        if parsed.path == "/api/quotas":
+            if not self._require_session():
+                return
+            self._set_json_headers()
+            quotas = {
+                "daily_usage": {"requests": 0, "tokens": 0},
+                "monthly_usage": {"requests": 0, "tokens": 0},
+                "providers": [],
+            }
+            if QUOTAS_PATH.exists():
+                with open(QUOTAS_PATH) as f:
+                    base = json.load(f)
+                for name in PROVIDER_NAMES:
+                    provider_data = base.get(name, {})
+                    quotas["providers"].append({
+                        "provider": name,
+                        "display_name": provider_data.get("display_name", name.title()),
+                        "limits": {
+                            "daily_requests": provider_data.get("daily_requests", {"limit": None, "notes": "", "source": ""}),
+                            "monthly_requests": provider_data.get("monthly_requests", {"limit": None, "notes": "", "source": ""}),
+                            "daily_tokens": provider_data.get("daily_tokens", {"limit": None, "notes": "", "source": ""}),
+                            "monthly_tokens": provider_data.get("monthly_tokens", {"limit": None, "notes": "", "source": ""}),
+                        },
+                        "key_configured": bool((Handler.keys or {}).get(name)),
+                        "daily_usage": {"requests": 0, "tokens": 0},
+                        "monthly_usage": {"requests": 0, "tokens": 0},
+                    })
+            if os.path.exists(USAGE_PATH):
+                with open(USAGE_PATH) as f:
+                    for line in f:
+                        entry = json.loads(line)
+                        pt = entry.get("prompt_tokens", 0)
+                        ct = entry.get("completion_tokens", 0)
+                        quotas["daily_usage"]["requests"] += 1
+                        quotas["daily_usage"]["tokens"] += pt + ct
+                        quotas["monthly_usage"]["requests"] += 1
+                        quotas["monthly_usage"]["tokens"] += pt + ct
+            self.wfile.write(json.dumps(quotas).encode())
+            return
+        if parsed.path == "/api/usage":
+            if not self._require_session():
+                return
+            usage_data = {
+                "per_provider": {},
+                "totals": {"requests": 0, "tokens": 0},
+            }
+            if os.path.exists(USAGE_PATH):
+                with open(USAGE_PATH) as f:
+                    for line in f:
+                        entry = json.loads(line)
+                        provider = entry["provider"]
+                        pt = entry.get("prompt_tokens", 0)
+                        ct = entry.get("completion_tokens", 0)
+                        if provider not in usage_data["per_provider"]:
+                            usage_data["per_provider"][provider] = {"requests": 0, "tokens": 0}
+                        usage_data["per_provider"][provider]["requests"] += 1
+                        usage_data["per_provider"][provider]["tokens"] += pt + ct
+                        usage_data["totals"]["requests"] += 1
+                        usage_data["totals"]["tokens"] += pt + ct
+            self.wfile.write(json.dumps(usage_data).encode())
+            return
+        self.send_error(404, "Not Found")
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/chat":
+            if not self._require_session():
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(content_length)
+            try:
+                data = json.loads(raw)
+            except Exception:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "invalid JSON"}).encode())
+                return
+            provider = data.get("provider")
+            model = data.get("model")
+            message = data.get("message")
+            if not provider or not model or not message:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
+                return
+            key = Handler.keys.get(provider) if Handler.keys else None
+            if not key:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
+                return
+            provider_endpoints = {
+                "groq": "https://api.groq.com/openai/v1",
+                "openrouter": "https://openrouter.ai/api/v1",
+                "siliconflow": "https://api.siliconflow.cn/v1",
+                "nvidia": "https://integrate.api.nvidia.com/v1",
+                "mistral": "https://api.mistral.ai/v1",
+                "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+                "kilo": "https://api.kilo.ai/v1",
+                "ovh": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+            }
+            if provider not in provider_endpoints:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": f"chat not supported for {provider} in local version"}).encode())
+                return
+            base = provider_endpoints[provider]
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            }
+            if provider == "openrouter":
+                headers["X-Title"] = "NexusLocal"
+            body = {
+                "model": model,
+                "messages": [{"role": "user", "content": message}],
+                "max_tokens": 1024,
+            }
+            try:
+                req = Request(f"{base}/chat/completions", data=json.dumps(body).encode(), headers=headers, method="POST")
+                with urlopen(req, timeout=60) as resp:
+                    resp_data = json.loads(resp.read().decode())
+                    reply = resp_data["choices"][0]["message"]["content"]
+                    usage = resp_data.get("usage", {})
+                    usage_line = {
+                        "ts": datetime.datetime.now().isoformat(),
+                        "provider": provider,
+                        "model": model,
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                    }
+                    with open(USAGE_PATH, "a") as f2:
+                        f2.write(json.dumps(usage_line) + "\n")
+                    self._set_json_headers(200)
+                    self.wfile.write(json.dumps({"reply": reply}).encode())
+            except HTTPError as e:
+                body_err = e.read().decode()[:200]
+                self._set_json_headers(e.code)
+                self.wfile.write(json.dumps({"error": f"provider {e.code}: {body_err}"}).encode())
+            except URLError as e:
+                self._set_json_headers(500)
+                self.wfile.write(json.dumps({"error": f"provider error: {e.reason}"}).encode())
+            except Exception as e:
+                self._set_json_headers(500)
+                self.wfile.write(json.dumps({"error": f"server error: {e}"}).encode())
+            return
+        if parsed.path == "/api/refresh":
+            if not self._require_session():
+                return
+            self._set_json_headers()
+            self.wfile.write(json.dumps({"ok": True, "refreshed_at": datetime.datetime.now().isoformat()}).encode())
+            return
+        if parsed.path == "/api/login":
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(content_length)
+            try:
+                data = json.loads(raw)
+            except Exception:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "invalid JSON"}).encode())
+                return
+            password = data.get("password")
+            if not password:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "password required"}).encode())
+                return
+            key_path = Path(__file__).parent / "keys.enc"
+            try:
+                dec_keys = decrypt_keys(key_path, password)
+            except Exception:
+                time.sleep(1)
+                self._set_json_headers(401)
+                self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                return
+            # Successful
+            token = secrets.token_hex(32)
+            SESSIONS[token] = time.time()
+            Handler.keys = dec_keys
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            cookie = f"session={token}; HttpOnly; SameSite=Lax; Path=/"
+            self.send_header("Set-Cookie", cookie)
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True}).encode())
+            return
+        if parsed.path == "/api/logout":
+            cookie = SimpleCookie(self.headers.get("Cookie", ""))
+            token = cookie.get("session").value if cookie.get("session") else None
+            if token and token in SESSIONS:
+                del SESSIONS[token]
+            # Expire cookie
+            self.send_response(200)
+            self.send_header("Set-Cookie", "session=; Max-Age=0; Path=/")
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True}).encode())
+            return
+        self.send_error(404, "Not Found")
+
+    def log_message(self, format, *args):
+        return
+
+
+def main():
+    key_path = Path(__file__).parent / "keys.enc"
+    if not key_path.exists():
+        print("keys.enc not found – running wizard")
+        keys = wizard_collect_keys()
+        if not keys:
+            print("No keys collected, exiting.")
+            raise SystemExit(1)
+        pw = getpass("Enter password to encrypt keys: ")
+        pw_confirm = getpass("Confirm password: ")
+        if pw != pw_confirm:
+            print("Passwords do not match. Exiting.")
+            raise SystemExit(1)
+        encrypt_keys(keys, pw, key_path)
+        print("Keys encrypted to", key_path)
+        print("Proceeding…")
+    # Don't decrypt keys at startup – login handled via API
+    Handler.keys = None
+    addr = ("127.0.0.1", 8080)
+    httpd = ThreadingHTTPServer(addr, Handler)
+    print(f"Serving on {addr[0]}:{addr[1]} – press Ctrl-C to stop")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutdown requested")
+
+
+if __name__ == "__main__":
+    main()

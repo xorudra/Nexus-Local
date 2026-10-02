@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8">
+<title>Nexus Login</title>
+<style>
+/* Global */
+body {
+    margin: 0;
+    font-family: 'IBM Plex Mono', monospace;
+    background: #0a0c11;
+    color: #e0e0e0;
+    overflow-x: hidden;
+    position: relative;
+}
+
+/* Faint grid pattern */
+body::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 30px, #1c1e24 30px, transparent 60px),
+        repeating-linear-gradient(45deg, transparent 30px, transparent 60px, #1c1e24 60px, transparent 90px);
+    background-size: 120px 120px;
+    pointer-events: none;
+    opacity: 0.05;
+    z-index: -1;
+}
+
+/* Eyebrow label */
+.eyebrow {
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-variant: small-caps;
+    letter-spacing: 0.35em;
+    color: #3b82f6;
+    text-transform: uppercase;
+    margin: 20px auto 0;
+    max-width: 360px;
+    text-align: center;
+}
+
+/* Card */
+#card {
+    margin: 80px auto;
+    width: 360px;
+    background: #111428;
+    border-radius: 12px;
+    padding: 40px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    text-align: center;
+}
+
+/* Headline */
+#card h1 {
+    margin: 0 0 20px;
+    color: #fff;
+    font-size: 2rem;
+    font-weight: 800;
+}
+
+#card h1 span {
+    color: #3b82f6;
+}
+
+/* Password input */
+input[type="password"] {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    background: #272b33;
+    color: #ddd;
+    margin: 12px 0;
+    transition: all 0.2s;
+}
+
+input[type="password"]:focus {
+    outline: none;
+    border: 2px solid #3b82f6;
+    box-shadow: 0 0 6px rgba(59, 130, 246, 0.6);
+}
+
+/* Button */
+button {
+    width: 100%;
+    padding: 12px 0;
+    font-size: 1.1rem;
+    color: #fff;
+    background: #3b82f6;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+button:hover {
+    background: #2c6bde;
+}
+
+button:active {
+    transform: translateY(1px);
+}
+
+/* Error msg */
+#error {
+    color: #ff8;
+    display: none;
+    margin-top: 12px;
+    text-align: center;
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+    #card {
+        margin: 16px;
+        padding: 24px;
+    }
+
+    button {
+        width: 100%;
+        padding: 16px;
+    }
+}
+</style>
+</head>
+<body>
+<div class="eyebrow">NEXUS LOCAL</div>
+<div id="card">
+    <h1>Unlock <span>your</span> dashboard</h1>
+    <input type="password" id="pw" placeholder="Password" autocomplete="current-password" autofocus>
+    <div id="error">Wrong password</div>
+    <button id="login">Login</button>
+</div>
+<script>
+const pw = document.getElementById('pw');
+const err = document.getElementById('error');
+const btn = document.getElementById('login');
+
+async function submit() {
+    const pwd = pw.value.trim();
+    if (!pwd) return;
+    btn.disabled = true;
+    btn.textContent = 'Logging…';
+    err.style.display = 'none';
+    try {
+        const r = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pwd })
+        });
+        const j = await r.json();
+        if (r.status === 200 && j.ok) {
+            location.href = '/';
+        };
+        err.style.display = 'block';
+    } catch (e) {
+        err.style.display = 'block';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Login';
+    pw.value = '';
+    btn.focus();
+}
+
+btn.addEventListener('click', submit);
+
+pw.addEventListener('keydown', e => {
+    if (e.key === 'Enter') submit();
+});
+</script>
+</body>
+</html>

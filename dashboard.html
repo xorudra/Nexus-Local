@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8">
+<title>Nexus Dashboard</title>
+<style>
+/* Global */
+body {
+    margin: 0;
+    font-family: 'IBM Plex Mono', monospace;
+    background: #0a0c11;
+    color: #dde;
+    width: 100%;
+    overflow-x: hidden;
+    background-image: linear-gradient(#1e2430 1px, transparent 1px),
+        linear-gradient(90deg, #1e2430 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    align-items: center;
+    padding: 20px 32px;
+    background: #11141b;
+    border-bottom: 1px solid #1e2430;
+}
+
+.header h1 {
+    font-size: 1.8rem;
+    color: #fff;
+    margin: 0;
+}
+
+.header .wordmark {
+    flex: none;
+    font-size: 1.6rem;
+    color: #3b82f6;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.header .local-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    color: #9aa3b2;
+    background: #1e2430;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.header .spacer {
+    flex: 1;
+}
+
+.header button.logout {
+    background: none;
+    border: none;
+    color: #8c8c8c;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px 8px;
+    transition: color 0.2s;
+}
+
+.header button.logout:hover {
+    color: #fff;
+}
+
+/* Hero */
+.hero {
+    background: #11141b;
+    padding: 32px 48px;
+    margin: 20px auto;
+    max-width: 1080px;
+    border-radius: 12px;
+    border: 1px solid #1e2430;
+}
+
+.hero h2 {
+    margin: 0 0 12px 0;
+    font-size: clamp(2rem, 5vw, 3rem);
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+}
+
+.hero h2 span.accent {
+    color: #3b82f6;
+}
+
+/* Provider cards */
+.provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 0 32px;
+    margin: 20px auto;
+    max-width: 1080px;
+}
+
+.card {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    background: #11141b;
+    border-radius: 20px;
+    padding: 28px;
+    border: 1px solid #1e2430;
+}
+
+.card h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.2rem;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+.card .icon {
+    background: #3b82f6;
+    color: #fff;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.card .provider-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 17px;
+    letter-spacing: 0.05em;
+    color: #fff;
+    margin: 0 0 4px 0;
+}
+
+.card .provider-subtitle {
+    font-size: 14px;
+    color: #8a93a6;
+    margin: 0 0 12px 0;
+}
+
+.pill {
+    display: inline-block;
+    background: #0cff6a;
+    color: #111;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    vertical-align: middle;
+    margin-top: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.pill.missing {
+    background: #ff4d4d;
+    color: #111;
+}
+
+/* Usage rows */
+.usage {
+    font-size: 0.875rem;
+    color: #aaa;
+    margin: 4px 0;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.bar {
+    background: #333;
+    height: 6px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+.bar > div {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #3b82f6, #06d);
+}
+
+.bar.hot > div {
+    background: linear-gradient(90deg, #ff4d4d, #ff004d);
+}
+
+/* Composer card */
+.composer {
+    background: #11141b;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px auto;
+    max-width: 1080px;
+    border: 1px solid #1e2430;
+}
+
+.composer h2 {
+    margin: 0 0 12px 0;
+    font-size: 1.5rem;
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+.composer h2 span.accent {
+    color: #3b82f6;
+}
+
+.composer .form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.composer label {
+    flex: 1 1 120px;
+    font-size: 0.9rem;
+    color: #aaa;
+    align-self: center;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.composer input, .composer select, .composer textarea {
+    flex: 2 1 200px;
+    padding: 8px 10px;
+    background: #1e2430;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #eee;
+    font-size: 1em;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.composer button {
+    flex: 1 1 100%;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 16px 32px;
+    margin-top: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+.composer button:hover {
+    background: #2563eb;
+}
+
+.composer pre {
+    background: #1e2430;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 12px;
+    color: #cce;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Refresh button */
+.refresh {
+    display: block;
+    margin: 20px auto;
+    padding: 10px 20px;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+.refresh:hover {
+    background: #2563eb;
+}
+
+/* Typography */
+::placeholder {
+    color: #555;
+}
+
+/* Eyebrow labels */
+.eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #3b82f6;
+    letter-spacing: 0.35em;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+    .header {
+        padding: 16px;
+    }
+
+    .hero, .provider-grid, .composer {
+        margin: 16px;
+        padding: 24px;
+    }
+
+    .hero h2 {
+        font-size: 2rem;
+    }
+
+    .composer button {
+        width: 100%;
+        padding: 16px;
+    }
+
+    .card {
+        padding: 24px;
+    }
+}
+</style>
+</head>
+<body>
+<div class="header">
+    <span class="wordmark">Nexus<span class="local-tag">LOCAL</span></span>
+    <span class="spacer"></span>
+    <button class="logout" id="logout-btn">Logout</button>
+</div>
+
+<div class="hero">
+    <div class="eyebrow">USAGE OVERVIEW</div>
+    <h2>Your providers, <span class="accent">actually</span> under control</h2>
+    <div id="combined-usage"></div>
+</div>
+
+<div class="eyebrow" style="padding: 0 32px; margin: 20px auto; max-width: 1080px;">PROVIDERS</div>
+<div class="provider-grid" id="provider-grid"></div>
+
+<div class="composer" id="composer-card">
+    <div class="eyebrow">TASK COMPOSER</div>
+    <h2>Build and <span class="accent">send</span> your tasks</h2>
+    <div class="form">
+        <div>
+            <label for="composer-provider">Provider</label>
+            <select id="composer-provider"></select>
+        </div>
+        <div>
+            <label for="composer-model">Model</label>
+            <input type="text" id="composer-model" placeholder="e.g. llama-3.1-8b-instant">
+        </div>
+        <div style="flex: 1 1 100%">
+            <label for="composer-message">Message</label>
+            <textarea id="composer-message" rows="4"></textarea>
+        </div>
+    </div>
+    <button id="composer-send">Send</button>
+    <pre id="composer-reply"></pre>
+</div>
+
+<button class="refresh" id="refresh-quotas">Refresh</button>
+
+<script>
+const providerGrid = document.getElementById('provider-grid');
+const combinedUsage = document.getElementById('combined-usage');
+const logoutBtn = document.getElementById('logout-btn');
+const composerProviders = document.getElementById('composer-provider');
+const composerSend = document.getElementById('composer-send');
+const composerReply = document.getElementById('composer-reply');
+
+async function fetchQuotas() {
+    try {
+        const r = await fetch('/api/quotas');
+        if (r.status === 401) {
+            location.href = '/login';
+            return;
+        }
+        const data = await r.json();
+        renderUsage(data.providers);
+    } catch (e) {
+        console.error(e);
+        providerGrid.innerHTML = '<p style="color: #ff8">Failed to load quotas</p>';
+    }
+}
+
+async function populateComposer() {
+    try {
+        const r = await fetch('/api/quotas');
+        const data = await r.json();
+        composerProviders.innerHTML = '';
+        data.providers.forEach(p => {
+            if (p.key_configured) {
+                const opt = document.createElement('option');
+                opt.value = p.provider;
+                opt.textContent = p.provider;
+                composerProviders.appendChild(opt);
+            }
+        });
+    } catch (e) {
+        console.error('Composer init', e);
+    }
+}
+
+function barRow(label, used, limit) {
+    if (limit == null) return `<div class="usage">${label}: ${used} – <i class="nocap">No published cap</i></div>`;
+    const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+    const hot = pct >= 90 ? ' hot' : '';
+    return `<div class="usage">${label}: ${used}/${limit}</div><div class="bar${hot}"><div style="width: ${pct}%"></div></div>`;
+}
+
+function renderUsage(providers) {
+    providerGrid.innerHTML = '';
+    combinedUsage.innerHTML = '';
+    const rows = providers.map(p => ({
+        name: p.display_name || p.provider,
+        dr: use(p, 'daily', 'requests'),
+        drl: lim(p, 'daily_requests'),
+        mr: use(p, 'monthly', 'requests'),
+        mrl: lim(p, 'monthly_requests'),
+        dt: use(p, 'daily', 'tokens'),
+        dtl: lim(p, 'daily_tokens'),
+        mt: use(p, 'monthly', 'tokens'),
+        mtl: lim(p, 'monthly_tokens'),
+        kc: p.key_configured
+    }));
+    const tot = { dr: 0, drl: 0, mr: 0, mrl: 0, dt: 0, dtl: 0, mt: 0, mtl: 0 };
+    rows.forEach(r => {
+        tot.dr += r.dr;
+        tot.drl += r.drl || 0;
+        tot.mr += r.mr;
+        tot.mrl += r.mrl || 0;
+        tot.dt += r.dt;
+        tot.dtl += r.dtl || 0;
+        tot.mt += r.mt;
+        tot.mtl += r.mtl || 0;
+    });
+    combinedUsage.innerHTML = `<h3>Combined Usage</h3>${barRow('Daily Requests', tot.dr, tot.drl) || ''}${barRow('Monthly Requests', tot.mr, tot.mrl) || ''}${barRow('Daily Tokens', tot.dt, tot.dtl) || ''}${barRow('Monthly Tokens', tot.mt, tot.mtl) || ''}`;
+    rows.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'card';
+        div.innerHTML = `<div class="icon">◆</div><div><h3 class="provider-name">${r.name}</h3><div class="provider-subtitle">1000 requests/day</div><div class="usage">Key: <span class="pill${r.kc ? '' : ' missing'}">${r.kc ? '✓' : '✗'}</span></div>${barRow('Daily Requests', r.dr, r.drl)}${barRow('Monthly Requests', r.mr, r.mrl)}${barRow('Daily Tokens', r.dt, r.dtl)}${barRow('Monthly Tokens', r.mt, r.mtl)}</div>`;
+        providerGrid.appendChild(div);
+    });
+}
+
+function lim(p, key) {
+    return p.limits[key].limit;
+}
+
+function use(p, period, metric) {
+    return p[period + '_usage'][metric];
+}
+
+populateComposer();
+fetchQuotas();
+setInterval(fetchQuotas, 10000);
+
+document.getElementById("refresh-quotas").addEventListener("click", async () => {
+    const r = await fetch("/api/refresh", { method: "POST" });
+    if (r.status === 401) {
+        location.href = "/login";
+        return;
+    }
+    fetchQuotas();
+});
+
+logoutBtn.addEventListener('click', () => {
+    fetch('/api/logout', { method: 'POST' }).then(() => location.href = '/login');
+});
+
+composerSend.addEventListener('click', async () => {
+    const provider = composerProviders.value;
+    const model = document.getElementById('composer-model').value;
+    const msg = document.getElementById('composer-message').value;
+    if (!provider || !model || !msg) {
+        composerReply.textContent = 'Provider, model, & message required';
+        return;
+    }
+    composerSend.disabled = true;
+    composerReply.textContent = '…';
+    try {
+        const r = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, model, message: msg })
+        });
+        const j = await r.json();
+        composerReply.textContent = j.error ? j.error : j.reply;
+    } catch (e) {
+        composerReply.textContent = 'Error ' + e.message;
+    } finally {
+        composerSend.disabled = false;
+    }
+});
+</script>
+</body>
+</html>
