@@ -34,7 +34,7 @@ from pathlib import Path
 QUOTAS_PATH = Path(__file__).parent / "quotas.json"
 from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -43,6 +43,8 @@ from key_security import encrypt_keys, decrypt_keys
 
 USAGE_PATH = Path(__file__).parent / "usage.jsonl"
 SESSIONS = {}
+_login_attempts = {}
+
 SESSION_EXPIRY = 1800
 
 PROVIDER_NAMES = [
@@ -112,6 +114,40 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/setup":
+            key_path = Path(__file__).parent / "keys.enc"
+            if key_path.exists():
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            fields = "".join(
+                '<label>' + n + '<input type="password" name="k_' + n + '" autocomplete="off"></label>'
+                for n in PROVIDER_NAMES
+            )
+            page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                    "<title>Nexus Local - Setup</title><style>"
+                    "body{background:#0a0c11;color:#e6e9f0;font-family:system-ui,sans-serif;margin:0;padding:24px}"
+                    "h1{font-size:2rem;font-weight:800}h1 span{color:#3b82f6}"
+                    ".card{max-width:560px;margin:0 auto;background:#11141b;border:1px solid #1e2430;border-radius:20px;padding:32px}"
+                    "label{display:block;margin:12px 0 4px;color:#9aa3b2;font-size:14px}"
+                    "input{width:100%;box-sizing:border-box;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px;font-size:16px}"
+                    "button{background:#3b82f6;color:#fff;border:0;border-radius:12px;padding:16px 32px;font-size:16px;font-weight:600;width:100%;margin-top:20px;cursor:pointer}"
+                    ".eyebrow{font-family:monospace;letter-spacing:.35em;font-size:12px;color:#3b82f6}"
+                    "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>"
+                    "<h1>Set up <span>your</span> keys</h1>"
+                    "<p style='color:#9aa3b2'>Enter provider API keys (leave blank to skip). Choose a strong password.</p>"
+                    "<form method='POST' action='/setup'>" + fields +
+                    "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
+                    "<label>Confirm password<input type='password' name='confirm' required></label>"
+                    "<button type='submit'>Encrypt and Finish Setup</button>"
+                    "</form></div></body></html>")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(page.encode())
+            return
         # Public login page
         if parsed.path == "/login":
             try:
@@ -211,10 +247,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/api/chat":
-            if not self._require_session():
+        if parsed.path == "/setup":
+            key_path = Path(__file__).parent / "keys.enc"
+            if key_path.exists():
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
                 return
-            content_length = int(self.headers.get("Content-Length", 0))
+            length = int(self.headers.get("Content-Length", 0))
+            form = parse_qs(self.rfile.read(length).decode())
+            pw = form.get("password", [""])[0]
+            if not pw or pw != form.get("confirm", [""])[0] or len(pw) < 8:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "passwords must match and be 8+ chars"}).encode())
+                return
+            keys = {}
+            for n in PROVIDER_NAMES:
+                v = form.get("k_" + n, [""])[0].strip()
+                if v:
+                    keys[n] = v
+            encrypt_keys(keys, pw, key_path)
+            os.chmod(key_path, 0o600)
+            self.send_response(302)
+            self.send_header("Location", "/login")
+
             raw = self.rfile.read(content_length)
             try:
                 data = json.loads(raw)
@@ -295,6 +351,14 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": True, "refreshed_at": datetime.datetime.now().isoformat()}).encode())
             return
         if parsed.path == "/api/login":
+            ip = self.client_address[0]
+            now = time.time()
+            recent = [t for t in _login_attempts.get(ip, []) if now - t < 900]
+            if len(recent) >= 10:
+                self._set_json_headers(429)
+                self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
+                return
+
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
             try:
@@ -312,11 +376,14 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 dec_keys = decrypt_keys(key_path, password)
             except Exception:
+                recent.append(now)
+                _login_attempts[ip] = recent
                 time.sleep(1)
                 self._set_json_headers(401)
                 self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                 return
             # Successful
+            _login_attempts.pop(ip, None)
             token = secrets.token_hex(32)
             SESSIONS[token] = time.time()
             Handler.keys = dec_keys
@@ -347,7 +414,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     key_path = Path(__file__).parent / "keys.enc"
-    if not key_path.exists():
+    hosted = os.environ.get("RENDER") == "true" or os.environ.get("HOST", "127.0.0.1") != "127.0.0.1"
+    if not key_path.exists() and not hosted:
         print("keys.enc not found – running wizard")
         keys = wizard_collect_keys()
         if not keys:
@@ -363,7 +431,9 @@ def main():
         print("Proceeding…")
     # Don't decrypt keys at startup – login handled via API
     Handler.keys = None
-    addr = ("127.0.0.1", 8080)
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "8080"))
+    addr = (host, port)
     httpd = ThreadingHTTPServer(addr, Handler)
     print(f"Serving on {addr[0]}:{addr[1]} – press Ctrl-C to stop")
     try:
