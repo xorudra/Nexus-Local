@@ -222,6 +222,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Public login page
         if parsed.path == "/login":
+            key_path = Path(__file__).parent / "keys.enc"
+            if not key_path.exists():
+                self.send_response(302)
+                self.send_header("Location", "/setup")
+                self.end_headers()
+                return
             try:
                 content = (Path(__file__).parent / "login.html").read_text(encoding="utf-8")
                 self.send_response(200)
@@ -233,6 +239,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Root redirects based on session
         if parsed.path == "/":
+            key_path = Path(__file__).parent / "keys.enc"
+            if not key_path.exists():
+                self.send_response(302)
+                self.send_header("Location", "/setup")
+                self.end_headers()
+                return
             if self._get_session():
                 try:
                     content = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
@@ -517,21 +529,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     key_path = Path(__file__).parent / "keys.enc"
-    hosted = os.environ.get("RENDER") == "true" or os.environ.get("HOST", "127.0.0.1") != "127.0.0.1"
-    if not key_path.exists() and not hosted:
-        print("keys.enc not found – running wizard")
-        keys = wizard_collect_keys()
-        if not keys:
-            print("No keys collected, exiting.")
-            raise SystemExit(1)
-        pw = getpass("Enter password to encrypt keys: ")
-        pw_confirm = getpass("Confirm password: ")
-        if pw != pw_confirm:
-            print("Passwords do not match. Exiting.")
-            raise SystemExit(1)
-        encrypt_keys(keys, pw, key_path)
-        print("Keys encrypted to", key_path)
-        print("Proceeding…")
+    if not key_path.exists():
+        print("keys.enc not found – open http://127.0.0.1:8080/setup in your browser to configure keys.")
     # Don't decrypt keys at startup – login handled via API
     Handler.keys = None
     host = os.environ.get("HOST", "127.0.0.1")
