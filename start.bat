@@ -5,10 +5,15 @@ echo  Nexus Local Dashboard - Starting...
 echo ========================================
 echo.
 
-rem Try python, py launcher, python3 in order
+rem Try python, py launcher, and versioned names (Microsoft Store uses python3.13)
 set PYCMD=
 python --version >nul 2>&1 && set PYCMD=python
 if not defined PYCMD py --version >nul 2>&1 && set PYCMD=py
+if not defined PYCMD python3 --version >nul 2>&1 && set PYCMD=python3
+if not defined PYCMD python3.13 --version >nul 2>&1 && set PYCMD=python3.13
+if not defined PYCMD python3.12 --version >nul 2>&1 && set PYCMD=python3.12
+if not defined PYCMD python3.11 --version >nul 2>&1 && set PYCMD=python3.11
+if not defined PYCMD python3.10 --version >nul 2>&1 && set PYCMD=python3.10
 if not defined PYCMD (
     echo [ERROR] Python not found on your system.
     echo.
