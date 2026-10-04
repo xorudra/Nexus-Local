@@ -320,7 +320,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             freellmapi_section = (
                 "<div style='background:#0f1622;border:1px solid #3b82f6;border-radius:12px;padding:16px;margin-bottom:16px'>"
-                "<h3 style='margin:0 0 8px;color:#3b82f6'>Recommended: FreeLLMAPI Gateway</h3>"
+                "<h3 style='margin:0 0 8px;color:#3b82f6'>FreeLLMAPI Gateway</h3>"
                 "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>One key for all providers. "
                 "Download FreeLLMAPI-Windows.zip from the releases page and start it first.</p>"
                 "<label>FreeLLMAPI unified API key"
@@ -328,6 +328,8 @@ class Handler(BaseHTTPRequestHandler):
                 "<label>Gateway URL"
                 "<input type=\"text\" name=\"url_freellmapi\" placeholder=\"http://127.0.0.1:3001\" autocomplete=\"off\"></label>"
                 "</div>"
+            )
+            details_open = (
                 "<details style='margin-bottom:16px'>"
                 "<summary style='color:#9aa3b2;cursor:pointer'>Or enter individual provider keys</summary>"
                 "<div style='margin-top:12px'>"
@@ -346,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
                     "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>"
                     "<h1>Set up <span>your</span> keys</h1>"
                     "<p style='color:#9aa3b2'>Enter your FreeLLMAPI key, relay keys, or expand below for individual keys. Choose a strong password.</p>"
-                    "<form method='POST' action='/setup'>" + freellmapi_section + relay_section + fields + fields_close +
+                    "<form method='POST' action='/setup'>" + relay_section + freellmapi_section + details_open + fields + fields_close +
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required></label>"
                     "<button type='submit'>Encrypt and Finish Setup</button>"
