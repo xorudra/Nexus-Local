@@ -102,6 +102,17 @@ cd ..\.. 2>>"%LOG%"
 :engine_ok
 echo [%date% %time%] Engine deps OK >> "%LOG%"
 
+rem --- OmniRoute: install globally if missing, then start ---
+where omniroute >nul 2>&1
+if errorlevel 1 (
+    echo Installing OmniRoute ^(one-time, ~500MB^)...
+    echo [%date% %time%] Installing omniroute >> "%LOG%"
+    call npm install -g omniroute --no-audit --no-fund 2>>"%LOG%"
+)
+echo [%date% %time%] Starting omniroute >> "%LOG%"
+echo Starting OmniRoute gateway...
+start "Nexus-Local OmniRoute" cmd /k "omniroute --no-open --port 20128"
+
 rem Start engine
 echo [%date% %time%] Starting engine >> "%LOG%"
 echo Starting engine...
