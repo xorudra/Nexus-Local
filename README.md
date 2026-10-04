@@ -29,6 +29,14 @@ FreeLLMAPI keys (Groq, Google, OpenRouter, NVIDIA) come pre-configured — just 
 
 To add relay keys, use the **Quick Import** box on the setup page: paste all keys at once as `name: key` (one per line), click Fill Fields Below, set your password, done.
 
+## Pages
+
+- **Dashboard** (`/`) — chat with all providers, quota tracking
+- **Connections** (`/connections`) — visual flow chart of how dashboard → relay → engine → providers connect
+- **Settings** (`/settings`) — update API keys after login
+
+Use the ☰ menu (top-left) to navigate between pages.
+
 ## Uninstall
 
 ```bash
