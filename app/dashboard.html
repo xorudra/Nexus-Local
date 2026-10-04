@@ -425,13 +425,28 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
             <input type="text" id="composer-model" placeholder="e.g. llama-3.1-8b-instant">
         </div>
         <div style="flex: 1 1 100%">
-            <div style="margin:12px 0">
-<button type="button" id="attach-btn" style="background:#1e2430;border:1px solid #2a3342;border-radius:10px;color:#e6e9f0;padding:10px 16px;cursor:pointer;font-size:14px">📎 Attach Image</button>
-<input type="file" id="attach-input" accept="image/jpeg,image/png,image/webp" style="display:none">
-<div id="attach-preview" style="margin-top:8px"></div>
-</div>
+            
 <label for="composer-message">Message</label>
-            <textarea id="composer-message" rows="4"></textarea>
+            <div style="position:relative">
+<textarea id="composer-message" rows="4"></textarea>
+<button type="button" id="attach-plus" style="position:absolute;left:12px;bottom:12px;width:36px;height:36px;border-radius:50%;background:#1e2430;border:1px solid #2a3342;color:#e6e9f0;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+<input type="file" id="attach-input" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
+<input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
+<div id="attach-preview" style="margin-top:8px"></div>
+<div id="attach-menu" style="display:none;position:absolute;left:12px;bottom:56px;background:#11141b;border:1px solid #1e2430;border-radius:16px;padding:8px;z-index:100;min-width:280px;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
+<div style="padding:12px 16px 8px;color:#e6e9f0;font-weight:600">Add attachment</div>
+<button class="attach-opt" data-type="camera" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
+<span style="font-size:24px">📷</span><span><div style="font-weight:600">Camera</div><div style="font-size:12px;color:#9aa3b2">Take a photo · 8 MB max</div></span></button>
+<button class="attach-opt" data-type="photos" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
+<span style="font-size:24px">🖼️</span><span><div style="font-weight:600">Photos</div><div style="font-size:12px;color:#9aa3b2">Choose from gallery · 8 MB max</div></span></button>
+<button class="attach-opt" data-type="videos" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
+<span style="font-size:24px">🎬</span><span><div style="font-weight:600">Videos</div><div style="font-size:12px;color:#9aa3b2">Choose a video · 20 MB max</div></span></button>
+<button class="attach-opt" data-type="files" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
+<span style="font-size:24px">📄</span><span><div style="font-weight:600">Files</div><div style="font-size:12px;color:#9aa3b2">PDF, DOCX, TXT, MD, CSV, JSON or LOG · 10 MB max</div></span></button>
+<button class="attach-opt" data-type="link" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
+<span style="font-size:24px">🔗</span><span><div style="font-weight:600">Link</div><div style="font-size:12px;color:#9aa3b2">Paste any photo or video link</div></span></button>
+</div>
+</div>
         </div>
     </div>
     <button id="composer-send">Send</button>
@@ -606,33 +621,118 @@ logoutBtn.addEventListener('click', () => {
 });
 
 
-// Attachment handling
+// Attachment handling with + menu
 let attachedImage = null;
-const attachBtn = document.getElementById('attach-btn');
+let attachedFile = null;
+let attachedLink = null;
+const attachPlus = document.getElementById('attach-plus');
+const attachMenu = document.getElementById('attach-menu');
 const attachInput = document.getElementById('attach-input');
+const cameraInput = document.getElementById('camera-input');
 const attachPreview = document.getElementById('attach-preview');
-if (attachBtn && attachInput) {
-    attachBtn.addEventListener('click', () => attachInput.click());
-    attachInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (file.size > 8 * 1024 * 1024) {
-            alert('Image too large (max 8MB)');
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            attachedImage = ev.target.result; // data URI
-            attachPreview.innerHTML = '<img src="' + attachedImage + '" style="max-width:200px;border-radius:8px">'
-                + '<button type="button" onclick="clearAttachment()" style="margin-left:8px;background:#ef4444;border:0;border-radius:8px;color:#fff;padding:8px 12px;cursor:pointer">✕</button>';
-        };
-        reader.readAsDataURL(file);
+
+if (attachPlus && attachMenu) {
+    attachPlus.addEventListener('click', (e) => {
+        e.stopPropagation();
+        attachMenu.style.display = attachMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', (e) => {
+        if (!attachMenu.contains(e.target)) attachMenu.style.display = 'none';
+    });
+    // Hover effect for options
+    document.querySelectorAll('.attach-opt').forEach(btn => {
+        btn.addEventListener('mouseenter', () => btn.style.background = '#1e2430');
+        btn.addEventListener('mouseleave', () => btn.style.background = 'none');
+        btn.addEventListener('click', () => {
+            attachMenu.style.display = 'none';
+            const type = btn.dataset.type;
+            if (type === 'camera') cameraInput.click();
+            else if (type === 'link') {
+                const url = prompt('Paste image or video URL:');
+                if (url) {
+                    attachedLink = url;
+                    showPreview('link', url);
+                }
+            }
+            else {
+                attachInput.dataset.type = type;
+                attachInput.click();
+            }
+        });
     });
 }
+
+function showPreview(type, src, name) {
+    let previewHtml = '';
+    if (type === 'image' || type === 'camera' || type === 'photos') {
+        previewHtml = '<img src="' + src + '" style="max-width:200px;border-radius:8px">';
+    } else if (type === 'videos') {
+        previewHtml = '<video src="' + src + '" style="max-width:200px;border-radius:8px" controls></video>';
+    } else if (type === 'files') {
+        previewHtml = '<div style="background:#1e2430;padding:12px;border-radius:8px">📄 ' + (name || 'File') + '</div>';
+    } else if (type === 'link') {
+        previewHtml = '<div style="background:#1e2430;padding:12px;border-radius:8px">🔗 ' + src.substring(0,50) + '</div>';
+    }
+    attachPreview.innerHTML = previewHtml
+        + '<button type="button" onclick="clearAttachment()" style="margin-left:8px;background:#ef4444;border:0;border-radius:8px;color:#fff;padding:8px 12px;cursor:pointer">✕</button>';
+}
+
+function handleFile(file, type) {
+    if (!file) return;
+    const maxSizes = { camera: 8, photos: 8, videos: 20, files: 10 };
+    const maxMB = maxSizes[type] || 8;
+    if (file.size > maxMB * 1024 * 1024) {
+        alert('File too large (max ' + maxMB + 'MB)');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const dataUrl = ev.target.result;
+        if (type === 'camera' || type === 'photos' || file.type.startsWith('image/')) {
+            attachedImage = dataUrl;
+            attachedFile = null;
+            showPreview('image', dataUrl);
+        } else if (type === 'videos' || file.type.startsWith('video/')) {
+            attachedFile = { name: file.name, data: dataUrl, type: file.type };
+            attachedImage = null;
+            showPreview('videos', dataUrl);
+        } else {
+            // Document file - read as text if possible
+            if (file.type.startsWith('text/') || file.name.match(/\.(txt|md|csv|json|log)$/i)) {
+                const textReader = new FileReader();
+                textReader.onload = (tev) => {
+                    attachedFile = { name: file.name, text: tev.target.result, type: file.type };
+                    showPreview('files', null, file.name);
+                };
+                textReader.readAsText(file);
+            } else {
+                attachedFile = { name: file.name, data: dataUrl, type: file.type };
+                showPreview('files', null, file.name);
+            }
+            attachedImage = null;
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+if (attachInput) {
+    attachInput.addEventListener('change', (e) => {
+        handleFile(e.target.files[0], attachInput.dataset.type || 'photos');
+    });
+}
+if (cameraInput) {
+    cameraInput.addEventListener('change', (e) => {
+        handleFile(e.target.files[0], 'camera');
+    });
+}
+
 function clearAttachment() {
     attachedImage = null;
-    attachInput.value = '';
-    attachPreview.innerHTML = '';
+    attachedFile = null;
+    attachedLink = null;
+    if (attachInput) attachInput.value = '';
+    if (cameraInput) cameraInput.value = '';
+    if (attachPreview) attachPreview.innerHTML = '';
 }
 
 composerSend.addEventListener('click', async () => {
@@ -648,6 +748,8 @@ composerSend.addEventListener('click', async () => {
     try {
         const payload = { provider, model, message: msg };
         if (attachedImage) payload.image = attachedImage;
+        if (attachedFile) payload.file = attachedFile;
+        if (attachedLink) payload.link = attachedLink;
         const r = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

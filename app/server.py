@@ -668,6 +668,13 @@ class Handler(BaseHTTPRequestHandler):
             model = data.get("model")
             message = data.get("message")
             image = data.get("image")  # base64 data URI, optional
+            file_data = data.get("file")  # {name, text/data, type}, optional
+            link = data.get("link")  # URL string, optional
+            # Prepend file text content to message
+            if file_data and file_data.get("text"):
+                message = f"[Attached file: {file_data.get('name', 'file')}]\n{file_data['text'][:8000]}\n\n{message}"
+            if link:
+                message = f"[Attached link: {link}]\n{message}"
             if not provider or not model or not message:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
