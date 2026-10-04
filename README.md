@@ -7,9 +7,10 @@ Your personal AI dashboard — 19 providers, all on your machine.
 1. Install **Node.js 18+** from https://nodejs.org/
 2. Install **Python 3.10+** from https://www.python.org/downloads/ (tick *Add to PATH*)
 3. Download `NexusLocal.zip` from https://github.com/xorudra/Nexus-Local/blob/main/NexusLocal.zip
-4. Unzip, double-click **`start.bat`**
+4. Unzip — you'll get a `Nexus` folder
+5. Open it, double-click **`start.bat`**
 
-That's it. The script downloads everything, sets up the environment, and starts Nexus automatically.
+That's it. Everything sets up automatically on first run.
 
 ## First Run
 
