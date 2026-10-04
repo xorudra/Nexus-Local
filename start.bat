@@ -8,7 +8,7 @@ echo  Nexus-Local - Your Personal AI Dashboard
 echo ============================================
 echo.
 
-:: --- Python: verify, else download portable ---
+rem --- Python: verify, else download portable ---
 where python >nul 2>&1
 if errorlevel 1 (
     if exist "%TOOLS_DIR%\python\python.exe" (
@@ -20,17 +20,17 @@ if errorlevel 1 (
         powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip' -OutFile '%TOOLS_DIR%\python.zip'"
         powershell -Command "Expand-Archive -Path '%TOOLS_DIR%\python.zip' -DestinationPath '%TOOLS_DIR%\python' -Force"
         del "%TOOLS_DIR%\python.zip"
-        :: Get pip for embeddable python
+        rem Get pip for embeddable python
         powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%TOOLS_DIR%\python\get-pip.py'"
         "%TOOLS_DIR%\python\python.exe" "%TOOLS_DIR%\python\get-pip.py" --quiet
-        :: Enable site-packages in embeddable python
+        rem Enable site-packages in embeddable python
         powershell -Command "(Get-Content '%TOOLS_DIR%\python\python312._pth') -replace '#import site', 'import site' | Set-Content '%TOOLS_DIR%\python\python312._pth'"
         set "PATH=%TOOLS_DIR%\python;%TOOLS_DIR%\python\Scripts;%PATH%"
         echo Python installed.
     )
 )
 
-:: --- Node.js: verify, else download portable ---
+rem --- Node.js: verify, else download portable ---
 where node >nul 2>&1
 if errorlevel 1 (
     if exist "%TOOLS_DIR%\nodejs\node.exe" (
@@ -48,7 +48,7 @@ if errorlevel 1 (
     )
 )
 
-:: Setup .env
+rem Setup .env
 if not exist ".env" (
     if exist ".env.example" copy ".env.example" ".env" >nul
     echo First run: generating encryption key...
@@ -56,14 +56,14 @@ if not exist ".env" (
     powershell -Command "(Get-Content '.env') -replace 'PASTE_64_CHAR_HEX_HERE', '%ENC_KEY%' | Set-Content '.env'"
 )
 
-:: Python deps
+rem Python deps
 python -c "import cryptography" >nul 2>&1
 if errorlevel 1 (
     echo Installing Python components...
     python -m pip install cryptography --quiet
 )
 
-:: Engine deps
+rem Engine deps
 if not exist "engine\server\node_modules" (
     echo Installing engine (first run)...
     cd engine\server
@@ -71,12 +71,12 @@ if not exist "engine\server\node_modules" (
     cd ..\..
 )
 
-:: Start engine
+rem Start engine
 echo Starting engine...
 start "Nexus-Local Engine" cmd /k "cd /d "%~dp0app\engine\server" && set PATH=%PATH% && set PORT=3001 && set HOST=127.0.0.1 && set FREEAPI_DB_PATH=%~dp0app\engine-data\freeapi.db && set FREEAPI_CONFIG_PATH=%~dp0app\freellmapi.config.json && set FREEAPI_ENV_PATH=%~dp0app\.env && node dist\index.js"
 timeout /t 6 >nul
 
-:: Start dashboard
+rem Start dashboard
 echo.
 echo Open http://127.0.0.1:8080 in your browser
 echo.
