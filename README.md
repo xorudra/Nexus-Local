@@ -1,46 +1,54 @@
 # Nexus Local Dashboard
 
-Your personal AI dashboard — 19 providers, all on your machine, zero cloud dependency.
+Your personal AI dashboard — all providers on your machine, zero cloud dependency.
 
-## Providers (19 total)
+## Quick Setup (Recommended: FreeLLMAPI)
 
-**14 FreeLLMAPI providers:** HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde
+The simplest way — one key for everything:
 
-**5 Relay providers** (built-in, auto-starts on 127.0.0.1:8099):
-- OpenRouter
-- Gemini (Google)
-- Groq
-- NVIDIA
-- Pollinations (keyless)
+1. Install **Node.js 18+** from https://nodejs.org/ (LTS version)
+2. Install **Python 3.10+** from https://www.python.org/downloads/ (tick *Add to PATH*)
+3. Download **both** from the [releases page](https://github.com/xorudra/Nexus-Local/releases):
+   - `FreeLLMAPI-Windows.zip` — the gateway
+   - `NexusLocal.zip` — the dashboard
+4. Unzip `FreeLLMAPI-Windows.zip`:
+   - Copy `.env.example` to `.env`
+   - Generate an encryption key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+   - Put it in `.env` as `ENCRYPTION_KEY`
+   - Double-click `start.bat` (first run installs dependencies)
+   - Gateway runs on http://127.0.0.1:3001 — keep this window open
+5. Unzip `NexusLocal.zip`:
+   - Double-click `start.bat`
+   - When asked for provider keys, choose **FreeLLMAPI** only:
+     - Gateway URL: `http://127.0.0.1:3001`
+     - API Key: your gateway's unified key (shown in the gateway console on first run)
+   - Skip the individual provider keys
+6. Open http://127.0.0.1:8080 → log in with your encryption password
 
-The relay is integrated — no separate download or setup. It starts automatically when Nexus Local launches.
+That's it. All requests go through the gateway with one key.
+
+## Manual Setup (19 Individual Keys)
+
+If you prefer not to run the gateway, you can enter each provider's API key directly:
+
+**14 providers:** HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde
+
+**5 relay providers** (built-in, auto-starts on 127.0.0.1:8099):
+- OpenRouter, Gemini (Google), Groq, NVIDIA, Pollinations (keyless)
+
+On first run, enter each key when prompted. They're stored AES-256 encrypted.
 
 ## Task Composer
 
 The dashboard includes a *Task composer* at the bottom of the page. It contains a provider dropdown (showing only providers with configured keys), a model name input, a message text box, and a **Send** button. Replies appear below the button; errors are shown in red.
 
-## Usage tracking
+## Usage Tracking
 
 All local usage is logged to `usage.jsonl` and displayed on the quota cards.
 
-## Windows Setup
-1. Install **Python 3.10+** from https://www.python.org/downloads/ (tick *Add to PATH*).
-2. Download `NexusLocal.zip` from the [releases page](https://github.com/xorudra/Nexus-Local/releases) and unzip.
-3. Double-click `start.bat`.
-4. On first run, set your encryption password and enter your API keys — this includes the 5 relay provider keys (OpenRouter, Gemini, Groq, NVIDIA). Pollinations needs no key.
-5. Open http://127.0.0.1:8080 → log in with your encryption password. Sessions expire after 30 minutes idle.
+## Security Notes
 
-## FreeLLMAPI Gateway (optional)
-
-If you prefer a single unified key instead of entering 19 individual keys:
-
-1. Download `FreeLLMAPI-Windows.zip` from the [releases page](https://github.com/xorudra/Nexus-Local/releases)
-2. Follow the setup instructions in its README (install Node.js 18+, configure `.env`, run `start.bat`)
-3. The gateway runs on http://127.0.0.1:3001
-4. In Nexus Local, use the **FreeLLMAPI** provider option with:
-   - Gateway URL: `http://127.0.0.1:3001`
-   - API Key: your gateway's unified key
-
-This routes all requests through the gateway instead of individual provider keys.
-
-**Security notes:** The app only communicates over localhost, asks for a fresh decryption password at each launch, and never saves passwords or keys unencrypted on disk. All 19 providers run locally — no data leaves your machine except the API calls you make.
+- Everything runs on localhost — no data leaves your machine except the API calls you make
+- Keys are AES-256 encrypted, password required on each launch
+- Sessions expire after 30 minutes idle
+- Never saves passwords or keys unencrypted on disk

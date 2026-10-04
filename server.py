@@ -207,14 +207,26 @@ def start_relay():
 
 def wizard_collect_keys() -> dict:
     print("--- First run wizard ---")
+    print()
+    print("RECOMMENDED: Use FreeLLMAPI gateway (one key for all providers).")
+    print("Download FreeLLMAPI-Windows.zip from the releases page and start it first.")
+    print()
     keys: dict = {}
+    fkey = getpass("FreeLLMAPI unified API key (leave blank to enter individual keys instead): ")
+    if fkey:
+        keys["freellmapi"] = fkey
+        gw_url = input("FreeLLMAPI gateway URL [http://127.0.0.1:3001]: ").strip()
+        keys["freellmapi_url"] = gw_url or "http://127.0.0.1:3001"
+        print("FreeLLMAPI configured. Skipping individual provider keys.")
+        return keys
+    print()
+    print("Enter individual provider API keys (leave blank to skip any):")
     for name in PROVIDER_NAMES:
-        val = getpass(f"{name} API key (leave blank to skip): ")
+        if name == "freellmapi":
+            continue
+        val = getpass(f"  {name} API key: ")
         if val:
             keys[name] = val
-    gw_url = input("FreeLLMAPI gateway URL (leave blank to skip): ").strip()
-    if gw_url:
-        keys["freellmapi_url"] = gw_url
     return keys
 
 
@@ -291,12 +303,23 @@ class Handler(BaseHTTPRequestHandler):
                 return
             fields = "".join(
                 '<label>' + n + '<input type="password" name="k_' + n + '" autocomplete="off"></label>'
-                for n in PROVIDER_NAMES
+                for n in PROVIDER_NAMES if n != "freellmapi"
             )
-            gw_url_field = (
-                '<label>FreeLLMAPI gateway URL (optional, used with the freellmapi key above)'
-                '<input type="text" name="url_freellmapi" placeholder="http://127.0.0.1:3001" autocomplete="off"></label>'
+            freellmapi_section = (
+                "<div style='background:#0f1622;border:1px solid #3b82f6;border-radius:12px;padding:16px;margin-bottom:16px'>"
+                "<h3 style='margin:0 0 8px;color:#3b82f6'>Recommended: FreeLLMAPI Gateway</h3>"
+                "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>One key for all providers. "
+                "Download FreeLLMAPI-Windows.zip from the releases page and start it first.</p>"
+                "<label>FreeLLMAPI unified API key"
+                "<input type=\"password\" name=\"k_freellmapi\" autocomplete=\"off\"></label>"
+                "<label>Gateway URL"
+                "<input type=\"text\" name=\"url_freellmapi\" placeholder=\"http://127.0.0.1:3001\" autocomplete=\"off\"></label>"
+                "</div>"
+                "<details style='margin-bottom:16px'>"
+                "<summary style='color:#9aa3b2;cursor:pointer'>Or enter individual provider keys</summary>"
+                "<div style='margin-top:12px'>"
             )
+            fields_close = "</div></details>"
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                     "<title>Nexus Local - Setup</title><style>"
@@ -309,8 +332,8 @@ class Handler(BaseHTTPRequestHandler):
                     ".eyebrow{font-family:monospace;letter-spacing:.35em;font-size:12px;color:#3b82f6}"
                     "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>"
                     "<h1>Set up <span>your</span> keys</h1>"
-                    "<p style='color:#9aa3b2'>Enter provider API keys (leave blank to skip). Choose a strong password.</p>"
-                    "<form method='POST' action='/setup'>" + fields + gw_url_field +
+                    "<p style='color:#9aa3b2'>Enter your FreeLLMAPI key above, or expand below for individual keys. Choose a strong password.</p>"
+                    "<form method='POST' action='/setup'>" + freellmapi_section + fields + fields_close +
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required></label>"
                     "<button type='submit'>Encrypt and Finish Setup</button>"
