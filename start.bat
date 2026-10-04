@@ -1,32 +1,51 @@
 @echo off
 title Nexus
 cd /d "%~dp0app"
+set "TOOLS_DIR=%~dp0tools"
 
 echo ============================================
 echo  Nexus - Your Personal AI Dashboard
 echo ============================================
 echo.
 
-:: Check Python
+:: --- Python: verify, else download portable ---
 where python >nul 2>&1
 if errorlevel 1 (
-    echo Python not found. Opening download page...
-    echo Please install Python 3.10+ and tick "Add to PATH" during setup.
-    start https://www.python.org/downloads/
-    echo After installing, run start.bat again.
-    pause
-    exit /b 1
+    if exist "%TOOLS_DIR%\python\python.exe" (
+        echo Found portable Python.
+        set "PATH=%TOOLS_DIR%\python;%TOOLS_DIR%\python\Scripts;%PATH%"
+    ) else (
+        echo Python not found. Downloading portable Python...
+        if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
+        powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip' -OutFile '%TOOLS_DIR%\python.zip'"
+        powershell -Command "Expand-Archive -Path '%TOOLS_DIR%\python.zip' -DestinationPath '%TOOLS_DIR%\python' -Force"
+        del "%TOOLS_DIR%\python.zip"
+        :: Get pip for embeddable python
+        powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%TOOLS_DIR%\python\get-pip.py'"
+        "%TOOLS_DIR%\python\python.exe" "%TOOLS_DIR%\python\get-pip.py" --quiet
+        :: Enable site-packages in embeddable python
+        powershell -Command "(Get-Content '%TOOLS_DIR%\python\python312._pth') -replace '#import site', 'import site' | Set-Content '%TOOLS_DIR%\python\python312._pth'"
+        set "PATH=%TOOLS_DIR%\python;%TOOLS_DIR%\python\Scripts;%PATH%"
+        echo Python installed.
+    )
 )
 
-:: Check Node.js
+:: --- Node.js: verify, else download portable ---
 where node >nul 2>&1
 if errorlevel 1 (
-    echo Node.js not found. Opening download page...
-    echo Please install Node.js LTS (18+).
-    start https://nodejs.org/
-    echo After installing, run start.bat again.
-    pause
-    exit /b 1
+    if exist "%TOOLS_DIR%\nodejs\node.exe" (
+        echo Found portable Node.js.
+        set "PATH=%TOOLS_DIR%\nodejs;%PATH%"
+    ) else (
+        echo Node.js not found. Downloading portable Node.js...
+        if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
+        powershell -Command "Invoke-WebRequest -Uri 'https://nodejs.org/dist/v20.18.1/node-v20.18.1-win-x64.zip' -OutFile '%TOOLS_DIR%\node.zip'"
+        powershell -Command "Expand-Archive -Path '%TOOLS_DIR%\node.zip' -DestinationPath '%TOOLS_DIR%' -Force"
+        del "%TOOLS_DIR%\node.zip"
+        ren "%TOOLS_DIR%\node-v20.18.1-win-x64" "nodejs"
+        set "PATH=%TOOLS_DIR%\nodejs;%PATH%"
+        echo Node.js installed.
+    )
 )
 
 :: Setup .env
@@ -40,8 +59,8 @@ if not exist ".env" (
 :: Python deps
 python -c "import cryptography" >nul 2>&1
 if errorlevel 1 (
-    echo Installing components...
-    pip install cryptography --quiet
+    echo Installing Python components...
+    python -m pip install cryptography --quiet
 )
 
 :: Engine deps
@@ -54,13 +73,13 @@ if not exist "engine\server\node_modules" (
 
 :: Start engine
 echo Starting engine...
-start "Nexus Engine" cmd /k "cd /d "%~dp0app\engine\server" && set PORT=3001 && set HOST=127.0.0.1 && set FREEAPI_DB_PATH=%~dp0app\engine-data\freeapi.db && set FREEAPI_CONFIG_PATH=%~dp0app\freellmapi.config.json && set FREEAPI_ENV_PATH=%~dp0app\.env && node dist\index.js"
+start "Nexus Engine" cmd /k "cd /d "%~dp0app\engine\server" && set PATH=%PATH% && set PORT=3001 && set HOST=127.0.0.1 && set FREEAPI_DB_PATH=%~dp0app\engine-data\freeapi.db && set FREEAPI_CONFIG_PATH=%~dp0app\freellmapi.config.json && set FREEAPI_ENV_PATH=%~dp0app\.env && node dist\index.js"
 timeout /t 6 >nul
 
 :: Start dashboard
 echo.
 echo Open http://127.0.0.1:8080 in your browser
 echo.
-start "Nexus Dashboard" cmd /k "cd /d "%~dp0app" && python server.py"
+start "Nexus Dashboard" cmd /k "cd /d "%~dp0app" && set PATH=%PATH% && python server.py"
 echo Done! Keep both windows open.
 pause
