@@ -301,9 +301,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Location", "/login")
                 self.end_headers()
                 return
+            relay_names = [n for n in PROVIDER_NAMES if n.startswith("relay_")]
+            other_names = [n for n in PROVIDER_NAMES if n != "freellmapi" and not n.startswith("relay_")]
+            relay_fields = "".join(
+                '<label>' + n.replace("relay_", "Relay: ") + '<input type="password" name="k_' + n + '" autocomplete="off"></label>'
+                for n in relay_names
+            )
+            relay_section = (
+                "<div style='background:#0f1622;border:1px solid #22c55e;border-radius:12px;padding:16px;margin-bottom:16px'>"
+                "<h3 style='margin:0 0 8px;color:#22c55e'>Relay Providers</h3>"
+                "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>Your outside keys via the built-in relay. Pollinations needs no key.</p>"
+                + relay_fields +
+                "</div>"
+            )
             fields = "".join(
                 '<label>' + n + '<input type="password" name="k_' + n + '" autocomplete="off"></label>'
-                for n in PROVIDER_NAMES if n != "freellmapi"
+                for n in other_names
             )
             freellmapi_section = (
                 "<div style='background:#0f1622;border:1px solid #3b82f6;border-radius:12px;padding:16px;margin-bottom:16px'>"
@@ -332,8 +345,8 @@ class Handler(BaseHTTPRequestHandler):
                     ".eyebrow{font-family:monospace;letter-spacing:.35em;font-size:12px;color:#3b82f6}"
                     "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>"
                     "<h1>Set up <span>your</span> keys</h1>"
-                    "<p style='color:#9aa3b2'>Enter your FreeLLMAPI key above, or expand below for individual keys. Choose a strong password.</p>"
-                    "<form method='POST' action='/setup'>" + freellmapi_section + fields + fields_close +
+                    "<p style='color:#9aa3b2'>Enter your FreeLLMAPI key, relay keys, or expand below for individual keys. Choose a strong password.</p>"
+                    "<form method='POST' action='/setup'>" + freellmapi_section + relay_section + fields + fields_close +
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required></label>"
                     "<button type='submit'>Encrypt and Finish Setup</button>"
