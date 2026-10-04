@@ -35,6 +35,22 @@ If you prefer to set up each piece yourself:
 
 The dashboard includes a *Task composer* at the bottom of the page. It contains a provider dropdown (showing only providers with configured keys), a model name input, a message text box, and a **Send** button. Replies appear below the button; errors are shown in red.
 
+## Providers
+
+### FreeLLMAPI Gateway (14 providers)
+When using the gateway, you get all 14 through one key:
+HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde
+
+### Relay (5 providers, built-in)
+Nexus Local has an integrated relay that auto-starts on `127.0.0.1:8099` — no separate download needed:
+- **OpenRouter** — requires API key
+- **Gemini (Google)** — requires API key
+- **Groq** — requires API key
+- **NVIDIA** — requires API key
+- **Pollinations** — keyless, works out of the box
+
+Enter these keys during Nexus Local setup (encrypted with your password). The relay starts automatically when Nexus Local launches.
+
 ## Usage Tracking
 
 All local usage is logged to `usage.jsonl` and displayed on the quota cards.
