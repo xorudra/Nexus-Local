@@ -80,17 +80,19 @@ if errorlevel 1 (
 echo [%date% %time%] Python deps OK >> "%LOG%"
 
 rem Engine deps
+rem Keep npm cache out of OneDrive (prevents file lock issues)
+if not defined npm_config_cache set "npm_config_cache=%TEMP%\npm-cache"
 echo [%date% %time%] Checking engine deps >> "%LOG%"
 if exist "engine\server\node_modules" goto :engine_ok
 echo [%date% %time%] node_modules missing, installing >> "%LOG%"
 echo Installing engine (first run)...
 cd engine\server 2>>"%LOG%"
 echo [%date% %time%] In server dir >> "%LOG%"
-call npm install 2>>"%LOG%"
+call npm install --no-audit --no-fund --prefer-offline 2>>"%LOG%"
 echo [%date% %time%] npm finished, verifying dotenv >> "%LOG%"
 if exist "node_modules\\dotenv" goto :dotenv_ok
 echo Retrying npm install - dotenv missing...
-call npm install 2>>"%LOG%"
+call npm install --no-audit --no-fund --prefer-offline 2>>"%LOG%"
 :dotenv_ok
 cd ..\.. 2>>"%LOG%"
 :engine_ok
