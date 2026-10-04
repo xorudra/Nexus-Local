@@ -91,8 +91,12 @@ echo [%date% %time%] In server dir >> "%LOG%"
 call npm install --no-audit --no-fund --prefer-offline 2>>"%LOG%"
 echo [%date% %time%] npm finished, verifying dotenv >> "%LOG%"
 if exist "node_modules\\dotenv" goto :dotenv_ok
-echo Retrying npm install - dotenv missing...
-call npm install --no-audit --no-fund --prefer-offline 2>>"%LOG%"
+echo dotenv missing - clean reinstall...
+echo [%date% %time%] Clean reinstall >> "%LOG%"
+rmdir /s /q node_modules 2>nul
+del /q package-lock.json 2>nul
+call npm install --no-audit --no-fund 2>>"%LOG%"
+if not exist "node_modules\\dotenv" call npm install dotenv --no-audit --no-fund 2>>"%LOG%"
 :dotenv_ok
 cd ..\.. 2>>"%LOG%"
 :engine_ok
