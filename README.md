@@ -5,7 +5,9 @@ Your personal AI dashboard — 19 providers, all on your machine.
 ## Setup
 
 1. Download this repo (Code → Download ZIP) and unzip
-2. Double-click **`start.bat`**
+2. **Move the folder out of OneDrive** — e.g. to `C:\Nexus-Local`
+   (OneDrive corrupts the engine's `node_modules` during install)
+3. Double-click **`start.bat`**
 
 That's it. The script automatically downloads portable Python + Node.js if missing, sets up everything, and launches.
 
