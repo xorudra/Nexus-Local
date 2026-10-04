@@ -18,8 +18,10 @@ if errorlevel 1 (
         pause
         exit /b 1
     )
-    echo Python installed. You may need to restart this script.
-    pause
+    echo Python installed. Restarting script to pick up new PATH...
+    timeout /t 3 >nul
+    :: Refresh PATH from registry and restart
+    call "%~f0"
     exit /b 0
 )
 
@@ -34,8 +36,9 @@ if errorlevel 1 (
         pause
         exit /b 1
     )
-    echo Node.js installed. You may need to restart this script.
-    pause
+    echo Node.js installed. Restarting script to pick up new PATH...
+    timeout /t 3 >nul
+    call "%~f0"
     exit /b 0
 )
 
