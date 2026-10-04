@@ -6,7 +6,7 @@ Your personal AI dashboard — 19 providers, all on your machine.
 
 1. Install **Node.js 18+** from https://nodejs.org/
 2. Install **Python 3.10+** from https://www.python.org/downloads/ (tick *Add to PATH*)
-3. Download `NexusLocal.zip` from the [releases page](https://github.com/xorudra/Nexus-Local/releases)
+3. Download `NexusLocal.zip` from the [releases page](https://github.com/xorudra/Nexus-Local/blob/main/NexusLocal.zip)
 4. Unzip anywhere
 5. Double-click **`start.bat`**
 
