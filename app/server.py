@@ -395,6 +395,42 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             return
+        # Settings page - update keys after login
+        if parsed.path == "/settings":
+            if not self._get_session():
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            # Show current keys (masked) with fields to update
+            current = getattr(Handler, 'keys', {})
+            def masked(k):
+                v = current.get(k, "")
+                return f"***{v[-4:]}" if v and len(v) > 4 else ("set" if v else "not set")
+            rows = ""
+            for n in PROVIDER_NAMES:
+                rows += f"<label>{n} <span style='color:#22c55e;font-size:12px'>({masked(n)})</span><input type='password' name='k_{n}' autocomplete='off' placeholder='Leave blank to keep current'></label>"
+            page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                    "<title>Nexus Local - Settings</title><style>"
+                    "body{background:#0a0c11;color:#e6e9f0;font-family:system-ui,sans-serif;margin:0;padding:24px}"
+                    ".card{max-width:560px;margin:0 auto;background:#11141b;border:1px solid #1e2430;border-radius:20px;padding:32px}"
+                    "label{display:block;margin:12px 0 4px;color:#9aa3b2;font-size:14px}"
+                    "input{width:100%;box-sizing:border-box;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px;font-size:16px}"
+                    "button{background:#3b82f6;color:#fff;border:0;border-radius:12px;padding:16px 32px;font-size:16px;font-weight:600;width:100%;margin-top:20px;cursor:pointer}"
+                    "</style></head><body><div class='card'>"
+                    "<h1>Update Keys</h1>"
+                    "<p style='color:#9aa3b2'>Only fill in the keys you want to change. Enter your password to save.</p>"
+                    "<form method='POST' action='/settings'>" + rows +
+                    "<label>Confirm Password<input type='password' name='password' required></label>"
+                    "<button type='submit'>Save Keys</button>"
+                    "</form><p><a href='/' style='color:#3b82f6'>Back to Dashboard</a></p>"
+                    "</div></body></html>")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self._send_body(page.encode())
+            return
         # Root redirects based on session
         if parsed.path == "/":
             key_path = Path(__file__).parent / "keys.enc"
@@ -531,6 +567,43 @@ class Handler(BaseHTTPRequestHandler):
             os.chmod(key_path, 0o600)
             self.send_response(302)
             self.send_header("Location", "/login")
+            self.end_headers()
+            return
+        if parsed.path == "/settings":
+            if not self._get_session():
+                self._set_json_headers(401)
+                self.wfile.write(json.dumps({"error": "not logged in"}).encode())
+                return
+            length = int(self.headers.get("Content-Length", 0))
+            form = parse_qs(self.rfile.read(length).decode())
+            pw = form.get("password", [""])[0]
+            if not pw:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "password required"}).encode())
+                return
+            key_path = Path(__file__).parent / "keys.enc"
+            try:
+                keys = decrypt_keys(key_path, pw)
+            except Exception:
+                self._set_json_headers(401)
+                self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                return
+            # Update with new values (blank = keep current)
+            updated = 0
+            for n in PROVIDER_NAMES:
+                v = form.get("k_" + n, [""])[0].strip()
+                if v:
+                    keys[n] = v
+                    updated += 1
+            gw_url = form.get("url_freellmapi", [""])[0].strip()
+            if gw_url:
+                keys["freellmapi_url"] = gw_url
+                updated += 1
+            encrypt_keys(keys, pw, key_path)
+            os.chmod(key_path, 0o600)
+            Handler.keys = keys  # refresh in-memory
+            self.send_response(302)
+            self.send_header("Location", "/")
             self.end_headers()
             return
         if parsed.path == "/api/chat":
