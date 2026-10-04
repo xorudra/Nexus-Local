@@ -2,6 +2,10 @@
 
 Your personal AI dashboard — 19 providers, all on your machine.
 
+**Live demo:** https://nexus-local.onrender.com
+
+Want to try it without installing? Open the link above. For the full local version with your own keys, follow the setup below.
+
 ## Setup
 
 **Prerequisite:** Install Node.js (includes npm).
