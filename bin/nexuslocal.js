@@ -113,6 +113,7 @@ function main() {
 
   // Start engine (if dist exists)
   const engineDist = path.join(engineServer, "dist", "index.js");
+  let engine = null;
   if (fs.existsSync(engineDist)) {
     log("Starting engine on 127.0.0.1:3001");
     console.log("Starting engine...");
@@ -124,14 +125,13 @@ function main() {
       FREEAPI_CONFIG_PATH: path.join(APP_DIR, "engine", "freellmapi.config.json"),
       FREEAPI_ENV_PATH: envFile,
     };
-    const engine = spawn("node", [engineDist], {
+    engine = spawn("node", [engineDist], {
       cwd: engineServer,
       env: engineEnv,
       stdio: "ignore",
-      detached: true,
       windowsHide: true,
     });
-    engine.unref();
+    // Don't detach — we need to kill it on shutdown
   } else {
     log("Engine dist not found, skipping engine");
   }
@@ -162,9 +162,12 @@ function main() {
     process.exit(code || 0);
   });
 
-  // Graceful shutdown
+  // Graceful shutdown — kill engine AND dashboard
   process.on("SIGINT", () => {
     log("Shutting down...");
+    if (engine) {
+      try { engine.kill(); } catch (e) {}
+    }
     dashboard.kill("SIGINT");
   });
 }

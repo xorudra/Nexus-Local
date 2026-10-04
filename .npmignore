@@ -6,5 +6,4 @@ tools/
 app/engine-data/
 app/engine-logs/
 app/__pycache__/
-app/keys.enc
 app/.env
