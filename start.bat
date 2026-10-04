@@ -18,11 +18,19 @@ if errorlevel 1 (
         pause
         exit /b 1
     )
-    echo Python installed. Restarting script to pick up new PATH...
-    timeout /t 3 >nul
-    :: Refresh PATH from registry and restart
-    call "%~f0"
-    exit /b 0
+    echo Python installed. Refreshing PATH...
+    :: Reload PATH from registry (picks up winget installs without restart)
+    for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SysPath=%%b"
+    for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "UserPath=%%b"
+    set "PATH=%SysPath%;%UserPath%"
+    :: Verify it worked
+    where python >nul 2>&1
+    if errorlevel 1 (
+        echo Python installed but PATH not updated. Please close this window and run start.bat again.
+        pause
+        exit /b 0
+    )
+    echo PATH refreshed, continuing...
 )
 
 :: Check Node.js - auto-install via winget if missing
@@ -36,10 +44,17 @@ if errorlevel 1 (
         pause
         exit /b 1
     )
-    echo Node.js installed. Restarting script to pick up new PATH...
-    timeout /t 3 >nul
-    call "%~f0"
-    exit /b 0
+    echo Node.js installed. Refreshing PATH...
+    for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SysPath=%%b"
+    for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "UserPath=%%b"
+    set "PATH=%SysPath%;%UserPath%"
+    where node >nul 2>&1
+    if errorlevel 1 (
+        echo Node.js installed but PATH not updated. Please close this window and run start.bat again.
+        pause
+        exit /b 0
+    )
+    echo PATH refreshed, continuing...
 )
 
 :: Setup .env
