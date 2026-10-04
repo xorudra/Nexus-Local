@@ -99,10 +99,110 @@ PROVIDER_NAMES = [
     "siliconflow",
     "zhipu",
     "freellmapi",
+    # Relay providers (Rudra's other-Gmail keys, served via integrated relay on 127.0.0.1:8099)
+    "relay_openrouter",
+    "relay_gemini",
+    "relay_groq",
+    "relay_nvidia",
+    "relay_pollinations",
 ]
 # Load quotas.json at startup (script-relative so it works from any cwd)
 with open(Path(__file__).parent / "quotas.json", "r") as f:
     QUOTAS_DATA = json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# Integrated relay for the 5 outside providers.
+# Serves relay_openrouter, relay_gemini, relay_groq, relay_nvidia,
+# relay_pollinations (keyless) on 127.0.0.1:8099 in a daemon thread.
+# Keys come from Handler.keys (decrypted in-memory, never on disk).
+# ---------------------------------------------------------------------------
+RELAY_PORT = 8099
+RELAY_UPSTREAMS = {
+    "relay_openrouter": "https://openrouter.ai/api/v1",
+    "relay_gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "relay_groq": "https://api.groq.com/openai/v1",
+    "relay_nvidia": "https://integrate.api.nvidia.com/v1",
+    "relay_pollinations": "https://text.pollinations.ai/openai",
+}
+# relay_pollinations needs no key
+RELAY_KEYLESS = {"relay_pollinations"}
+
+
+class RelayHandler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        return
+
+    def do_GET(self):
+        self._proxy()
+
+    def do_POST(self):
+        self._proxy()
+
+    def _send_json(self, obj, code=200):
+        data = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _proxy(self):
+        path = self.path
+        if path == "/health":
+            self._send_json({"ok": True, "providers": list(RELAY_UPSTREAMS.keys())})
+            return
+        # Expect /<name>/v1/...
+        parts = path.lstrip("/").split("/", 1)
+        if len(parts) < 2 or parts[0] not in RELAY_UPSTREAMS:
+            self._send_json({"error": "unknown relay provider"}, 404)
+            return
+        name, rest = parts[0], "/" + parts[1]
+        upstream = RELAY_UPSTREAMS[name] + rest
+        if "?" in path:
+            upstream += "?" + path.split("?", 1)[1]
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else None
+
+        req = Request(upstream, data=body, method=self.command)
+        for k, v in self.headers.items():
+            if k.lower() not in ("host", "content-length", "authorization"):
+                req.add_header(k, v)
+        if name not in RELAY_KEYLESS:
+            key = (Handler.keys or {}).get(name)
+            if not key:
+                self._send_json({"error": f"no key configured for {name}"}, 502)
+                return
+            req.add_header("Authorization", f"Bearer {key}")
+
+        try:
+            with urlopen(req, timeout=60) as resp:
+                data = resp.read()
+                self.send_response(resp.status)
+                self.send_header("Content-Type", resp.headers.get("Content-Type", "application/json"))
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+        except HTTPError as e:
+            data = e.read()
+            self.send_response(e.code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:
+            self._send_json({"error": str(e)[:200]}, 502)
+
+
+def start_relay():
+    """Start the integrated relay in a daemon thread."""
+    import threading
+    server = ThreadingHTTPServer(("127.0.0.1", RELAY_PORT), RelayHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    print(f"Integrated relay on 127.0.0.1:{RELAY_PORT} (5 providers)")
+    return server
 
 
 def wizard_collect_keys() -> dict:
@@ -406,7 +506,16 @@ class Handler(BaseHTTPRequestHandler):
                 "kilo": "https://api.kilo.ai/v1",
                 "ovh": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
             }
-            if provider == "freellmapi":
+            if provider.startswith("relay_"):
+                # Integrated relay providers - route through localhost:8099
+                # The relay attaches the key from Handler.keys
+                base = f"http://127.0.0.1:{RELAY_PORT}/{provider}/v1"
+                # For relay, we still check that a key is configured (except keyless)
+                if provider not in RELAY_KEYLESS and not key:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
+                    return
+            elif provider == "freellmapi":
                 # Unified gateway key; base URL comes from setup (not a fixed endpoint)
                 gw_url = ((Handler.keys or {}).get("freellmapi_url") or "").strip()
                 if not gw_url:
@@ -422,9 +531,12 @@ class Handler(BaseHTTPRequestHandler):
                 base = provider_endpoints[provider]
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
             }
-            if provider == "openrouter":
+            # For relay providers, the integrated relay attaches the key
+            # For direct providers, attach the key here
+            if not provider.startswith("relay_"):
+                headers["Authorization"] = f"Bearer {key}"
+            if provider == "openrouter" or provider == "relay_openrouter":
                 headers["X-Title"] = "NexusLocal"
             body = {
                 "model": model,
@@ -533,6 +645,8 @@ def main():
         print("keys.enc not found – open http://127.0.0.1:8080/setup in your browser to configure keys.")
     # Don't decrypt keys at startup – login handled via API
     Handler.keys = None
+    # Start the integrated relay for the 5 outside providers
+    start_relay()
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8080"))
     addr = (host, port)
