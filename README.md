@@ -23,9 +23,17 @@ Auto-installs dependencies and launches everything. No admin rights needed.
 
 ## First Run
 
-Two windows open (engine + dashboard). Then open **http://127.0.0.1:8080** in your browser.
+Type `nexuslocal`. It starts the engine + dashboard and opens **http://127.0.0.1:8080** in your browser.
 
-Set your password, enter the API key shown in the Engine window. Done.
+FreeLLMAPI keys (Groq, Google, OpenRouter, NVIDIA) come pre-configured — just log in with your password.
+
+To add relay keys, use the **Quick Import** box on the setup page: paste all keys at once as `name: key` (one per line), click Fill Fields Below, set your password, done.
+
+## Uninstall
+
+```bash
+npm uninstall -g nexuslocal
+```
 
 ## Structure
 
