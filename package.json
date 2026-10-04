@@ -1,0 +1,1 @@
+{"bin":{"nexuslocal":"./bin/nexuslocal.js"},"description":"Your personal AI dashboard — 19 providers, all on your machine.","engines":{"node":">=18"},"keywords":["ai","dashboard","llm","providers"],"license":"MIT","name":"nexuslocal","preferGlobal":true,"repository":{"type":"git","url":"https://github.com/xorudra/Nexus-Local.git"},"version":"1.0.0"}

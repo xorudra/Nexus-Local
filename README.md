@@ -4,14 +4,23 @@ Your personal AI dashboard — 19 providers, all on your machine.
 
 ## Setup
 
+### Option A: npm (recommended)
+
+```bash
+npm install -g nexuslocal
+```
+
+Then type **`nexuslocal`** from any directory. That's it.
+
+### Option B: Manual
+
 1. Download this repo (Code → Download ZIP) and unzip
 2. **Move the folder out of OneDrive** — e.g. to `C:\Nexus-Local`
    (OneDrive corrupts the engine's `node_modules` during install)
 3. Double-click **`start.bat`**
 
-That's it. The script automatically downloads portable Python + Node.js if missing, sets up everything, and launches.
-
-No manual installs. No admin rights needed.
+Both methods auto-install dependencies and launch everything.
+No admin rights needed.
 
 ## First Run
 
