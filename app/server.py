@@ -99,7 +99,6 @@ PROVIDER_NAMES = [
     "siliconflow",
     "zhipu",
     "freellmapi",
-    "omniroute",
     # Relay providers (Rudra's other-Gmail keys, served via integrated relay on 127.0.0.1:8099)
     "relay_openrouter",
     "relay_gemini",
@@ -303,7 +302,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             relay_names = [n for n in PROVIDER_NAMES if n.startswith("relay_")]
-            other_names = [n for n in PROVIDER_NAMES if n not in ("freellmapi", "omniroute") and not n.startswith("relay_")]
+            other_names = [n for n in PROVIDER_NAMES if n != "freellmapi" and not n.startswith("relay_")]
             relay_fields = "".join(
                 '<label>' + n.replace("relay_", "Relay: ") + '<input type="password" name="k_' + n + '" autocomplete="off"></label>'
                 for n in relay_names
@@ -335,18 +334,6 @@ class Handler(BaseHTTPRequestHandler):
                 "</div></details>"
                 "</div>"
             )
-            omniroute_section = (
-                "<div style='background:#0f1622;border:1px solid #a855f7;border-radius:12px;padding:16px;margin-bottom:16px'>"
-                "<h3 style='margin:0 0 8px;color:#a855f7'>OmniRoute Gateway</h3>"
-                "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>358 providers via one endpoint. "
-                "Configure providers at <a href='http://127.0.0.1:20128' target='_blank' style='color:#a855f7'>localhost:20128</a> "
-                "then create an API key under Endpoints.</p>"
-                "<label>OmniRoute API key"
-                "<input type=\"password\" name=\"k_omniroute\" autocomplete=\"off\"></label>"
-                "<label>Gateway URL"
-                "<input type=\"text\" name=\"url_omniroute\" placeholder=\"http://127.0.0.1:20128\" autocomplete=\"off\"></label>"
-                "</div>"
-            )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                     "<title>Nexus Local - Setup</title><style>"
@@ -360,7 +347,7 @@ class Handler(BaseHTTPRequestHandler):
                     "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>"
                     "<h1>Set up <span>your</span> keys</h1>"
                     "<p style='color:#9aa3b2'>Enter your FreeLLMAPI key, relay keys, or expand below for individual keys. Choose a strong password.</p>"
-                    "<form method='POST' action='/setup'>" + relay_section + freellmapi_section + omniroute_section +
+                    "<form method='POST' action='/setup'>" + relay_section + freellmapi_section +
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required></label>"
                     "<button type='submit'>Encrypt and Finish Setup</button>"
@@ -519,13 +506,6 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "gateway URL must start with http:// or https://"}).encode())
                     return
                 keys["freellmapi_url"] = gw_url
-            omni_url = form.get("url_omniroute", [""])[0].strip()
-            if omni_url:
-                if not (omni_url.startswith("http://") or omni_url.startswith("https://")):
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "gateway URL must start with http:// or https://"}).encode())
-                    return
-                keys["omniroute_url"] = omni_url
             encrypt_keys(keys, pw, key_path)
             os.chmod(key_path, 0o600)
             self.send_response(302)
@@ -580,10 +560,6 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
                     return
                 base = gw_url.rstrip("/")
-            elif provider == "omniroute":
-                # OmniRoute gateway; base URL comes from setup
-                omni_url = ((Handler.keys or {}).get("omniroute_url") or "http://127.0.0.1:20128").strip()
-                base = omni_url.rstrip("/") + "/v1"
             elif provider not in provider_endpoints:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"chat not supported for {provider} in local version"}).encode())

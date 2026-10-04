@@ -29,11 +29,9 @@ Set your password, enter the API key shown in the Engine window. Done.
 └── deploy/     ← Render deployment config
 ```
 
-## Providers
+## Providers (19)
 
-- **Relay** (5): OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless — built-in, no setup
-- **FreeLLMAPI Gateway** (14): HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde — via local engine
-- **OmniRoute Gateway** (358): Auto-installed via start.bat, configure at http://127.0.0.1:20128
+14 via built-in engine (HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde) + 5 via built-in relay (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless).
 
 ## Security
 
