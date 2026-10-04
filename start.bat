@@ -7,54 +7,26 @@ echo  Nexus - Your Personal AI Dashboard
 echo ============================================
 echo.
 
-:: Check Python - auto-install via winget if missing
+:: Check Python
 where python >nul 2>&1
 if errorlevel 1 (
-    echo Python not found. Installing via winget...
-    winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
-    if errorlevel 1 (
-        echo ERROR: Auto-install failed.
-        echo Please install manually from https://www.python.org/downloads/ (tick "Add to PATH")
-        pause
-        exit /b 1
-    )
-    echo Python installed. Refreshing PATH...
-    :: Reload PATH from registry (picks up winget installs without restart)
-    for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SysPath=%%b"
-    for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "UserPath=%%b"
-    set "PATH=%SysPath%;%UserPath%"
-    :: Verify it worked
-    where python >nul 2>&1
-    if errorlevel 1 (
-        echo Python installed but PATH not updated. Please close this window and run start.bat again.
-        pause
-        exit /b 0
-    )
-    echo PATH refreshed, continuing...
+    echo Python not found. Opening download page...
+    echo Please install Python 3.10+ and tick "Add to PATH" during setup.
+    start https://www.python.org/downloads/
+    echo After installing, run start.bat again.
+    pause
+    exit /b 1
 )
 
-:: Check Node.js - auto-install via winget if missing
+:: Check Node.js
 where node >nul 2>&1
 if errorlevel 1 (
-    echo Node.js not found. Installing via winget...
-    winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
-    if errorlevel 1 (
-        echo ERROR: Auto-install failed.
-        echo Please install manually from https://nodejs.org/
-        pause
-        exit /b 1
-    )
-    echo Node.js installed. Refreshing PATH...
-    for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SysPath=%%b"
-    for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "UserPath=%%b"
-    set "PATH=%SysPath%;%UserPath%"
-    where node >nul 2>&1
-    if errorlevel 1 (
-        echo Node.js installed but PATH not updated. Please close this window and run start.bat again.
-        pause
-        exit /b 0
-    )
-    echo PATH refreshed, continuing...
+    echo Node.js not found. Opening download page...
+    echo Please install Node.js LTS (18+).
+    start https://nodejs.org/
+    echo After installing, run start.bat again.
+    pause
+    exit /b 1
 )
 
 :: Setup .env
