@@ -418,7 +418,7 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
     <div class="form">
         <div>
             <label for="composer-provider">Provider</label>
-            <select id="composer-provider"></select>
+            <select id="composer-provider" onchange="loadModels(this.value)"></select>
         </div>
         <div>
             <label for="composer-model">Model</label>
@@ -458,6 +458,15 @@ async function fetchQuotas() {
     }
 }
 
+function friendlyName(provider) {
+    if (provider.startsWith('relay_')) {
+        const base = provider.replace('relay_', '');
+        return 'Relay: ' + base.charAt(0).toUpperCase() + base.slice(1);
+    }
+    if (provider === 'freellmapi') return 'FreeLLMAPI: Gateway';
+    return 'FreeLLMAPI: ' + provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
 async function populateComposer() {
     try {
         const r = await fetch('/api/quotas');
@@ -467,12 +476,39 @@ async function populateComposer() {
             if (p.key_configured) {
                 const opt = document.createElement('option');
                 opt.value = p.provider;
-                opt.textContent = p.provider;
+                opt.textContent = friendlyName(p.provider);
                 composerProviders.appendChild(opt);
             }
         });
+        // Load models for first provider
+        if (composerProviders.value) loadModels(composerProviders.value);
     } catch (e) {
         console.error('Composer init', e);
+    }
+}
+
+async function loadModels(provider) {
+    const modelInput = document.getElementById('composer-model');
+    try {
+        const r = await fetch('/api/models?provider=' + encodeURIComponent(provider));
+        const data = await r.json();
+        const models = data.models || [];
+        // Replace text input with datalist for autocomplete
+        let dl = document.getElementById('model-datalist');
+        if (!dl) {
+            dl = document.createElement('datalist');
+            dl.id = 'model-datalist';
+            document.body.appendChild(dl);
+            modelInput.setAttribute('list', 'model-datalist');
+        }
+        dl.innerHTML = '';
+        models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            dl.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Model load', e);
     }
 }
 

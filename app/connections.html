@@ -433,7 +433,7 @@ details.provider-group[open] summary {
 <div class="nav-title">NEXUS LOCAL</div>
 <a href="/" data-page="dashboard">Dashboard</a>
 <a href="/connections" data-page="connections">Connections</a>
-<a href="/settings" data-page="settings">Settings</a>
+<a href="/settings" data-page="settings">Update Keys</a>
 <a href="#" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login');return false">Logout</a>
 </nav>
 <script>
@@ -469,10 +469,6 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
 
 const providerGrid = document.getElementById('provider-grid');
 const combinedUsage = document.getElementById('combined-usage');
-const logoutBtn = document.getElementById('logout-btn');
-const composerProviders = document.getElementById('composer-provider');
-const composerSend = document.getElementById('composer-send');
-const composerReply = document.getElementById('composer-reply');
 
 async function fetchQuotas() {
     try {
@@ -485,25 +481,8 @@ async function fetchQuotas() {
         renderUsage(data);
     } catch (e) {
         console.error(e);
-        providerGrid.innerHTML = '<p style="color: #ff8">Failed to load quotas</p>';
-    }
-}
-
-async function populateComposer() {
-    try {
-        const r = await fetch('/api/quotas');
-        const data = await r.json();
-        composerProviders.innerHTML = '';
-        data.providers.forEach(p => {
-            if (p.key_configured) {
-                const opt = document.createElement('option');
-                opt.value = p.provider;
-                opt.textContent = p.provider;
-                composerProviders.appendChild(opt);
-            }
-        });
-    } catch (e) {
-        console.error('Composer init', e);
+        const pg = document.getElementById('provider-grid') || document.getElementById('direct-grid');
+        if (pg) pg.innerHTML = '<p style="color: #ff8">Failed to load quotas</p>';
     }
 }
 
@@ -551,7 +530,8 @@ function renderUsage(data) {
     const ch = data.history || {requests: [0,0,0,0,0,0,0], tokens: [0,0,0,0,0,0,0]};
     const totReqToday = ch.requests[6] || 0;
     const totTokToday = ch.tokens[6] || 0;
-    combinedUsage.innerHTML = '<h3>Combined Usage</h3>'
+    const cuEl = (typeof combinedUsage !== 'undefined' && combinedUsage) ? combinedUsage : document.getElementById('combined-usage');
+    if (cuEl) cuEl.innerHTML = '<h3>Combined Usage</h3>'
         + '<div class="usage">Resets vary by provider — see individual cards below</div>'
         + sparkline(ch.requests, 'Combined 7-day requests')
         + '<div class="trend-today">' + totReqToday + ' requests · ' + totTokToday.toLocaleString() + ' tokens today</div>';
@@ -605,48 +585,8 @@ function escapeHtml(s) {
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-populateComposer();
 fetchQuotas();
 setInterval(fetchQuotas, 10000);
-
-document.getElementById("refresh-quotas").addEventListener("click", async () => {
-    const r = await fetch("/api/refresh", { method: "POST" });
-    if (r.status === 401) {
-        location.href = "/login";
-        return;
-    }
-    fetchQuotas();
-});
-
-logoutBtn.addEventListener('click', () => {
-    fetch('/api/logout', { method: 'POST' }).then(() => location.href = '/login');
-});
-
-composerSend.addEventListener('click', async () => {
-    const provider = composerProviders.value;
-    const model = document.getElementById('composer-model').value;
-    const msg = document.getElementById('composer-message').value;
-    if (!provider || !model || !msg) {
-        composerReply.textContent = 'Provider, model, & message required';
-        return;
-    }
-    composerSend.disabled = true;
-    composerReply.textContent = '…';
-    try {
-        const r = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider, model, message: msg })
-        });
-        const j = await r.json();
-        composerReply.textContent = j.error ? j.error : j.reply;
-    } catch (e) {
-        composerReply.textContent = 'Error ' + e.message;
-    } finally {
-        composerSend.disabled = false;
-    }
-});
-
 </script>
 </body>
 </html>

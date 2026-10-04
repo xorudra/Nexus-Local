@@ -419,7 +419,7 @@ class Handler(BaseHTTPRequestHandler):
                     "label{display:block;margin:12px 0 4px;color:#9aa3b2;font-size:14px}"
                     "input{width:100%;box-sizing:border-box;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px;font-size:16px}"
                     "button{background:#3b82f6;color:#fff;border:0;border-radius:12px;padding:16px 32px;font-size:16px;font-weight:600;width:100%;margin-top:20px;cursor:pointer}"
-                    "</style></head><body>" + sidebar + "<div class='card' style='margin-left:40px'>"
+                    "</style></head><body>" + sidebar + "<div class='card' style='margin:40px auto'"
                     "<h1>Update Keys</h1>"
                     "<p style='color:#9aa3b2'>Only fill in the keys you want to change. Enter your password to save.</p>"
                     "<form method='POST' action='/settings'>" + rows +
@@ -622,6 +622,39 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
+            return
+        if parsed.path == "/api/models":
+            if not self._get_session():
+                self.send_response(401)
+                self.end_headers()
+                return
+            provider = parse_qs(parsed.query).get("provider", [""])[0]
+            models = []
+            try:
+                import urllib.request, json as js
+                # Try relay for relay_* providers, engine for others
+                if provider.startswith("relay_"):
+                    base = provider.replace("relay_", "")
+                    url = f"http://127.0.0.1:8099/{base}/v1/models"
+                elif provider == "freellmapi":
+                    url = "http://127.0.0.1:3001/v1/models"
+                else:
+                    # Direct providers - try engine
+                    url = "http://127.0.0.1:3001/v1/models"
+                req = urllib.request.Request(url, headers={"Authorization": "Bearer dummy"})
+                # For relay, we need to go through the dashboard's key
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = js.loads(resp.read())
+                    models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+                    # Filter by provider if needed
+                    if not provider.startswith("relay_") and provider != "freellmapi":
+                        models = [m for m in models if m.startswith(provider + "/") or "/" not in m]
+            except Exception as e:
+                pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self._send_body(js.dumps({"models": models}).encode())
             return
         if parsed.path == "/api/chat":
             content_length = int(self.headers.get("Content-Length", 0))
