@@ -327,14 +327,13 @@ class Handler(BaseHTTPRequestHandler):
                 "<input type=\"password\" name=\"k_freellmapi\" autocomplete=\"off\"></label>"
                 "<label>Gateway URL"
                 "<input type=\"text\" name=\"url_freellmapi\" placeholder=\"http://127.0.0.1:3001\" autocomplete=\"off\"></label>"
-                "</div>"
-            )
-            details_open = (
-                "<details style='margin-bottom:16px'>"
+                "<details style='margin-top:16px'>"
                 "<summary style='color:#9aa3b2;cursor:pointer'>Or enter individual provider keys</summary>"
                 "<div style='margin-top:12px'>"
+                + fields +
+                "</div></details>"
+                "</div>"
             )
-            fields_close = "</div></details>"
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                     "<title>Nexus Local - Setup</title><style>"
@@ -348,7 +347,7 @@ class Handler(BaseHTTPRequestHandler):
                     "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>"
                     "<h1>Set up <span>your</span> keys</h1>"
                     "<p style='color:#9aa3b2'>Enter your FreeLLMAPI key, relay keys, or expand below for individual keys. Choose a strong password.</p>"
-                    "<form method='POST' action='/setup'>" + relay_section + freellmapi_section + details_open + fields + fields_close +
+                    "<form method='POST' action='/setup'>" + relay_section + freellmapi_section +
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required></label>"
                     "<button type='submit'>Encrypt and Finish Setup</button>"
