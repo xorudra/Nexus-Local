@@ -4,11 +4,13 @@ Your personal AI dashboard — 19 providers, all on your machine.
 
 ## Setup
 
-### Option A: npm (coming soon)
+### Option A: npm (recommended)
 
-The `nexuslocal` npm package is ready (`package.json` + `bin/` launcher).
-To enable `npm install -g nexuslocal` from anywhere, the repo needs to be
-public or published to npmjs.com.
+```bash
+npm install -g github:xorudra/Nexus-Local
+```
+
+Then type **`nexuslocal`** from any directory. That's it.
 
 ### Option B: Manual
 
