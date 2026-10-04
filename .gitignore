@@ -1,0 +1,24 @@
+# Secrets - NEVER commit these
+.env
+keys.enc
+*.key
+*.pem
+
+# Runtime data
+app/engine-data/
+app/engine-logs/
+startup.log
+tools/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
