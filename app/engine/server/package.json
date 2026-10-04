@@ -21,7 +21,7 @@
     "db:migration:create": "tsx src/db/migrate/cli.ts create"
   },
   "dependencies": {
-    "@freellmapi/shared": "*",
+    "@freellmapi/shared": "file:../shared",
     "ajv": "^8.20.0",
     "compression": "^1.8.0",
     "cors": "^2.8.5",
