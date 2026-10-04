@@ -30,4 +30,17 @@ All local usage is logged to `usage.jsonl` and displayed on the quota cards.
 4. On first run, set your encryption password and enter your API keys — this includes the 5 relay provider keys (OpenRouter, Gemini, Groq, NVIDIA). Pollinations needs no key.
 5. Open http://127.0.0.1:8080 → log in with your encryption password. Sessions expire after 30 minutes idle.
 
+## FreeLLMAPI Gateway (optional)
+
+If you prefer a single unified key instead of entering 19 individual keys:
+
+1. Download `FreeLLMAPI-Windows.zip` from the [releases page](https://github.com/xorudra/Nexus-Local/releases)
+2. Follow the setup instructions in its README (install Node.js 18+, configure `.env`, run `start.bat`)
+3. The gateway runs on http://127.0.0.1:3001
+4. In Nexus Local, use the **FreeLLMAPI** provider option with:
+   - Gateway URL: `http://127.0.0.1:3001`
+   - API Key: your gateway's unified key
+
+This routes all requests through the gateway instead of individual provider keys.
+
 **Security notes:** The app only communicates over localhost, asks for a fresh decryption password at each launch, and never saves passwords or keys unencrypted on disk. All 19 providers run locally — no data leaves your machine except the API calls you make.
