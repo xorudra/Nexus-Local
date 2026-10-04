@@ -1,10 +1,10 @@
 @echo off
-title Nexus
+title Nexus-Local
 cd /d "%~dp0app"
 set "TOOLS_DIR=%~dp0tools"
 
 echo ============================================
-echo  Nexus - Your Personal AI Dashboard
+echo  Nexus-Local - Your Personal AI Dashboard
 echo ============================================
 echo.
 
@@ -73,13 +73,13 @@ if not exist "engine\server\node_modules" (
 
 :: Start engine
 echo Starting engine...
-start "Nexus Engine" cmd /k "cd /d "%~dp0app\engine\server" && set PATH=%PATH% && set PORT=3001 && set HOST=127.0.0.1 && set FREEAPI_DB_PATH=%~dp0app\engine-data\freeapi.db && set FREEAPI_CONFIG_PATH=%~dp0app\freellmapi.config.json && set FREEAPI_ENV_PATH=%~dp0app\.env && node dist\index.js"
+start "Nexus-Local Engine" cmd /k "cd /d "%~dp0app\engine\server" && set PATH=%PATH% && set PORT=3001 && set HOST=127.0.0.1 && set FREEAPI_DB_PATH=%~dp0app\engine-data\freeapi.db && set FREEAPI_CONFIG_PATH=%~dp0app\freellmapi.config.json && set FREEAPI_ENV_PATH=%~dp0app\.env && node dist\index.js"
 timeout /t 6 >nul
 
 :: Start dashboard
 echo.
 echo Open http://127.0.0.1:8080 in your browser
 echo.
-start "Nexus Dashboard" cmd /k "cd /d "%~dp0app" && set PATH=%PATH% && python server.py"
+start "Nexus-Local Dashboard" cmd /k "cd /d "%~dp0app" && set PATH=%PATH% && python server.py"
 echo Done! Keep both windows open.
 pause

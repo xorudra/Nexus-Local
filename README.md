@@ -1,33 +1,36 @@
-# Nexus
+# Nexus-Local
 
 Your personal AI dashboard — 19 providers, all on your machine.
 
 ## Setup
 
-1. Install **Node.js 18+** from https://nodejs.org/
-2. Install **Python 3.10+** from https://www.python.org/downloads/ (tick *Add to PATH*)
-3. Download this repo (Code → Download ZIP) and unzip
-4. Double-click **`start.bat`**
+1. Download this repo (Code → Download ZIP) and unzip
+2. Double-click **`start.bat`**
 
-That's it. Everything sets up automatically.
+That's it. The script automatically downloads portable Python + Node.js if missing, sets up everything, and launches.
+
+No manual installs. No admin rights needed.
+
+## First Run
+
+Two windows open (engine + dashboard). Then open **http://127.0.0.1:8080** in your browser.
+
+Set your password, enter the API key shown in the Engine window. Done.
 
 ## Structure
 
 ```
-├── start.bat   ← double-click to launch
+├── start.bat   ← double-click to launch (handles all setup)
 ├── README.md
-├── app/        ← dashboard + engine (you don't need to touch this)
+├── app/        ← dashboard + engine code
+├── tools/      ← auto-downloaded portable Python + Node.js (created on first run)
 └── deploy/     ← Render deployment config
 ```
 
-## First Run
-
-Two windows open (engine + dashboard). Open **http://127.0.0.1:8080**, set your password, enter your API key shown in the Engine window. Done.
-
 ## Providers (19)
 
-14 via built-in engine + 5 via built-in relay (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless).
+14 via built-in engine (HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde) + 5 via built-in relay (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless).
 
 ## Security
 
-Localhost only. AES-256 encrypted. Nothing leaves your machine except your AI requests.
+Runs on localhost only. API keys encrypted with AES-256. Nothing leaves your machine except the AI requests you make.
