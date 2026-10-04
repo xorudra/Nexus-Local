@@ -4,8 +4,15 @@ Your personal AI dashboard — 19 providers, all on your machine.
 
 ## Setup
 
-**Prerequisite:** Install [Node.js](https://nodejs.org/) (includes npm) first.
+**Prerequisite:** Install Node.js (includes npm).
 
+On Windows, open PowerShell or CMD and run:
+```bash
+winget install OpenJS.NodeJS
+```
+Or download from [nodejs.org](https://nodejs.org/).
+
+Then:
 ```bash
 npm install -g github:xorudra/Nexus-Local
 ```
