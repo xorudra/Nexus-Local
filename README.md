@@ -1,6 +1,6 @@
 # Nexus-Local
 
-Your personal AI dashboard — 19 providers, all on your machine.
+Your personal AI dashboard — 20 providers, all on your machine.
 
 ## Setup
 
@@ -25,17 +25,24 @@ Auto-installs dependencies and launches everything. No admin rights needed.
 
 Type `nexuslocal`. It starts the engine + dashboard and opens **http://127.0.0.1:8080** in your browser.
 
-FreeLLMAPI keys (Groq, Google, OpenRouter, NVIDIA) come pre-configured — just log in with your password.
+All 14 API keys come pre-configured — just log in with your password. Zero setup needed.
 
-To add relay keys, use the **Quick Import** box on the setup page: paste all keys at once as `name: key` (one per line), click Fill Fields Below, set your password, done.
+To use your own keys instead, delete `keys.enc` from the install folder and use the **Quick Import** box on the setup page: paste all keys at once as `name: key` (one per line), click Fill Fields Below, set your password, done.
 
 ## Pages
 
-- **Dashboard** (`/`) — chat with all providers, quota tracking
-- **Connections** (`/connections`) — visual flow chart of how dashboard → relay → engine → providers connect
-- **Settings** (`/settings`) — update API keys after login
+- **Dashboard** (`/`) — task composer with provider/model picker, image attachments, usage overview
+- **Connections** (`/connections`) — all providers grouped in expanders (Direct, Relay, FreeLLMAPI) with key status and usage
+- **Update Keys** (`/settings`) — update API keys after login (shows last 4 chars, blank = keep current)
 
 Use the ☰ menu (top-left) to navigate between pages.
+
+## Features
+
+- **Task Composer** — pick a provider (shown as "Relay: Groq" or "FreeLLMAPI: Groq"), get model autocomplete, attach images (JPG/PNG/WebP up to 8MB), send
+- **Provider Groups** — 14 direct providers, 5 relay providers, unified gateway — all with live key status
+- **Image Attachments** — vision-capable providers accept images alongside text
+- **Encrypted Storage** — all keys AES-256-GCM encrypted, PBKDF2 600k iterations, never stored as plaintext
 
 ## Uninstall
 
@@ -53,10 +60,12 @@ npm uninstall -g nexuslocal
 └── deploy/       ← Render deployment config
 ```
 
-## Providers (19)
+## Providers (20)
 
-14 via built-in engine (HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde) + 5 via built-in relay (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless).
+**14 Direct** (HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde) + **5 Relay** (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless) + **1 Unified Gateway** (FreeLLMAPI).
+
+Keyless providers (Pollinations, AI Horde, Kilo, OVH) work with no setup.
 
 ## Security
 
-Runs on localhost only. API keys encrypted with AES-256. Nothing leaves your machine except the AI requests you make.
+Runs on localhost only. API keys encrypted with AES-256-GCM (PBKDF2 600,000 iterations). Keys live only in memory after login — never written to disk as plaintext. Nothing leaves your machine except the AI requests you make.
