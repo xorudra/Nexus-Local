@@ -80,11 +80,17 @@ if errorlevel 1 (
 echo [%date% %time%] Python deps OK >> "%LOG%"
 
 rem Engine deps
+echo [%date% %time%] Checking engine deps >> "%LOG%"
 if not exist "engine\server\node_modules" (
+    echo [%date% %time%] node_modules missing >> "%LOG%"
     echo Installing engine (first run)...
-    cd engine\server
+    cd engine\server 2>>"%LOG%"
+    echo [%date% %time%] In server dir, running npm >> "%LOG%"
     call npm install --production 2>>"%LOG%"
-    cd ..\..
+    echo [%date% %time%] npm finished >> "%LOG%"
+    cd ..\.. 2>>"%LOG%"
+) else (
+    echo [%date% %time%] node_modules exists >> "%LOG%"
 )
 echo [%date% %time%] Engine deps OK >> "%LOG%"
 
