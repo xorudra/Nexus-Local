@@ -1,0 +1,39 @@
+import { providerHttpError } from './base.js';
+import { OpenAICompatProvider } from './openai-compat.js';
+function checkModel(requested, returned) {
+    // CLōD accepts friendly names including spaces, then reports the upstream
+    // namespaced ID. Compare their significant characters, not a hardcoded
+    // roster. Never accept the observed Llama/Trinity -> Gemma substitution.
+    const normalize = (id) => id.split('/').at(-1).toLowerCase().replace(/[\s._-]/g, '');
+    if (typeof returned !== 'string' || !returned || normalize(requested) !== normalize(returned)) {
+        throw Object.assign(new Error('CLōD returned a different or missing model identity'), { status: 502 });
+    }
+}
+export class ClodProvider extends OpenAICompatProvider {
+    async validationResult(response) {
+        if (!response.ok && ![401, 403].includes(response.status)) {
+            throw providerHttpError(response, 'CLōD key validation is temporarily inconclusive');
+        }
+        return super.validationResult(response);
+    }
+    constructor() {
+        // Same Cloudflare challenge as Septor for tool User-Agents from datacenter
+        // IPs (#1298); a product UA gets the real 401/200 answer.
+        super({
+            platform: 'clod', name: 'CLōD', baseUrl: 'https://api.clod.io/v1',
+            extraHeaders: { 'User-Agent': 'FreeLLMAPI/1.0' },
+        });
+    }
+    async chatCompletion(apiKey, messages, modelId, options, quotaContext) {
+        const response = await super.chatCompletion(apiKey, messages, modelId, options, quotaContext);
+        checkModel(modelId, response.model);
+        return response;
+    }
+    async *streamChatCompletion(apiKey, messages, modelId, options, quotaContext) {
+        for await (const chunk of super.streamChatCompletion(apiKey, messages, modelId, options, quotaContext)) {
+            checkModel(modelId, chunk.model);
+            yield chunk;
+        }
+    }
+}
+//# sourceMappingURL=clod.js.map

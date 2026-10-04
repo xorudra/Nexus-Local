@@ -1,0 +1,1 @@
+{"version":3,"file":"structured-output.d.ts","sourceRoot":"","sources":["../../src/lib/structured-output.ts"],"names":[],"mappings":"AAsBA,MAAM,MAAM,eAAe,GACvB;IAAE,EAAE,EAAE,IAAI,CAAC;IAAC,OAAO,EAAE,MAAM,CAAC;IAAC,MAAM,EAAE,OAAO,CAAA;CAAE,GAC9C;IAAE,EAAE,EAAE,KAAK,CAAA;CAAE,CAAC;AAiClB,wBAAgB,kBAAkB,CAAC,OAAO,EAAE,MAAM,GAAG,eAAe,CAmBnE"}

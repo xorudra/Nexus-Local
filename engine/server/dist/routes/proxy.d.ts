@@ -1,0 +1,32 @@
+import type { Request } from 'express';
+import type { ChatMessage } from '@freellmapi/shared/types.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError } from '../lib/error-classify.js';
+import { logRequest } from '../lib/request-log.js';
+import { exhaustedRetryError } from '../lib/fallback-loop.js';
+export declare const proxyRouter: import("express-serve-static-core").Router;
+export { timingSafeStringEqual } from '../lib/system-prompt.js';
+export declare function extractApiToken(req: Request): string | undefined;
+export declare function getRequestGroupId(req: Request): string;
+type TraceEvent = 'start' | 'next' | 'ok' | 'fail';
+export declare function traceRouteEvent(scope: 'Proxy' | 'Responses', opts: {
+    event: TraceEvent;
+    requestId: string;
+    attempt: number;
+    platform: string;
+    model: string;
+    requestedModel?: string;
+    latencyMs?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    error?: string;
+}): void;
+export { exhaustedRetryError };
+export declare function clearReasoningMemory(): void;
+export declare function getStickyModel(messages: ChatMessage[], sessionIdHeader?: string, strategyKey?: string): number | undefined;
+export declare function setStickyModel(messages: ChatMessage[], modelDbId: number, sessionIdHeader?: string, strategyKey?: string): void;
+export { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError };
+export declare function streamChunkText(chunk: any): string;
+export declare function streamReasoningText(chunk: any): string;
+export declare function completionReasoningText(result: any): string;
+export { logRequest };
+//# sourceMappingURL=proxy.d.ts.map

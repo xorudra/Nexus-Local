@@ -1,0 +1,1 @@
+{"version":3,"file":"media-screen.d.ts","sourceRoot":"","sources":["../../src/lib/media-screen.ts"],"names":[],"mappings":"AAwBA,qBAAa,iBAAkB,SAAQ,KAAK;IAC1C,QAAQ,CAAC,UAAU,OAAO;IAC1B,QAAQ,CAAC,IAAI,mBAAmB;gBACpB,OAAO,EAAE,MAAM;CAI5B;AA6ED;;;;;GAKG;AACH,wBAAsB,eAAe,CAAC,QAAQ,EAAE,KAAK,CAAC;IAAE,OAAO,CAAC,EAAE,OAAO,CAAA;CAAE,CAAC,GAAG,OAAO,CAAC,IAAI,CAAC,CAoE3F"}

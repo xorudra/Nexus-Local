@@ -1,0 +1,1 @@
+{"version":3,"file":"provider-size-parser.d.ts","sourceRoot":"","sources":["../../src/lib/provider-size-parser.ts"],"names":[],"mappings":"AA2DA,MAAM,WAAW,oBAAoB;IACnC,MAAM,EAAE,MAAM,CAAC;IACf,IAAI,EAAE,OAAO,GAAG,OAAO,CAAC;CACzB;AAED,wBAAgB,yBAAyB,CAAC,QAAQ,EAAE,MAAM,EAAE,OAAO,EAAE,MAAM,GAAG,IAAI,GAAG,SAAS,GAAG,oBAAoB,GAAG,IAAI,CAQ3H"}

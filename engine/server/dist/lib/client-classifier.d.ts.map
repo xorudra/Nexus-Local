@@ -1,0 +1,1 @@
+{"version":3,"file":"client-classifier.d.ts","sourceRoot":"","sources":["../../src/lib/client-classifier.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,OAAO,EAAE,MAAM,SAAS,CAAC;AAEvC,eAAO,MAAM,aAAa,gTAyBhB,CAAC;AAEX,MAAM,MAAM,WAAW,GAAG,CAAC,OAAO,aAAa,CAAC,CAAC,MAAM,CAAC,CAAC;AAOzD;;;;GAIG;AACH,wBAAgB,mBAAmB,CAAC,GAAG,EAAE,OAAO,GAAG,WAAW,CA2D7D"}

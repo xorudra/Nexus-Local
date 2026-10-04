@@ -1,0 +1,1 @@
+{"version":3,"file":"registry.d.ts","sourceRoot":"","sources":["../../../src/services/compression/registry.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,iBAAiB,EAAE,MAAM,YAAY,CAAC;AAIpD,wBAAgB,cAAc,CAAC,MAAM,EAAE,iBAAiB,GAAG,IAAI,CAG9D;AAED,wBAAgB,SAAS,CAAC,EAAE,EAAE,MAAM,GAAG,iBAAiB,GAAG,SAAS,CAEnE;AAED,wBAAgB,oBAAoB,IAAI,iBAAiB,EAAE,CAE1D;AAED,wBAAgB,wBAAwB,IAAI,IAAI,CAE/C"}

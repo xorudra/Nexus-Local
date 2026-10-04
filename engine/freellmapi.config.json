@@ -1,0 +1,42 @@
+{
+  "customProviders": [
+    {
+      "apiKey": "no-key",
+      "baseUrl": "https://text.pollinations.ai/openai",
+      "label": "Pollinations (keyless direct)",
+      "models": [
+        {
+          "displayName": "Pollinations text",
+          "fallbackEnabled": true,
+          "model": "openai",
+          "supportsTools": true
+        }
+      ]
+    }
+  ],
+  "routing": {
+    "strategy": "smartest"
+  },
+  "keys": [
+    {
+      "platform": "google",
+      "label": "freellmapi (forapikeyonly2008)",
+      "key": "REDACTED"
+    },
+    {
+      "platform": "openrouter",
+      "label": "freellmapi (forapikeyonly2008)",
+      "key": "REDACTED"
+    },
+    {
+      "platform": "groq",
+      "label": "rudra-direct (outside gmail)",
+      "key": "REDACTED"
+    },
+    {
+      "platform": "nvidia",
+      "label": "freellmapi (forapikeyonly2008)",
+      "key": "REDACTED"
+    }
+  ]
+}
