@@ -86,8 +86,12 @@ echo [%date% %time%] node_modules missing, installing >> "%LOG%"
 echo Installing engine (first run)...
 cd engine\server 2>>"%LOG%"
 echo [%date% %time%] In server dir >> "%LOG%"
-call npm install --production 2>>"%LOG%"
-echo [%date% %time%] npm finished >> "%LOG%"
+call npm install 2>>"%LOG%"
+echo [%date% %time%] npm finished, verifying dotenv >> "%LOG%"
+if exist "node_modules\\dotenv" goto :dotenv_ok
+echo Retrying npm install - dotenv missing...
+call npm install 2>>"%LOG%"
+:dotenv_ok
 cd ..\.. 2>>"%LOG%"
 :engine_ok
 echo [%date% %time%] Engine deps OK >> "%LOG%"
