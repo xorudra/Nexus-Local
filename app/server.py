@@ -371,7 +371,9 @@ class Handler(BaseHTTPRequestHandler):
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required></label>"
                     "<button type='submit'>Encrypt and Finish Setup</button>"
-                    "</form></div></body></html>")
+                    "</form>"
+                    "<p style='text-align:center;margin-top:20px;color:#9aa3b2'>Already have keys set up? <a href='/login' style='color:#3b82f6'>Log in →</a></p>"
+                    "</div></body></html>")
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
