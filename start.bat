@@ -7,22 +7,36 @@ echo  Nexus - Your Personal AI Dashboard
 echo ============================================
 echo.
 
-:: Check Python
+:: Check Python - auto-install via winget if missing
 where python >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Python 3.10+ not found.
-    echo Download from https://www.python.org/downloads/ (tick "Add to PATH")
+    echo Python not found. Installing via winget...
+    winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 (
+        echo ERROR: Auto-install failed.
+        echo Please install manually from https://www.python.org/downloads/ (tick "Add to PATH")
+        pause
+        exit /b 1
+    )
+    echo Python installed. You may need to restart this script.
     pause
-    exit /b 1
+    exit /b 0
 )
 
-:: Check Node.js
+:: Check Node.js - auto-install via winget if missing
 where node >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Node.js 18+ not found.
-    echo Download from https://nodejs.org/
+    echo Node.js not found. Installing via winget...
+    winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 (
+        echo ERROR: Auto-install failed.
+        echo Please install manually from https://nodejs.org/
+        pause
+        exit /b 1
+    )
+    echo Node.js installed. You may need to restart this script.
     pause
-    exit /b 1
+    exit /b 0
 )
 
 :: Setup .env
