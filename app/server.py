@@ -668,6 +668,7 @@ class Handler(BaseHTTPRequestHandler):
             provider = data.get("provider")
             model = data.get("model")
             message = data.get("message")
+            image = data.get("image")  # base64 data URI, optional
             if not provider or not model or not message:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
@@ -721,7 +722,7 @@ class Handler(BaseHTTPRequestHandler):
                 headers["X-Title"] = "NexusLocal"
             body = {
                 "model": model,
-                "messages": [{"role": "user", "content": message}],
+                "messages": [{"role": "user", "content": ([{"type": "text", "text": message}] + ([{"type": "image_url", "image_url": {"url": image}}] if image else [])) if image else message}],
                 "max_tokens": 1024,
             }
             try:
