@@ -2,8 +2,10 @@ services:
   - type: web
     name: nexus-local
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python server.py
+    buildCommand: pip install -r app/requirements.txt
+    startCommand: python app/server.py
     envVars:
       - key: HOST
         value: 0.0.0.0
+      - key: PORT
+        value: 10000
