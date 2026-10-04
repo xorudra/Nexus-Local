@@ -404,6 +404,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # Show current keys (masked) with fields to update
             current = getattr(Handler, 'keys', {})
+            sidebar = (Path(__file__).parent / "sidebar.html").read_text(encoding="utf-8")
             def masked(k):
                 v = current.get(k, "")
                 return f"***{v[-4:]}" if v and len(v) > 4 else ("set" if v else "not set")
@@ -418,7 +419,7 @@ class Handler(BaseHTTPRequestHandler):
                     "label{display:block;margin:12px 0 4px;color:#9aa3b2;font-size:14px}"
                     "input{width:100%;box-sizing:border-box;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px;font-size:16px}"
                     "button{background:#3b82f6;color:#fff;border:0;border-radius:12px;padding:16px 32px;font-size:16px;font-weight:600;width:100%;margin-top:20px;cursor:pointer}"
-                    "</style></head><body>" + sidebar + "<div class='card' style='margin-left:40px'"
+                    "</style></head><body>" + sidebar + "<div class='card' style='margin-left:40px'>"
                     "<h1>Update Keys</h1>"
                     "<p style='color:#9aa3b2'>Only fill in the keys you want to change. Enter your password to save.</p>"
                     "<form method='POST' action='/settings'>" + rows +
@@ -511,7 +512,7 @@ class Handler(BaseHTTPRequestHandler):
                             "daily_tokens": provider_data.get("daily_tokens", {"limit": None, "notes": "", "source": ""}),
                             "monthly_tokens": provider_data.get("monthly_tokens", {"limit": None, "notes": "", "source": ""}),
                         },
-                        "key_configured": bool((Handler.keys or {}).get(name)),
+                        "key_configured": bool((Handler.keys or {}).get(name)) or name in ("aihorde", "kilo", "ovh", "pollinations", "relay_pollinations"),
                         "daily_usage": {"requests": 0, "tokens": 0},
                         "monthly_usage": {"requests": 0, "tokens": 0},
                     })

@@ -23,6 +23,7 @@ body {
     display: flex;
     align-items: center;
     padding: 20px 32px;
+    padding-left: 70px;
     background: #11141b;
     border-bottom: 1px solid #1e2430;
 }
@@ -409,8 +410,7 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
     <div id="combined-usage"></div>
 </div>
 
-<div class="eyebrow" style="padding: 0 32px; margin: 20px auto; max-width: 1080px;">PROVIDERS</div>
-<div class="provider-grid" id="provider-grid"></div>
+<!-- Providers moved to /connections -->
 
 <div class="composer" id="composer-card">
     <div class="eyebrow">TASK COMPOSER</div>
@@ -507,8 +507,8 @@ function sparkline(data, label) {
 
 function renderUsage(data) {
     const providers = data.providers || [];
-    providerGrid.innerHTML = '';
-    combinedUsage.innerHTML = '';
+    if (providerGrid) providerGrid.innerHTML = '';
+    if (combinedUsage) combinedUsage.innerHTML = '';
     // Combined 7-day history (d0 = today at index 6)
     const ch = data.history || {requests: [0,0,0,0,0,0,0], tokens: [0,0,0,0,0,0,0]};
     const totReqToday = ch.requests[6] || 0;
@@ -538,7 +538,7 @@ function renderUsage(data) {
             + '<div class="trend-today">' + reqToday + ' requests · ' + tokToday.toLocaleString() + ' tokens today</div>'
             + limitText
             + '</div>';
-        providerGrid.appendChild(div);
+        if (providerGrid) providerGrid.appendChild(div);
     });
 }
 

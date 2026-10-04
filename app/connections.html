@@ -1,20 +1,420 @@
-<!DOCTYPE html><html><head><meta charset='utf-8'>
-<meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Nexus Local - Connections</title><style>
-body{background:#0a0c11;color:#e6e9f0;font-family:system-ui,sans-serif;margin:0;padding:24px;padding-left:70px}
-h1{font-size:2rem;font-weight:800}h1 span{color:#3b82f6}
-.flow{max-width:900px;margin:0 auto}
-.node{background:#11141b;border:1px solid #1e2430;border-radius:16px;padding:20px;margin:12px 0;text-align:center}
-.node .addr{font-family:monospace;color:#9aa3b2;font-size:13px;margin-top:6px}
-.arrow{text-align:center;color:#3b82f6;font-size:24px;margin:4px 0}
-.branch{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
-.branch .node{flex:1;min-width:200px}
-.relay{border-color:#22c55e}.relay h3{color:#22c55e;margin:0 0 8px}
-.engine{border-color:#3b82f6}.engine h3{color:#3b82f6;margin:0 0 8px}
-.direct{border-color:#f59e0b}.direct h3{color:#f59e0b;margin:0 0 8px}
-.prov{font-size:13px;color:#9aa3b2;margin:4px 0}
-.keyless{color:#22c55e;font-size:12px}
-</style></head><body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus Local - Connections</title>
+<style>
+
+/* Global */
+body {
+    margin: 0;
+    font-family: 'IBM Plex Mono', monospace;
+    background: #0a0c11;
+    color: #dde;
+    width: 100%;
+    overflow-x: hidden;
+    background-image: linear-gradient(#1e2430 1px, transparent 1px),
+        linear-gradient(90deg, #1e2430 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    align-items: center;
+    padding: 20px 32px;
+    padding-left: 70px;
+    background: #11141b;
+    border-bottom: 1px solid #1e2430;
+}
+
+.header h1 {
+    font-size: 1.8rem;
+    color: #fff;
+    margin: 0;
+}
+
+.header .wordmark {
+    flex: none;
+    font-size: 1.6rem;
+    color: #3b82f6;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.header .local-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    color: #9aa3b2;
+    background: #1e2430;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.header .spacer {
+    flex: 1;
+}
+
+.header button.logout {
+    background: none;
+    border: none;
+    color: #8c8c8c;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px 8px;
+    transition: color 0.2s;
+}
+
+.header button.logout:hover {
+    color: #fff;
+}
+
+/* Hero */
+.hero {
+    background: #11141b;
+    padding: 32px 48px;
+    margin: 20px auto;
+    max-width: 1080px;
+    border-radius: 12px;
+    border: 1px solid #1e2430;
+}
+
+.hero h2 {
+    margin: 0 0 12px 0;
+    font-size: clamp(2rem, 5vw, 3rem);
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+}
+
+.hero h2 span.accent {
+    color: #3b82f6;
+}
+
+/* Provider cards */
+.provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 0 32px;
+    margin: 20px auto;
+    max-width: 1080px;
+}
+
+.card {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    background: #11141b;
+    border-radius: 20px;
+    padding: 28px;
+    border: 1px solid #1e2430;
+}
+
+.card h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.2rem;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+.card .icon {
+    background: #3b82f6;
+    color: #fff;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.card .provider-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 17px;
+    letter-spacing: 0.05em;
+    color: #fff;
+    margin: 0 0 4px 0;
+}
+
+.card .provider-subtitle {
+    font-size: 14px;
+    color: #8a93a6;
+    margin: 0 0 12px 0;
+}
+
+.pill {
+    display: inline-block;
+    background: #0cff6a;
+    color: #111;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    vertical-align: middle;
+    margin-top: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.pill.missing {
+    background: #ff4d4d;
+    color: #111;
+}
+
+/* Usage rows */
+.usage {
+    font-size: 0.875rem;
+    color: #aaa;
+    margin: 4px 0;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.bar {
+    background: #333;
+    height: 6px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+.bar > div {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #3b82f6, #06d);
+}
+
+.bar.hot > div {
+    background: linear-gradient(90deg, #ff4d4d, #ff004d);
+}
+
+/* Usage trend sparklines */
+.spark {
+    display: block;
+    width: 100%;
+    max-width: 220px;
+    height: 36px;
+    margin: 8px 0 4px 0;
+}
+
+.spark .spark-line {
+    fill: none;
+    stroke: #4a9eff;
+    stroke-width: 1.5;
+}
+
+.spark .spark-area {
+    fill: rgba(74, 158, 255, 0.12);
+    stroke: none;
+}
+
+.spark .spark-grid {
+    stroke: #1e2430;
+    stroke-width: 1;
+}
+
+.trend-today {
+    font-size: 0.8rem;
+    color: #dde;
+    margin: 2px 0;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.trend-limit {
+    font-size: 0.72rem;
+    color: #6b7280;
+    margin: 2px 0;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Composer card */
+.composer {
+    background: #11141b;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px auto;
+    max-width: 1080px;
+    border: 1px solid #1e2430;
+}
+
+.composer h2 {
+    margin: 0 0 12px 0;
+    font-size: 1.5rem;
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+.composer h2 span.accent {
+    color: #3b82f6;
+}
+
+.composer .form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.composer label {
+    flex: 1 1 120px;
+    font-size: 0.9rem;
+    color: #aaa;
+    align-self: center;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.composer input, .composer select, .composer textarea {
+    flex: 2 1 200px;
+    padding: 8px 10px;
+    background: #1e2430;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #eee;
+    font-size: 1em;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.composer button {
+    flex: 1 1 100%;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 16px 32px;
+    margin-top: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+.composer button:hover {
+    background: #2563eb;
+}
+
+.composer pre {
+    background: #1e2430;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 12px;
+    color: #cce;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Refresh button */
+.refresh {
+    display: block;
+    margin: 20px auto;
+    padding: 10px 20px;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+}
+
+.refresh:hover {
+    background: #2563eb;
+}
+
+/* Typography */
+::placeholder {
+    color: #555;
+}
+
+/* Eyebrow labels */
+.eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #3b82f6;
+    letter-spacing: 0.35em;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+    .header {
+        padding: 16px;
+    }
+
+    .hero, .provider-grid, .composer {
+        margin: 16px;
+        padding: 24px;
+    }
+
+    .hero h2 {
+        font-size: 2rem;
+    }
+
+    .composer button {
+        width: 100%;
+        padding: 16px;
+    }
+
+    .card {
+        padding: 24px;
+    }
+}
+
+/* Expander styles */
+details.provider-group {
+    max-width: 1080px;
+    margin: 16px auto;
+    background: #11141b;
+    border: 1px solid #1e2430;
+    border-radius: 16px;
+    overflow: hidden;
+}
+details.provider-group summary {
+    padding: 20px 24px;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: 600;
+    color: #e6e9f0;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+details.provider-group summary::-webkit-details-marker { display: none; }
+details.provider-group summary .count {
+    font-size: 14px;
+    color: #9aa3b2;
+    font-weight: normal;
+}
+details.provider-group[open] summary {
+    border-bottom: 1px solid #1e2430;
+}
+.group-content {
+    padding: 20px;
+}
+.page-header {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 32px 32px 0;
+}
+.page-header h1 {
+    font-size: 2rem;
+    margin: 0 0 8px;
+}
+.page-header p {
+    color: #9aa3b2;
+    margin: 0;
+}
+</style>
+</head>
+<body>
 <!-- Nexus Sidebar -->
 <style>
 .nexus-burger{position:fixed;top:18px;left:18px;z-index:1001;background:#11141b;border:1px solid #1e2430;border-radius:10px;padding:10px 12px;cursor:pointer;color:#e6e9f0;font-size:20px;line-height:1}
@@ -44,33 +444,209 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
 });
 })();
 </script>
-<div class='flow'>
-<h1>How <span>everything</span> connects</h1>
-<p style='color:#9aa3b2'>Your browser talks to the dashboard. The dashboard routes to the relay, the engine, or providers directly.</p>
 
-<div class='node'><h3>Your Browser</h3><div class='addr'>You are here</div></div>
-<div class='arrow'>↓</div>
-<div class='node'><h3>Nexus Dashboard</h3><div class='addr'>127.0.0.1:8080</div><div class='prov'>Chat UI · Key management · Quota tracking</div></div>
-<div class='arrow'>↓</div>
-
-<div class='branch'>
-<div class='node relay'><h3>Integrated Relay</h3><div class='addr'>127.0.0.1:8099</div>
-<div class='prov'>relay_openrouter</div><div class='prov'>relay_gemini</div>
-<div class='prov'>relay_groq</div><div class='prov'>relay_nvidia</div>
-<div class='prov'>relay_pollinations <span class='keyless'>(keyless)</span></div>
-<div class='prov' style='margin-top:8px'>Your outside-Gmail keys</div></div>
-
-<div class='node engine'><h3>FreeLLMAPI Engine</h3><div class='addr'>127.0.0.1:3001</div>
-<div class='prov'>groq · google · openrouter · nvidia</div>
-<div class='prov'>siliconflow · huggingface · zhipu</div>
-<div class='prov'>cohere · mistral · cloudflare</div>
-<div class='prov'>pollinations · aihorde · kilo · ovh <span class='keyless'>(keyless)</span></div>
-<div class='prov' style='margin-top:8px'>forapikeyonly2008@gmail.com keys</div></div>
+<div class="page-header">
+    <h1>Provider <span class="accent">Connections</span></h1>
+    <p>All your AI providers, grouped by source. Expand a group to see details.</p>
 </div>
 
-<div class='arrow'>↓</div>
-<div class='node direct'><h3>14 Direct Providers</h3>
-<div class='prov'>Keys stored in your encrypted vault, called directly from the dashboard</div>
-<div class='prov'>aihorde · cloudflare · cohere · google · groq · huggingface · kilo</div>
-<div class='prov'>mistral · nvidia · openrouter · ovh · pollinations · siliconflow · zhipu</div></div>
-</div></body></html>
+<details class="provider-group" open>
+    <summary>Direct Providers <span class="count" id="direct-count"></span></summary>
+    <div class="group-content"><div class="provider-grid" id="direct-grid"></div></div>
+</details>
+
+<details class="provider-group">
+    <summary>Relay Providers <span class="count" id="relay-count"></span></summary>
+    <div class="group-content"><div class="provider-grid" id="relay-grid"></div></div>
+</details>
+
+<details class="provider-group">
+    <summary>FreeLLMAPI Providers <span class="count" id="freellmapi-count"></span></summary>
+    <div class="group-content"><div class="provider-grid" id="freellmapi-grid"></div></div>
+</details>
+
+<script>
+
+const providerGrid = document.getElementById('provider-grid');
+const combinedUsage = document.getElementById('combined-usage');
+const logoutBtn = document.getElementById('logout-btn');
+const composerProviders = document.getElementById('composer-provider');
+const composerSend = document.getElementById('composer-send');
+const composerReply = document.getElementById('composer-reply');
+
+async function fetchQuotas() {
+    try {
+        const r = await fetch('/api/quotas');
+        if (r.status === 401) {
+            location.href = '/login';
+            return;
+        }
+        const data = await r.json();
+        renderUsage(data);
+    } catch (e) {
+        console.error(e);
+        providerGrid.innerHTML = '<p style="color: #ff8">Failed to load quotas</p>';
+    }
+}
+
+async function populateComposer() {
+    try {
+        const r = await fetch('/api/quotas');
+        const data = await r.json();
+        composerProviders.innerHTML = '';
+        data.providers.forEach(p => {
+            if (p.key_configured) {
+                const opt = document.createElement('option');
+                opt.value = p.provider;
+                opt.textContent = p.provider;
+                composerProviders.appendChild(opt);
+            }
+        });
+    } catch (e) {
+        console.error('Composer init', e);
+    }
+}
+
+function barRow(label, used, limit) {
+    if (limit == null) return `<div class="usage">${label}: ${used} – <i class="nocap">No published cap</i></div>`;
+    const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+    const hot = pct >= 90 ? ' hot' : '';
+    return `<div class="usage">${label}: ${used}/${limit}</div><div class="bar${hot}"><div style="width: ${pct}%"></div></div>`;
+}
+
+function sparkline(data, label) {
+    const w = 220, h = 36, pad = 3;
+    const max = Math.max.apply(null, data.concat([1]));
+    const min = Math.min.apply(null, data.concat([0]));
+    const range = (max - min) || 1;
+    const stepX = (w - pad * 2) / (data.length - 1);
+    const pts = data.map(function(v, i) {
+        const x = (pad + i * stepX).toFixed(1);
+        const y = (h - pad - ((v - min) / range) * (h - pad * 2)).toFixed(1);
+        return x + ',' + y;
+    });
+    const line = pts.join(' ');
+    const area = pad + ',0 ' + line + ' ' + (w - pad).toFixed(1) + ',0';
+    const gridY = (h / 2).toFixed(1);
+    const esc = (label || '').replace(/"/g, '&quot;');
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + esc + '">'
+        + '<line class="spark-grid" x1="' + pad + '" y1="' + gridY + '" x2="' + (w - pad) + '" y2="' + gridY + '"/>'
+        + '<polygon class="spark-area" points="' + area + '"/>'
+        + '<polyline class="spark-line" points="' + line + '"/>'
+        + '</svg>';
+}
+
+function renderUsage(data) {
+    const providers = data.providers || [];
+    const directGrid = document.getElementById('direct-grid');
+    const relayGrid = document.getElementById('relay-grid');
+    const freellmapiGrid = document.getElementById('freellmapi-grid');
+    if (directGrid) directGrid.innerHTML = '';
+    if (relayGrid) relayGrid.innerHTML = '';
+    if (freellmapiGrid) freellmapiGrid.innerHTML = '';
+    // Dashboard page elements (may not exist on connections page)
+    if (typeof providerGrid !== 'undefined' && providerGrid) providerGrid.innerHTML = '';
+    if (typeof combinedUsage !== 'undefined' && combinedUsage) combinedUsage.innerHTML = '';
+    // Combined 7-day history (d0 = today at index 6)
+    const ch = data.history || {requests: [0,0,0,0,0,0,0], tokens: [0,0,0,0,0,0,0]};
+    const totReqToday = ch.requests[6] || 0;
+    const totTokToday = ch.tokens[6] || 0;
+    combinedUsage.innerHTML = '<h3>Combined Usage</h3>'
+        + '<div class="usage">Resets vary by provider — see individual cards below</div>'
+        + sparkline(ch.requests, 'Combined 7-day requests')
+        + '<div class="trend-today">' + totReqToday + ' requests · ' + totTokToday.toLocaleString() + ' tokens today</div>';
+    const KEYLESS = ['aihorde', 'kilo', 'ovh', 'pollinations', 'relay_pollinations'];
+    let directCount = 0, relayCount = 0, freellmapiCount = 0;
+    providers.forEach(function(p) {
+        const div = document.createElement('div');
+        div.className = 'card';
+        const h = p.history || {requests: [0,0,0,0,0,0,0], tokens: [0,0,0,0,0,0,0]};
+        const reqToday = h.requests[6] || 0;
+        const tokToday = h.tokens[6] || 0;
+        // Only show a limit where one is really published — never invent.
+        let limitText = '';
+        const drl = p.limits && p.limits.daily_requests && p.limits.daily_requests.limit;
+        if (typeof drl === 'number') {
+            limitText = '<div class="trend-limit">Limit: ' + drl + '/day</div>';
+        }
+        div.innerHTML = '<div class="icon">◆</div><div>'
+            + '<h3 class="provider-name">' + escapeHtml(p.display_name || p.provider) + '</h3>'
+            + '<div class="usage">Key: <span class="pill' + (p.key_configured ? '' : (KEYLESS.includes(p.provider) ? ' keyless' : ' missing')) + '">'
+            + (p.key_configured ? '✓' : (KEYLESS.includes(p.provider) ? '○ keyless' : '✗')) + '</span></div>'
+            + '<div class="usage">Reset: ' + escapeHtml(p.reset || '') + '</div>'
+            + sparkline(h.requests, (p.display_name || p.provider) + ' 7-day requests')
+            + '<div class="trend-today">' + reqToday + ' requests · ' + tokToday.toLocaleString() + ' tokens today</div>'
+            + limitText
+            + '</div>';
+        const pname = p.provider || '';
+        if (pname.startsWith('relay_')) {
+            if (relayGrid) relayGrid.appendChild(div);
+            relayCount++;
+        } else if (pname === 'freellmapi') {
+            if (freellmapiGrid) freellmapiGrid.appendChild(div);
+            freellmapiCount++;
+        } else {
+            if (directGrid) directGrid.appendChild(div);
+            else if (typeof providerGrid !== 'undefined' && providerGrid) providerGrid.appendChild(div);
+            directCount++;
+        }
+    });
+    // Update counts
+    const dc = document.getElementById('direct-count');
+    const rc = document.getElementById('relay-count');
+    const fc = document.getElementById('freellmapi-count');
+    if (dc) dc.textContent = '(' + directCount + ')';
+    if (rc) rc.textContent = '(' + relayCount + ')';
+    if (fc) fc.textContent = '(' + freellmapiCount + ')';
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+populateComposer();
+fetchQuotas();
+setInterval(fetchQuotas, 10000);
+
+document.getElementById("refresh-quotas").addEventListener("click", async () => {
+    const r = await fetch("/api/refresh", { method: "POST" });
+    if (r.status === 401) {
+        location.href = "/login";
+        return;
+    }
+    fetchQuotas();
+});
+
+logoutBtn.addEventListener('click', () => {
+    fetch('/api/logout', { method: 'POST' }).then(() => location.href = '/login');
+});
+
+composerSend.addEventListener('click', async () => {
+    const provider = composerProviders.value;
+    const model = document.getElementById('composer-model').value;
+    const msg = document.getElementById('composer-message').value;
+    if (!provider || !model || !msg) {
+        composerReply.textContent = 'Provider, model, & message required';
+        return;
+    }
+    composerSend.disabled = true;
+    composerReply.textContent = '…';
+    try {
+        const r = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, model, message: msg })
+        });
+        const j = await r.json();
+        composerReply.textContent = j.error ? j.error : j.reply;
+    } catch (e) {
+        composerReply.textContent = 'Error ' + e.message;
+    } finally {
+        composerSend.disabled = false;
+    }
+});
+
+</script>
+</body>
+</html>
