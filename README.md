@@ -2,41 +2,34 @@
 
 Your personal AI dashboard — all providers on your machine, zero cloud dependency.
 
-## Quick Setup (Recommended: FreeLLMAPI)
+## One-Command Setup (Easiest)
 
-The simplest way — one key for everything:
+1. Download `setup.bat` from the [releases page](https://github.com/xorudra/Nexus-Local/releases)
+2. Double-click it
 
+That's it. It checks for Python and Node.js, downloads everything, configures the gateway, and starts both services. You'll only need to enter your FreeLLMAPI key in Nexus Local setup.
+
+## Manual Setup
+
+If you prefer to set up each piece yourself:
+
+### FreeLLMAPI Gateway
 1. Install **Node.js 18+** from https://nodejs.org/ (LTS version)
-2. Install **Python 3.10+** from https://www.python.org/downloads/ (tick *Add to PATH*)
-3. Download **both** from the [releases page](https://github.com/xorudra/Nexus-Local/releases):
-   - `FreeLLMAPI-Windows.zip` — the gateway
-   - `NexusLocal.zip` — the dashboard
-4. Unzip `FreeLLMAPI-Windows.zip`:
-   - Copy `.env.example` to `.env`
-   - Generate an encryption key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-   - Put it in `.env` as `ENCRYPTION_KEY`
-   - Double-click `start.bat` (first run installs dependencies)
-   - Gateway runs on http://127.0.0.1:3001 — keep this window open
-5. Unzip `NexusLocal.zip`:
-   - Double-click `start.bat`
-   - When asked for provider keys, choose **FreeLLMAPI** only:
-     - Gateway URL: `http://127.0.0.1:3001`
-     - API Key: your gateway's unified key (shown in the gateway console on first run)
-   - Skip the individual provider keys
-6. Open http://127.0.0.1:8080 → log in with your encryption password
+2. Download `FreeLLMAPI-Windows.zip` from the [releases page](https://github.com/xorudra/Nexus-Local/releases)
+3. Unzip, copy `.env.example` to `.env`
+4. Generate an encryption key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+5. Put it in `.env` as `ENCRYPTION_KEY`
+6. Double-click `start.bat` — gateway runs on http://127.0.0.1:3001
 
-That's it. All requests go through the gateway with one key.
-
-## Manual Setup (19 Individual Keys)
-
-If you prefer not to run the gateway, you can enter each provider's API key directly:
-
-**14 providers:** HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde
-
-**5 relay providers** (built-in, auto-starts on 127.0.0.1:8099):
-- OpenRouter, Gemini (Google), Groq, NVIDIA, Pollinations (keyless)
-
-On first run, enter each key when prompted. They're stored AES-256 encrypted.
+### Nexus Local Dashboard
+1. Install **Python 3.10+** from https://www.python.org/downloads/ (tick *Add to PATH*)
+2. Download `NexusLocal.zip` from the [releases page](https://github.com/xorudra/Nexus-Local/releases)
+3. Unzip, double-click `start.bat`
+4. When asked for provider keys, choose **FreeLLMAPI**:
+   - Gateway URL: `http://127.0.0.1:3001`
+   - API Key: your gateway's unified key (shown in gateway console on first run)
+   - Or enter 19 individual provider keys if you prefer (14 + 5 relay, all built-in)
+5. Open http://127.0.0.1:8080 → log in with your encryption password
 
 ## Task Composer
 
