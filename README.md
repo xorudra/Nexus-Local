@@ -6,22 +6,28 @@ Your personal AI dashboard — 19 providers, all on your machine.
 
 1. Install **Node.js 18+** from https://nodejs.org/
 2. Install **Python 3.10+** from https://www.python.org/downloads/ (tick *Add to PATH*)
-3. Download `NexusLocal.zip` from https://github.com/xorudra/Nexus-Local/blob/main/NexusLocal.zip
-4. Unzip — you'll see a `Nexus` folder
-5. Open it, double-click **`start.bat`**
+3. Download this repo (Code → Download ZIP) and unzip
+4. Double-click **`start.bat`**
 
-That's it. Three things in the folder: `start.bat`, `README.md`, and `app` (everything else lives in there, you don't need to touch it).
+That's it. Everything sets up automatically.
+
+## Structure
+
+```
+├── start.bat   ← double-click to launch
+├── README.md
+├── app/        ← dashboard + engine (you don't need to touch this)
+└── deploy/     ← Render deployment config
+```
 
 ## First Run
 
-Two windows open — keep both open. Then open **http://127.0.0.1:8080**.
+Two windows open (engine + dashboard). Open **http://127.0.0.1:8080**, set your password, enter your API key shown in the Engine window. Done.
 
-Set your password, enter your API key (shown in the Engine window), done.
+## Providers (19)
 
-## Providers
-
-19 total: 14 via the built-in engine + 5 via built-in relay (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless).
+14 via built-in engine + 5 via built-in relay (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless).
 
 ## Security
 
-Localhost only. AES-256 encrypted keys. Nothing leaves your machine except your AI requests.
+Localhost only. AES-256 encrypted. Nothing leaves your machine except your AI requests.

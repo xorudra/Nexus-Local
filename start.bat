@@ -1,79 +1,62 @@
 @echo off
-title Nexus Local Dashboard
-echo ========================================
-echo  Nexus Local Dashboard - Starting...
-echo ========================================
+title Nexus
+cd /d "%~dp0app"
+
+echo ============================================
+echo  Nexus - Your Personal AI Dashboard
+echo ============================================
 echo.
 
-rem --- Find a working Python (GOTO chain avoids && parsing bugs) ---
-set PYCMD=
-python --version >nul 2>&1
-if not errorlevel 1 set PYCMD=python
-if defined PYCMD goto :found
-py --version >nul 2>&1
-if not errorlevel 1 set PYCMD=py
-if defined PYCMD goto :found
-python3 --version >nul 2>&1
-if not errorlevel 1 set PYCMD=python3
-if defined PYCMD goto :found
-python3.13 --version >nul 2>&1
-if not errorlevel 1 set PYCMD=python3.13
-if defined PYCMD goto :found
-python3.12 --version >nul 2>&1
-if not errorlevel 1 set PYCMD=python3.12
-if defined PYCMD goto :found
-python3.11 --version >nul 2>&1
-if not errorlevel 1 set PYCMD=python3.11
-if defined PYCMD goto :found
-python3.10 --version >nul 2>&1
-if not errorlevel 1 set PYCMD=python3.10
-if defined PYCMD goto :found
-goto :nopython
+:: Check Python
+where python >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Python 3.10+ not found.
+    echo Download from https://www.python.org/downloads/ (tick "Add to PATH")
+    pause
+    exit /b 1
+)
 
-:found
-echo [OK] Using Python command: %PYCMD%
-%PYCMD% --version
-echo.
+:: Check Node.js
+where node >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Node.js 18+ not found.
+    echo Download from https://nodejs.org/
+    pause
+    exit /b 1
+)
 
-rem --- Ensure cryptography is installed ---
-%PYCMD% -c "import cryptography" >nul 2>&1
-if not errorlevel 1 goto :runserver
-echo [..] Installing 'cryptography' package (one-time setup)...
-%PYCMD% -m pip install cryptography
-if errorlevel 1 goto :pipfail
-echo [OK] cryptography installed.
-echo.
-goto :runserver
+:: Setup .env
+if not exist ".env" (
+    if exist ".env.example" copy ".env.example" ".env" >nul
+    echo First run: generating encryption key...
+    for /f %%i in ('node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"') do set ENC_KEY=%%i
+    powershell -Command "(Get-Content '.env') -replace 'PASTE_64_CHAR_HEX_HERE', '%ENC_KEY%' | Set-Content '.env'"
+)
 
-:pipfail
-echo.
-echo [ERROR] Could not install 'cryptography'.
-echo Check your internet connection and run start.bat again.
-echo.
-pause
-exit /b 1
+:: Python deps
+python -c "import cryptography" >nul 2>&1
+if errorlevel 1 (
+    echo Installing components...
+    pip install cryptography --quiet
+)
 
-:nopython
-echo [ERROR] Python not found on your system.
-echo.
-echo Please install Python 3.10 or newer from:
-echo   https://www.python.org/downloads/
-echo.
-echo IMPORTANT: tick "Add python.exe to PATH" during installation.
-echo.
-pause
-exit /b 1
+:: Engine deps
+if not exist "engine\server\node_modules" (
+    echo Installing engine (first run)...
+    cd engine\server
+    call npm install --production >nul 2>&1
+    cd ..\..
+)
 
-:runserver
-echo [..] Starting server...
-echo      Dashboard: http://127.0.0.1:8080
-echo      Keep this window OPEN. Press Ctrl+C to stop.
-echo ========================================
+:: Start engine
+echo Starting engine...
+start "Nexus Engine" cmd /k "cd /d "%~dp0app\engine\server" && set PORT=3001 && set HOST=127.0.0.1 && set FREEAPI_DB_PATH=%~dp0app\engine-data\freeapi.db && set FREEAPI_CONFIG_PATH=%~dp0app\freellmapi.config.json && set FREEAPI_ENV_PATH=%~dp0app\.env && node dist\index.js"
+timeout /t 6 >nul
+
+:: Start dashboard
 echo.
-%PYCMD% server.py
+echo Open http://127.0.0.1:8080 in your browser
 echo.
-echo ========================================
-echo [INFO] Server stopped. If it closed immediately,
-echo the error message above says why.
-echo ========================================
+start "Nexus Dashboard" cmd /k "cd /d "%~dp0app" && python server.py"
+echo Done! Keep both windows open.
 pause
