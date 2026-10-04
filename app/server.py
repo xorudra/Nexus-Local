@@ -98,7 +98,6 @@ PROVIDER_NAMES = [
     "pollinations",
     "siliconflow",
     "zhipu",
-    "freellmapi",
     # Relay providers (Rudra's other-Gmail keys, served via integrated relay on 127.0.0.1:8099)
     "relay_openrouter",
     "relay_gemini",

@@ -460,10 +460,7 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
     <div class="group-content"><div class="provider-grid" id="relay-grid"></div></div>
 </details>
 
-<details class="provider-group">
-    <summary>FreeLLMAPI Providers <span class="count" id="freellmapi-count"></span></summary>
-    <div class="group-content"><div class="provider-grid" id="freellmapi-grid"></div></div>
-</details>
+
 
 <script>
 
@@ -562,9 +559,6 @@ function renderUsage(data) {
         if (pname.startsWith('relay_')) {
             if (relayGrid) relayGrid.appendChild(div);
             relayCount++;
-        } else if (pname === 'freellmapi') {
-            if (freellmapiGrid) freellmapiGrid.appendChild(div);
-            freellmapiCount++;
         } else {
             if (directGrid) directGrid.appendChild(div);
             else if (typeof providerGrid !== 'undefined' && providerGrid) providerGrid.appendChild(div);

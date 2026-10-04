@@ -1,6 +1,6 @@
 # Nexus-Local
 
-Your personal AI dashboard — 20 providers, all on your machine.
+Your personal AI dashboard — 19 providers, all on your machine.
 
 ## Setup
 
@@ -60,9 +60,11 @@ npm uninstall -g nexuslocal
 └── deploy/       ← Render deployment config
 ```
 
-## Providers (20)
+## Providers (19)
 
-**14 Direct** (HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde) + **5 Relay** (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless) + **1 Unified Gateway** (FreeLLMAPI).
+**14 Direct** (HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde) + **5 Relay** (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless).
+
+FreeLLMAPI is the built-in engine (127.0.0.1:3001) that powers the 14 direct providers — it's the infrastructure, not a provider itself.
 
 Keyless providers (Pollinations, AI Horde, Kilo, OVH) work with no setup.
 
