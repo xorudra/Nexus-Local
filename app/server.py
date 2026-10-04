@@ -418,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
                     "label{display:block;margin:12px 0 4px;color:#9aa3b2;font-size:14px}"
                     "input{width:100%;box-sizing:border-box;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px;font-size:16px}"
                     "button{background:#3b82f6;color:#fff;border:0;border-radius:12px;padding:16px 32px;font-size:16px;font-weight:600;width:100%;margin-top:20px;cursor:pointer}"
-                    "</style></head><body><div class='card'>"
+                    "</style></head><body>" + sidebar + "<div class='card' style='margin-left:40px'"
                     "<h1>Update Keys</h1>"
                     "<p style='color:#9aa3b2'>Only fill in the keys you want to change. Enter your password to save.</p>"
                     "<form method='POST' action='/settings'>" + rows +
@@ -430,6 +430,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self._send_body(page.encode())
+            return
+        # Connections page - flow chart
+        if parsed.path == "/connections":
+            if not self._get_session():
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            try:
+                content = (Path(__file__).parent / "connections.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception as e:
+                self.send_error(500, str(e))
             return
         # Root redirects based on session
         if parsed.path == "/":

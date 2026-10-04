@@ -1,0 +1,29 @@
+<!-- Nexus Sidebar -->
+<style>
+.nexus-burger{position:fixed;top:18px;left:18px;z-index:1001;background:#11141b;border:1px solid #1e2430;border-radius:10px;padding:10px 12px;cursor:pointer;color:#e6e9f0;font-size:20px;line-height:1}
+.nexus-sidebar{position:fixed;top:0;left:-280px;width:260px;height:100%;background:#11141b;border-right:1px solid #1e2430;z-index:1000;transition:left .25s ease;padding:70px 0 20px;box-sizing:border-box}
+.nexus-sidebar.open{left:0}
+.nexus-sidebar a{display:block;padding:14px 24px;color:#9aa3b2;text-decoration:none;font-size:15px;border-left:3px solid transparent}
+.nexus-sidebar a:hover{color:#e6e9f0;background:#0f1622}
+.nexus-sidebar a.active{color:#3b82f6;border-left-color:#3b82f6;background:#0f1622}
+.nexus-sidebar .nav-title{padding:0 24px 12px;color:#3b82f6;font-size:12px;letter-spacing:.3em;font-family:monospace}
+.nexus-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:999;display:none}
+.nexus-overlay.show{display:block}
+</style>
+<button class="nexus-burger" onclick="document.querySelector('.nexus-sidebar').classList.add('open');document.querySelector('.nexus-overlay').classList.add('show')">☰</button>
+<div class="nexus-overlay" onclick="document.querySelector('.nexus-sidebar').classList.remove('open');this.classList.remove('show')"></div>
+<nav class="nexus-sidebar">
+<div class="nav-title">NEXUS LOCAL</div>
+<a href="/" data-page="dashboard">Dashboard</a>
+<a href="/connections" data-page="connections">Connections</a>
+<a href="/settings" data-page="settings">Settings</a>
+<a href="#" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login');return false">Logout</a>
+</nav>
+<script>
+(function(){
+var p=location.pathname;
+document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
+if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
+});
+})();
+</script>

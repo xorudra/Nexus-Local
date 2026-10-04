@@ -1,0 +1,76 @@
+<!DOCTYPE html><html><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Nexus Local - Connections</title><style>
+body{background:#0a0c11;color:#e6e9f0;font-family:system-ui,sans-serif;margin:0;padding:24px;padding-left:70px}
+h1{font-size:2rem;font-weight:800}h1 span{color:#3b82f6}
+.flow{max-width:900px;margin:0 auto}
+.node{background:#11141b;border:1px solid #1e2430;border-radius:16px;padding:20px;margin:12px 0;text-align:center}
+.node .addr{font-family:monospace;color:#9aa3b2;font-size:13px;margin-top:6px}
+.arrow{text-align:center;color:#3b82f6;font-size:24px;margin:4px 0}
+.branch{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.branch .node{flex:1;min-width:200px}
+.relay{border-color:#22c55e}.relay h3{color:#22c55e;margin:0 0 8px}
+.engine{border-color:#3b82f6}.engine h3{color:#3b82f6;margin:0 0 8px}
+.direct{border-color:#f59e0b}.direct h3{color:#f59e0b;margin:0 0 8px}
+.prov{font-size:13px;color:#9aa3b2;margin:4px 0}
+.keyless{color:#22c55e;font-size:12px}
+</style></head><body>
+<!-- Nexus Sidebar -->
+<style>
+.nexus-burger{position:fixed;top:18px;left:18px;z-index:1001;background:#11141b;border:1px solid #1e2430;border-radius:10px;padding:10px 12px;cursor:pointer;color:#e6e9f0;font-size:20px;line-height:1}
+.nexus-sidebar{position:fixed;top:0;left:-280px;width:260px;height:100%;background:#11141b;border-right:1px solid #1e2430;z-index:1000;transition:left .25s ease;padding:70px 0 20px;box-sizing:border-box}
+.nexus-sidebar.open{left:0}
+.nexus-sidebar a{display:block;padding:14px 24px;color:#9aa3b2;text-decoration:none;font-size:15px;border-left:3px solid transparent}
+.nexus-sidebar a:hover{color:#e6e9f0;background:#0f1622}
+.nexus-sidebar a.active{color:#3b82f6;border-left-color:#3b82f6;background:#0f1622}
+.nexus-sidebar .nav-title{padding:0 24px 12px;color:#3b82f6;font-size:12px;letter-spacing:.3em;font-family:monospace}
+.nexus-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:999;display:none}
+.nexus-overlay.show{display:block}
+</style>
+<button class="nexus-burger" onclick="document.querySelector('.nexus-sidebar').classList.add('open');document.querySelector('.nexus-overlay').classList.add('show')">☰</button>
+<div class="nexus-overlay" onclick="document.querySelector('.nexus-sidebar').classList.remove('open');this.classList.remove('show')"></div>
+<nav class="nexus-sidebar">
+<div class="nav-title">NEXUS LOCAL</div>
+<a href="/" data-page="dashboard">Dashboard</a>
+<a href="/connections" data-page="connections">Connections</a>
+<a href="/settings" data-page="settings">Settings</a>
+<a href="#" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login');return false">Logout</a>
+</nav>
+<script>
+(function(){
+var p=location.pathname;
+document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
+if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
+});
+})();
+</script>
+<div class='flow'>
+<h1>How <span>everything</span> connects</h1>
+<p style='color:#9aa3b2'>Your browser talks to the dashboard. The dashboard routes to the relay, the engine, or providers directly.</p>
+
+<div class='node'><h3>Your Browser</h3><div class='addr'>You are here</div></div>
+<div class='arrow'>↓</div>
+<div class='node'><h3>Nexus Dashboard</h3><div class='addr'>127.0.0.1:8080</div><div class='prov'>Chat UI · Key management · Quota tracking</div></div>
+<div class='arrow'>↓</div>
+
+<div class='branch'>
+<div class='node relay'><h3>Integrated Relay</h3><div class='addr'>127.0.0.1:8099</div>
+<div class='prov'>relay_openrouter</div><div class='prov'>relay_gemini</div>
+<div class='prov'>relay_groq</div><div class='prov'>relay_nvidia</div>
+<div class='prov'>relay_pollinations <span class='keyless'>(keyless)</span></div>
+<div class='prov' style='margin-top:8px'>Your outside-Gmail keys</div></div>
+
+<div class='node engine'><h3>FreeLLMAPI Engine</h3><div class='addr'>127.0.0.1:3001</div>
+<div class='prov'>groq · google · openrouter · nvidia</div>
+<div class='prov'>siliconflow · huggingface · zhipu</div>
+<div class='prov'>cohere · mistral · cloudflare</div>
+<div class='prov'>pollinations · aihorde · kilo · ovh <span class='keyless'>(keyless)</span></div>
+<div class='prov' style='margin-top:8px'>forapikeyonly2008@gmail.com keys</div></div>
+</div>
+
+<div class='arrow'>↓</div>
+<div class='node direct'><h3>14 Direct Providers</h3>
+<div class='prov'>Keys stored in your encrypted vault, called directly from the dashboard</div>
+<div class='prov'>aihorde · cloudflare · cohere · google · groq · huggingface · kilo</div>
+<div class='prov'>mistral · nvidia · openrouter · ovh · pollinations · siliconflow · zhipu</div></div>
+</div></body></html>
