@@ -465,7 +465,6 @@ class Handler(BaseHTTPRequestHandler):
                     "<span style='background:#0a0a0d;color:#e8e8ea;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid #2a2a32;font-family:monospace'>cohere</span>"
                     "<span style='background:#0a0a0d;color:#e8e8ea;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid #2a2a32;font-family:monospace'>huggingface</span>"
                     "<span style='background:#0a0a0d;color:#e8e8ea;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid #2a2a32;font-family:monospace'>mistral</span>"
-                    "<span style='background:#0a0a0d;color:#e8e8ea;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid #2a2a32;font-family:monospace'>siliconflow</span>"
                     "<span style='background:#0a0a0d;color:#e8e8ea;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid #2a2a32;font-family:monospace'>zhipu</span>"
                     "<span style='background:#0a0a0d;color:#e8e8ea;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid #2a2a32;font-family:monospace'>aihorde</span>"
                     "<span style='background:#0a0a0d;color:#e8e8ea;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid #2a2a32;font-family:monospace'>kilo</span>"
@@ -479,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
                     "</div>"
                     "</div>"
                     "<script>"
-                    "var VALID_KEYS=['freellmapi','relay_groq','relay_gemini','relay_openrouter','relay_nvidia','groq','google','openrouter','nvidia','cloudflare','cohere','huggingface','mistral','siliconflow','zhipu','aihorde','kilo','ovh','pollinations'];"
+                    "var VALID_KEYS=['freellmapi','relay_groq','relay_gemini','relay_openrouter','relay_nvidia','groq','google','openrouter','nvidia','cloudflare','cohere','huggingface','mistral','zhipu','aihorde','kilo','ovh','pollinations'];"
                     "function parseBulk(){"
                     "var lines=document.getElementById('bulk').value.split('\\n');"
                     "var found=[],unknown=[];"
@@ -1215,7 +1214,10 @@ class Handler(BaseHTTPRequestHandler):
                         "completion_tokens": usage.get("completion_tokens", 0),
                     }
                     with open(USAGE_PATH, "a") as f2:
-                        f2.write(json.dumps(usage_line) + "\n")
+                        try:
+                            f2.write(json.dumps(usage_line) + "\n")
+                        except OSError:
+                            pass  # disk full — don't break chat for logging
                     self._set_json_headers(200)
                     self.wfile.write(json.dumps({"reply": reply, "used_provider": provider, "used_model": model}).encode())
             except HTTPError as e:
