@@ -187,7 +187,7 @@ class RelayHandler(BaseHTTPRequestHandler):
         name, rest = parts[0], "/" + parts[1]
         # Provider-specific path quirks for model listing
         if name == "aihorde" and rest == "/v1/models":
-            rest = "/api/v2/status/models"
+            rest = "/status/models"
         # RELAY_UPSTREAMS bases already include the API version prefix
         # (e.g. /v1, /api/v1, /v1beta/openai), so strip a leading /v1 from
         # the relay path to avoid doubling it (/v1/v1/models -> /v1/models).
@@ -842,23 +842,11 @@ class Handler(BaseHTTPRequestHandler):
                     if not provider.startswith("relay_") and provider not in ("freellmapi", "google", "relay_gemini"):
                         models = [m for m in models if m.startswith(provider + "/") or "/" not in m]
             except Exception as e:
-                dbg_err = str(e)[:200]
-                # Try to capture upstream error body for HTTP errors
-                try:
-                    import urllib.error as _ue
-                    if isinstance(e, _ue.HTTPError):
-                        dbg_err += " | body: " + e.read().decode()[:300]
-                except Exception:
-                    pass
-            else:
-                dbg_err = ""
+                pass
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            out = {"models": models}
-            if parse_qs(parsed.query).get("debug", [""])[0] == "1":
-                out["debug_error"] = dbg_err
-            self._send_body(js.dumps(out).encode())
+            self._send_body(js.dumps({"models": models}).encode())
             return
         self.send_error(404, "Not Found")
 
