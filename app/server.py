@@ -34,7 +34,7 @@ from pathlib import Path
 QUOTAS_PATH = Path(__file__).parent / "quotas.json"
 from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote as _urlquote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -204,7 +204,13 @@ class RelayHandler(BaseHTTPRequestHandler):
             if not key:
                 self._send_json({"error": f"no key configured for {name}"}, 502)
                 return
-            req.add_header("Authorization", f"Bearer {key}")
+            if name == "gemini":
+                # Google's OpenAI-compatible endpoint expects the key as a
+                # ?key= query param, not an Authorization: Bearer token.
+                sep = "&" if "?" in upstream else "?"
+                req.full_url = f"{upstream}{sep}key={_urlquote(key, safe='')}"
+            else:
+                req.add_header("Authorization", f"Bearer {key}")
 
         try:
             with urlopen(req, timeout=60) as resp:
