@@ -5,49 +5,54 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nexus Local - Login</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&display=swap');
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
-background-color:#141009;background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%2232%22%3E%3Crect%20x%3D%220%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%231f1811%22/%3E%3Crect%20x%3D%228%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%2216%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%2224%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%220%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%231f1811%22/%3E%3Crect%20x%3D%2224%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%220%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%228%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%220%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%228%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3C/svg%3E");
-font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#e6e9f0}
-.wrap{text-align:center;width:100%;max-width:420px}
-.mc-logo{font-family:'Press Start 2P',monospace;font-size:clamp(26px,7vw,40px);color:#dcdcdc;
-text-shadow:2px 2px 0 #2a2a2a,4px 4px 0 #000;margin:0;letter-spacing:.02em}
-.mc-logo .g{color:#5EB83B;text-shadow:2px 2px 0 #1d3a12,4px 4px 0 #000}
-.splash-line{height:36px;margin:6px 0 14px}
-.splash{font-family:'Press Start 2P',monospace;color:#ffff54;font-size:12px;text-shadow:2px 2px 0 #3f3f00;
-display:inline-block;animation:splashPulse .45s ease-in-out infinite alternate}
-@keyframes splashPulse{from{transform:rotate(-6deg) scale(.94)}to{transform:rotate(-6deg) scale(1.06)}}
-.grass{height:8px;background:linear-gradient(#5EB83B 0 4px,#6b4a2f 4px);border-top:2px solid #000;border-bottom:2px solid #000;margin-bottom:24px}
-.card{background:#1c1610;border:2px solid #000;box-shadow:inset 2px 2px 0 rgba(255,255,255,.07),0 12px 32px rgba(0,0,0,.55);
-padding:28px 24px;text-align:left}
-.card h2{font-family:'Press Start 2P',monospace;font-size:13px;color:#fff;margin:0 0 6px;text-shadow:2px 2px 0 #000}
-.card p{color:#9aa3b2;font-size:13px;margin:0 0 18px}
-input{width:100%;background:#0d0a07;border:2px solid #000;box-shadow:inset 2px 2px 0 rgba(0,0,0,.6);
-color:#e6e9f0;padding:13px;font-size:15px;margin-bottom:14px;border-radius:0}
-input:focus{outline:none;border-color:#5EB83B;box-shadow:inset 2px 2px 0 rgba(0,0,0,.6),0 0 0 2px rgba(94,184,59,.35)}
-button{width:100%;font-family:'Press Start 2P',monospace;font-size:12px;color:#fff;text-shadow:2px 2px 0 rgba(0,0,0,.55);
-background:linear-gradient(#6cc24a,#4a8f2b);border:2px solid #000;border-radius:0;
-box-shadow:inset 2px 2px 0 rgba(255,255,255,.35),inset -2px -2px 0 rgba(0,0,0,.4);padding:16px;cursor:pointer}
-button:hover{filter:brightness(1.1)}
+background-color:#08080a;
+background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,213,0,.08), transparent 70%);
+font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#e8e8ea}
+.wrap{text-align:center;width:100%;max-width:420px;position:relative}
+.bat-emblem{width:76px;height:30px;margin:0 auto 14px;filter:drop-shadow(0 0 18px rgba(255,213,0,.45))}
+.bat-emblem path{fill:#FFD500}
+.mc-logo{font-family:'Bebas Neue',sans-serif;font-size:clamp(44px,11vw,64px);color:#f2f2f4;
+margin:0;letter-spacing:.14em;line-height:1;
+background:linear-gradient(#ffffff,#b8b8c0);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.mc-logo .g{background:linear-gradient(#FFE45C,#F5B800);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.tagline{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.42em;color:#8a8a92;margin:10px 0 26px;text-transform:uppercase}
+.gold-div{height:2px;background:linear-gradient(90deg,transparent,rgba(255,213,0,.7),transparent);margin-bottom:26px}
+.card{background:rgba(16,16,20,.92);border:1px solid rgba(255,213,0,.16);border-radius:14px;
+box-shadow:0 24px 64px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
+padding:30px 26px;text-align:left;backdrop-filter:blur(4px)}
+.card h2{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:.1em;color:#fff;margin:0 0 4px}
+.card p{color:#8a8a92;font-size:13px;margin:0 0 20px}
+input{width:100%;background:#0a0a0d;border:1px solid #26262c;border-radius:8px;
+color:#e8e8ea;padding:14px;font-size:15px;margin-bottom:16px;transition:border-color .2s, box-shadow .2s}
+input:focus{outline:none;border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.15)}
+button{width:100%;font-family:'Oswald',sans-serif;font-weight:600;font-size:14px;letter-spacing:.22em;text-transform:uppercase;
+color:#0a0a0a;background:linear-gradient(#FFE45C,#F5B800);border:1px solid #0a0a0a;border-radius:8px;
+box-shadow:0 0 28px rgba(255,213,0,.28), inset 0 1px 0 rgba(255,255,255,.55);
+padding:16px;cursor:pointer;transition:filter .15s, transform .1s}
+button:hover{filter:brightness(1.06)}
 button:active{transform:translateY(1px)}
 button:disabled{opacity:.6;cursor:wait}
-#error{display:none;background:#2a0f0f;border:2px solid #ef4444;color:#ff9a9a;font-size:13px;padding:10px 12px;margin-bottom:14px}
+#error{display:none;background:rgba(60,10,10,.6);border:1px solid #ff4d4d;color:#ff9a9a;font-size:13px;
+border-radius:8px;padding:10px 12px;margin-bottom:16px}
 .shake{animation:shake .4s}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
-.link{margin-top:18px;color:#8a93a6;font-size:13px}
-.link a{color:#7ee83f;text-decoration:none;font-weight:600}
+.link{margin-top:20px;color:#8a8a92;font-size:13px}
+.link a{color:#FFD500;text-decoration:none;font-weight:600}
 .link a:hover{text-decoration:underline}
 </style>
 </head>
 <body>
 <div class="wrap">
+<svg class="bat-emblem" viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg>
 <h1 class="mc-logo">NEXUS<span class="g">LOCAL</span></h1>
-<div class="splash-line"><span class="splash" id="splash"></span></div>
-<div class="grass"></div>
+<p class="tagline">Your keys&ensp;·&ensp;Your city&ensp;·&ensp;Your rules</p>
+<div class="gold-div"></div>
 <div class="card" id="card">
-<h2>Unlock your world</h2>
-<p>Enter your password to continue</p>
+<h2>Enter the cave</h2>
+<p>Your password unlocks the dashboard</p>
 <input type="password" id="pw" placeholder="Password" autocomplete="current-password" autofocus>
 <div id="error">Wrong password. Try again.</div>
 <button id="loginBtn">Login</button>
@@ -55,13 +60,11 @@ button:disabled{opacity:.6;cursor:wait}
 <p class="link">New here? <a href="/setup">Set up your keys &rarr;</a></p>
 </div>
 <script>
-var splashes=["Punch trees, get keys!","19 providers, one app!","Creeper approved!","100% JavaScript!","Also try Terraria!","Runs on localhost!","Now with less lag!","Watch out for phantoms!","Handcrafted, not vibe-coded!"];
-document.getElementById('splash').textContent=splashes[Math.floor(Math.random()*splashes.length)];
 const pw=document.getElementById('pw'),err=document.getElementById('error'),
       btn=document.getElementById('loginBtn'),card=document.getElementById('card');
 async function submit(){
   const v=pw.value.trim();if(!v)return;
-  btn.disabled=true;btn.textContent='Loading...';err.style.display='none';
+  btn.disabled=true;btn.textContent='Working...';err.style.display='none';
   try{
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:v})});
     const j=await r.json();
