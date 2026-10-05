@@ -203,8 +203,11 @@ class RelayHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else None
 
         req = Request(upstream, data=body, method=self.command)
+        # Use a browser-like User-Agent; some upstreams (Groq via Cloudflare)
+        # block Python-urllib's default signature with 403 error 1010.
+        req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
         for k, v in self.headers.items():
-            if k.lower() not in ("host", "content-length", "authorization"):
+            if k.lower() not in ("host", "content-length", "authorization", "user-agent"):
                 req.add_header(k, v)
         if name not in RELAY_KEYLESS:
             # Check for custom relay key first, then standard key
