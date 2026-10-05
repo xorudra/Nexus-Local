@@ -207,13 +207,10 @@ class RelayHandler(BaseHTTPRequestHandler):
             if not key:
                 self._send_json({"error": f"no key configured for {name}"}, 502)
                 return
-            if name == "gemini" or "generativelanguage.googleapis.com" in upstream:
-                # Google's OpenAI-compatible endpoint expects the key as a
-                # ?key= query param, not an Authorization: Bearer token.
-                sep = "&" if "?" in upstream else "?"
-                req.full_url = f"{upstream}{sep}key={_urlquote(key, safe='')}"
-            else:
-                req.add_header("Authorization", f"Bearer {key}")
+            # Google's OpenAI-compatible endpoint (/v1beta/openai) requires the
+            # key as Authorization: Bearer (verified: ?key= and x-goog-api-key
+            # are ignored there; only the native API takes ?key=).
+            req.add_header("Authorization", f"Bearer {key}")
 
         try:
             with urlopen(req, timeout=60) as resp:
