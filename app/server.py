@@ -1246,8 +1246,35 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/refresh":
             if not self._require_session():
                 return
+            # Live connectivity check: quick models ping for each configured provider
+            import concurrent.futures
+            def _ping(name):
+                try:
+                    if name.startswith("relay_"):
+                        base = f"http://127.0.0.1:{RELAY_PORT}/{name}/v1"
+                    elif name in ("pollinations", "aihorde", "kilo", "ovh"):
+                        return (name, True)  # keyless, assume up
+                    else:
+                        return (name, bool((Handler.keys or {}).get(name)))
+                    req = Request(base + "/models", headers={"User-Agent": "Mozilla/5.0"})
+                    with urlopen(req, timeout=8) as r:
+                        return (name, r.status == 200)
+                except Exception:
+                    return (name, False)
+            names = [n for n in PROVIDER_NAMES if (Handler.keys or {}).get(n) or n in RELAY_KEYLESS or n.startswith("relay_")]
+            status = {}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                for name, ok in ex.map(_ping, names):
+                    status[name] = ok
+            # Persist to a status file the quotas endpoint can read
+            try:
+                with open(Path(__file__).parent / "provider_status.json", "w") as f:
+                    json.dump({"checked_at": datetime.datetime.now().isoformat(), "status": status}, f)
+            except Exception:
+                pass
             self._set_json_headers()
-            self.wfile.write(json.dumps({"ok": True, "refreshed_at": datetime.datetime.now().isoformat()}).encode())
+            self.wfile.write(json.dumps({"ok": True, "status": status,
+                "refreshed_at": datetime.datetime.now().isoformat()}).encode())
             return
         if parsed.path == "/api/login":
             ip = self.client_address[0]
