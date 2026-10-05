@@ -96,7 +96,7 @@ PROVIDER_NAMES = [
     "openrouter",
     "ovh",
     "pollinations",
-    "siliconflow",
+    # siliconflow REMOVED 2026-10-05 per Rudra: one-time $1 credit exhausted, never resets, 402 on all models
     "zhipu",
     # Relay providers (Rudra's other-Gmail keys, served via integrated relay on 127.0.0.1:8099)
     "relay_openrouter",
@@ -1069,11 +1069,11 @@ class Handler(BaseHTTPRequestHandler):
                 "relay_gemini": "gemini-3.8-flash",
                 "openrouter": "apodex/apodex-1.1-mini:free",
                 "relay_openrouter": "apodex/apodex-1.1-mini:free",
-                "nvidia": "meta/llama-3.3-70b-instruct",
-                "relay_nvidia": "meta/llama-3.3-70b-instruct",
+                "nvidia": "google/gemma-3-12b-it",
+                "relay_nvidia": "google/gemma-3-12b-it",
                 "mistral": "mistral-small-latest",
                 "cohere": "command-a-03-2025",
-                "zhipu": "glm-4-flash",
+                "zhipu": "glm-4.5",
                 "ovh": "Meta-Llama-3.3-70B-Instruct",
                 "pollinations": "openai",
                 "relay_pollinations": "openai",
@@ -1098,9 +1098,9 @@ class Handler(BaseHTTPRequestHandler):
                                  if routing_eff == "quality" else
                                  ["groq", "relay_groq", "pollinations", "relay_pollinations"])
                 else:  # quality
-                    # Prefer reliable providers first (Google often 503s)
+                    # Prefer reliable providers first (Google often 503s, nvidia 403s on all chat)
                     pref_list = ["relay_openrouter", "openrouter",
-                                 "relay_nvidia", "nvidia", "mistral",
+                                 "mistral",
                                  "relay_gemini", "google", "cohere"]
                 for cand in pref_list:
                     if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
@@ -1116,7 +1116,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
                 return
             key = Handler.keys.get(provider) if Handler.keys else None
-            if not key:
+            if not key and provider not in RELAY_KEYLESS:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
                 return
