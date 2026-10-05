@@ -838,11 +838,15 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         # OpenAI format: {"data": [{"id": "..."}]}
                         models = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
+                    # SiliconFlow: free credits exhausted (one-time $1, no reset).
+                    # Hide models until credits are added.
+                    if provider == "siliconflow":
+                        models = []
                     # Rudra's rule: only free/freemium models. Only OpenRouter has
                     # paid models — its free lane is the :free suffix. Every
                     # other provider's key is already a free/freemium tier,
                     # so their full rosters stay.
-                    if provider in ("openrouter", "relay_openrouter"):
+                    elif provider in ("openrouter", "relay_openrouter"):
                         models = [m for m in models if m.endswith(":free")]
                     # Exclude non-chat models (embedding, TTS, image gen,
                     # transcription) — they fail on /chat/completions.
