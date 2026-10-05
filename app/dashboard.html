@@ -5,18 +5,18 @@
 <meta charset="utf-8">
 <title>Nexus Dashboard</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
 /* Global */
 body {
     margin: 0;
     font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
     background-color: #050507;
-    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,213,0,.07), transparent 70%);
+    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.07), transparent 70%);
     color: #dde;
     width: 100%;
     overflow-x: hidden;
     background-color: #050507;
-    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,213,0,.07), transparent 70%);
+    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.07), transparent 70%);
 }
 
 /* Header */
@@ -27,7 +27,7 @@ body {
     padding: 20px 32px;
     padding-left: 70px;
     background: #11141b;
-    border-bottom: 1px solid rgba(255,213,0,.18);
+    border-bottom: 1px solid rgba(168,85,247,.18);
     box-shadow: 0 1px 0 rgba(0,0,0,.8);
 }
 
@@ -39,11 +39,16 @@ body {
 
 .header .wordmark {
     flex: none;
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 1.7rem;
-    letter-spacing: .12em;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 1.1rem;
+    letter-spacing: .08em;
     background: linear-gradient(#ffffff,#a8a8b0);
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    animation: logoGlow 3s ease-in-out infinite;
+}
+@keyframes logoGlow {
+    0%, 100% { filter: drop-shadow(0 0 4px rgba(168,85,247,.4)); }
+    50% { filter: drop-shadow(0 0 12px rgba(168,85,247,.8)); }
 }
 
 .header .local-tag {
@@ -52,7 +57,7 @@ body {
     font-size: 0.6rem;
     letter-spacing: .3em;
     color: #0a0a0a;
-    background: linear-gradient(#FFE45C,#F5B800);
+    background: linear-gradient(#C084FC,#7C3AED);
     padding: 4px 8px 4px 11px;
     border-radius: 4px;
     margin-left: 10px;
@@ -87,7 +92,7 @@ body {
     margin: 20px auto;
     max-width: 1080px;
     border-radius: 14px;
-    border: 1px solid rgba(255,213,0,.14);
+    border: 1px solid rgba(168,85,247,.14);
     box-shadow: 0 16px 48px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
 }
 
@@ -95,15 +100,15 @@ body {
     margin: 0 0 12px 0;
     font-size: clamp(28px, 5vw, 40px);
     color: #fff;
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'Press Start 2P', monospace; font-size: clamp(18px, 3vw, 26px);
     letter-spacing: .06em;
     line-height: 1.25;
 }
 
 .hero::after{content:"";position:absolute;right:-46px;top:50%;width:380px;height:137px;
-background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20100%2036%27%3E%3Cpath%20d%3D%27M0%2C14%20L24%2C3%20L39%2C9%20L44%2C1%20L46.5%2C7%20L50%2C5%20L53.5%2C7%20L56%2C1%20L61%2C9%20L76%2C3%20L100%2C14%20L90%2C20%20L83%2C16%20L75%2C24%20L67%2C18%20L59%2C28%20L54%2C22%20L50%2C30%20L46%2C22%20L41%2C28%20L33%2C18%20L25%2C24%20L17%2C16%20L10%2C20%20Z%27%20fill%3D%27%23FFD500%27/%3E%3C/svg%3E") no-repeat center/contain;opacity:.06;pointer-events:none;animation:batDrift 11s ease-in-out infinite}
+background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20100%2036%27%3E%3Cpath%20d%3D%27M0%2C14%20L24%2C3%20L39%2C9%20L44%2C1%20L46.5%2C7%20L50%2C5%20L53.5%2C7%20L56%2C1%20L61%2C9%20L76%2C3%20L100%2C14%20L90%2C20%20L83%2C16%20L75%2C24%20L67%2C18%20L59%2C28%20L54%2C22%20L50%2C30%20L46%2C22%20L41%2C28%20L33%2C18%20L25%2C24%20L17%2C16%20L10%2C20%20Z%27%20fill%3D%27%23A855F7%27/%3E%3C/svg%3E") no-repeat center/contain;opacity:.06;pointer-events:none;animation:batDrift 11s ease-in-out infinite}
 .hero h2 span.accent {
-    color: #FFD500;
+    color: #A855F7;
 }
 
 /* Provider cards */
@@ -138,7 +143,7 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
 }
 
 .card .icon {
-    background: linear-gradient(#FFE45C,#F5B800);
+    background: linear-gradient(#C084FC,#7C3AED);
     color: #fff;
     width: 40px;
     height: 40px;
@@ -200,7 +205,7 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
 .bar > div {
     height: 100%;
     border-radius: 4px;
-    background: linear-gradient(90deg, #FFE45C, #F5B800);
+    background: linear-gradient(90deg, #C084FC, #7C3AED);
 }
 
 .bar.hot > div {
@@ -259,14 +264,19 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
 
 .composer h2 {
     margin: 0 0 12px 0;
-    font-size: 24px;
-    letter-spacing: .08em;
+    font-size: 18px;
+    letter-spacing: .06em;
     color: #fff;
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'Press Start 2P', monospace;
+    animation: titleFlicker 4s ease-in-out infinite;
+}
+@keyframes titleFlicker {
+    0%, 100% { text-shadow: 0 0 8px rgba(168,85,247,.5); }
+    50% { text-shadow: 0 0 20px rgba(168,85,247,.9), 0 0 40px rgba(168,85,247,.4); }
 }
 
 .composer h2 span.accent {
-    color: #FFD500;
+    color: #A855F7;
 }
 
 
@@ -293,8 +303,8 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
     margin: 20px auto;
     padding: 12px 28px;
     background: #141418;
-    color: #FFD500;
-    border: 1px solid rgba(255,213,0,.35);
+    color: #A855F7;
+    border: 1px solid rgba(168,85,247,.35);
     border-radius: 8px;
     font-family: 'Oswald', sans-serif;
     font-weight: 500;
@@ -318,9 +328,9 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
 
 /* Eyebrow labels */
 .eyebrow {
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'Press Start 2P', monospace; font-size: 11px;
     font-size: 15px;
-    color: #FFD500;
+    color: #A855F7;
     letter-spacing: 0.32em;
     margin-bottom: 8px;
     text-transform: uppercase;
@@ -360,23 +370,23 @@ overflow-y:auto;padding:16px;margin-bottom:14px;display:flex;flex-direction:colu
 .thread-empty p{font-size:13px;line-height:1.6;margin:0}
 .msg{max-width:88%;animation:fadeUp .3s both}
 .msg-user{align-self:flex-end}
-.msg-user .msg-body{background:linear-gradient(#FFE45C,#F5B800);color:#0a0a0a;border-radius:16px 16px 4px 16px;
+.msg-user .msg-body{background:linear-gradient(#C084FC,#7C3AED);color:#0a0a0a;border-radius:16px 16px 4px 16px;
 padding:10px 14px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
 .msg-ai{align-self:flex-start}
-.msg-ai .msg-body{background:#141419;border:1px solid rgba(255,213,0,.12);color:#e8e8ea;border-radius:16px 16px 16px 4px;
+.msg-ai .msg-body{background:#141419;border:1px solid rgba(168,85,247,.12);color:#e8e8ea;border-radius:16px 16px 16px 4px;
 padding:10px 14px;font-size:14px;line-height:1.55;word-wrap:break-word}
 .msg-ai .msg-body .md-p{margin:0 0 8px}.msg-ai .msg-body .md-p:last-child{margin-bottom:0}
-.msg-ai .msg-body .md-h{color:#FFD500;margin:12px 0 6px;font-size:15px}
+.msg-ai .msg-body .md-h{color:#A855F7;margin:12px 0 6px;font-size:15px}
 .msg-ai .msg-body .md-code{background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;padding:10px 12px;margin:8px 0;overflow-x:auto;font-family:monospace;font-size:13px;line-height:1.5;white-space:pre}
-.msg-ai .msg-body .md-inline{background:#0a0a0d;border:1px solid #2a2a32;border-radius:4px;padding:1px 6px;font-family:monospace;font-size:13px;color:#FFE45C}
+.msg-ai .msg-body .md-inline{background:#0a0a0d;border:1px solid #2a2a32;border-radius:4px;padding:1px 6px;font-family:monospace;font-size:13px;color:#C084FC}
 .msg-ai .msg-body .md-ul{margin:6px 0;padding-left:20px}.msg-ai .msg-body .md-li{margin:4px 0}
-.msg-ai .msg-body strong{color:#FFE45C}
+.msg-ai .msg-body strong{color:#C084FC}
 .msg-system{align-self:center;max-width:100%}
 .msg-system .msg-body{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.3);color:#ff9a9a;
 border-radius:10px;padding:8px 14px;font-size:13px}
-.msg-meta{font-size:11px;color:#FFD500;margin-bottom:4px;letter-spacing:.08em;font-family:'Oswald',sans-serif}
-.typing{display:flex;gap:6px;padding:13px 15px;background:#141419;border:1px solid rgba(255,213,0,.12);border-radius:16px}
-.typing span{width:8px;height:8px;border-radius:50%;background:#FFD500;animation:blink 1.2s infinite}
+.msg-meta{font-size:11px;color:#A855F7;margin-bottom:4px;letter-spacing:.08em;font-family:'Oswald',sans-serif}
+.typing{display:flex;gap:6px;padding:13px 15px;background:#141419;border:1px solid rgba(168,85,247,.12);border-radius:16px}
+.typing span{width:8px;height:8px;border-radius:50%;background:#A855F7;animation:blink 1.2s infinite}
 .typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
 @keyframes blink{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
 
@@ -419,34 +429,34 @@ border-radius:10px;padding:8px 14px;font-size:13px}
 /* ===== Composer: unified pill input ===== */
 .composer-box{background:#0a0a0d;border:1px solid #232329;border-radius:20px;padding:12px}
 .picker-row{display:flex;gap:8px;margin-bottom:10px}
-.picker{flex:1;min-width:0;background:#141419;border:1px solid rgba(255,213,0,.16);border-radius:10px;
+.picker{flex:1;min-width:0;background:#141419;border:1px solid rgba(168,85,247,.16);border-radius:10px;
 color:#e8e8ea;padding:9px 12px;font-size:13px;font-family:inherit;appearance:none}
-select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23FFD500' fill='none' stroke-width='1.6'/%3E%3C/svg%3E");
+select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23A855F7' fill='none' stroke-width='1.6'/%3E%3C/svg%3E");
 background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;cursor:pointer}
-.picker:focus{outline:none;border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.12)}
+.picker:focus{outline:none;border-color:#A855F7;box-shadow:0 0 0 3px rgba(168,85,247,.12)}
 .picker::placeholder{color:#5a5a64}
 .input-pill{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;
 background:#141419;border:1px solid #2a2a32;border-radius:28px;padding:8px;min-height:66px;transition:border-color .2s,box-shadow .2s}
-.input-pill:focus-within{border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.12),0 0 28px rgba(255,213,0,.08)}
+.input-pill:focus-within{border-color:#A855F7;box-shadow:0 0 0 3px rgba(168,85,247,.12),0 0 28px rgba(168,85,247,.08)}
 .attach-wrap{position:relative}
 #attach-plus{width:40px;height:40px;border-radius:50%;background:transparent;border:none;color:#8a8a92;
 font-size:26px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
-#attach-plus:hover{color:#FFD500;background:rgba(255,213,0,.1)}
-#attach-menu{position:absolute;left:0;bottom:50px;background:#101014;border:1px solid rgba(255,213,0,.18);
+#attach-plus:hover{color:#A855F7;background:rgba(168,85,247,.1)}
+#attach-menu{position:absolute;left:0;bottom:50px;background:#101014;border:1px solid rgba(168,85,247,.18);
 border-radius:12px;padding:8px;z-index:100;min-width:280px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
 .attach-title{padding:10px 14px 6px;color:#e8e8ea;font-weight:600;font-size:14px}
 .attach-opt{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e8e8ea;
 padding:10px 14px;cursor:pointer;border-radius:8px;text-align:left;font-size:14px;font-family:inherit}
-.attach-opt:hover{background:rgba(255,213,0,.07)}
+.attach-opt:hover{background:rgba(168,85,247,.07)}
 .attach-opt .dot{width:14px;height:14px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.5)}
 .attach-opt .opt-sub{font-size:12px;color:#8a8a92}
 #composer-message{background:transparent;border:none;outline:none;color:#e8e8ea;font-size:15px;
 font-family:inherit;line-height:1.45;resize:none;min-height:26px;max-height:140px;padding:6px 4px;width:100%}
 #composer-message::placeholder{color:#5a5a64}
-#composer-send{width:44px;height:44px;border-radius:50%;background:linear-gradient(#FFE45C,#F5B800);
-border:1px solid #0a0a0a;box-shadow:0 0 22px rgba(255,213,0,.32),inset 0 1px 0 rgba(255,255,255,.5);
+#composer-send{width:44px;height:44px;border-radius:50%;background:linear-gradient(#C084FC,#7C3AED);
+border:1px solid #0a0a0a;box-shadow:0 0 22px rgba(168,85,247,.32),inset 0 1px 0 rgba(255,255,255,.5);
 cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .15s;flex:none}
-#composer-send:hover{filter:brightness(1.07);box-shadow:0 0 34px rgba(255,213,0,.48),inset 0 1px 0 rgba(255,255,255,.5)}
+#composer-send:hover{filter:brightness(1.07);box-shadow:0 0 34px rgba(168,85,247,.48),inset 0 1px 0 rgba(255,255,255,.5)}
 #composer-send:disabled{opacity:.35;cursor:wait;box-shadow:none}
 #attach-preview{margin-top:10px}
 #attach-preview:empty{margin-top:0}
@@ -471,27 +481,41 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
 @keyframes fadeDown{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
 @keyframes batDrift{0%,100%{transform:translateY(-50%) translateX(0)}50%{transform:translateY(-60%) translateX(-26px)}}
+/* Gotham cinematic effects */
+@keyframes fogDrift{0%{background-position:0 0}100%{background-position:200px 0}}
+@keyframes msgSlideIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulseGlow{0%,100%{box-shadow:0 0 8px rgba(168,85,247,.3)}50%{box-shadow:0 0 24px rgba(168,85,247,.7),0 0 48px rgba(168,85,247,.3)}}
+@keyframes batSignal{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+body::before{content:"";position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:0;
+background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(168,85,247,.08),transparent);
+animation:fogDrift 20s linear infinite}
+.msg{animation:msgSlideIn .3s ease-out}
+#composer-send{animation:pulseGlow 2.5s ease-in-out infinite;transition:transform .15s ease}
+#composer-send:hover{animation:none;box-shadow:0 0 32px rgba(168,85,247,.9),0 0 64px rgba(168,85,247,.4);transform:scale(1.08)}
+.refresh{transition:all .2s ease}
+.refresh:hover:not(:disabled){box-shadow:0 0 20px rgba(168,85,247,.6);transform:translateY(-1px)}
+select:focus,input:focus{border-color:#A855F7;box-shadow:0 0 12px rgba(168,85,247,.35);outline:none}
 
 </style>
 </head>
 <body>
 <!-- Nexus Sidebar -->
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&display=swap');
-.nexus-burger{position:fixed;top:18px;left:18px;z-index:1001;background:#141418;border:1px solid rgba(255,213,0,.35);border-radius:8px;padding:10px 12px;cursor:pointer;color:#FFD500;font-size:20px;line-height:1}
-.nexus-sidebar{position:fixed;top:0;left:-280px;width:260px;height:100%;background:#0c0c0f;border-right:1px solid rgba(255,213,0,.16);z-index:1000;transition:left .25s ease;padding:70px 0 20px;box-sizing:border-box}
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
+.nexus-burger{position:fixed;top:18px;left:18px;z-index:1001;background:#141418;border:1px solid rgba(168,85,247,.35);border-radius:8px;padding:10px 12px;cursor:pointer;color:#A855F7;font-size:20px;line-height:1}
+.nexus-sidebar{position:fixed;top:0;left:-280px;width:260px;height:100%;background:#0c0c0f;border-right:1px solid rgba(168,85,247,.16);z-index:1000;transition:left .25s ease;padding:70px 0 20px;box-sizing:border-box}
 .nexus-sidebar.open{left:0}
 .nexus-sidebar a{display:block;padding:14px 24px;color:#9aa3b2;text-decoration:none;font-size:15px;border-left:3px solid transparent}
 .nexus-sidebar a:hover{color:#e6e9f0;background:#0f1622}
-.nexus-sidebar a.active{color:#FFD500;border-left-color:#FFD500;background:rgba(255,213,0,.06)}
-.nexus-sidebar .nav-title{padding:0 24px 12px;color:#FFD500;font-size:15px;letter-spacing:.28em;font-family:'Bebas Neue',sans-serif}
+.nexus-sidebar a.active{color:#A855F7;border-left-color:#A855F7;background:rgba(168,85,247,.06)}
+.nexus-sidebar .nav-title{padding:0 24px 12px;color:#A855F7;font-size:15px;letter-spacing:.28em;font-family:'Bebas Neue',sans-serif}
 .nexus-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:999;display:none}
 .nexus-overlay.show{display:block}
 </style>
 <button class="nexus-burger" onclick="document.querySelector('.nexus-sidebar').classList.add('open');document.querySelector('.nexus-overlay').classList.add('show')">☰</button>
 <div class="nexus-overlay" onclick="document.querySelector('.nexus-sidebar').classList.remove('open');this.classList.remove('show')"></div>
 <nav class="nexus-sidebar">
-<div class="nav-title"><svg viewBox="0 0 100 36" style="width:26px;height:10px;vertical-align:baseline;margin-right:8px"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#FFD500"/></svg>NEXUS LOCAL</div>
+<div class="nav-title"><svg viewBox="0 0 100 36" style="width:26px;height:10px;vertical-align:baseline;margin-right:8px"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#A855F7"/></svg>NEXUS LOCAL</div>
 <a href="/" data-page="dashboard">Dashboard</a>
 <a href="/connections" data-page="connections">Connections</a>
 <a href="/settings" data-page="settings">Update Keys</a>
@@ -525,7 +549,7 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
     <h2>Chat with <span class="accent">any</span> provider</h2>
     <div class="thread" id="composer-thread">
         <div class="thread-empty" id="thread-empty">
-            <svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#FFD500"/></svg>
+            <svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#A855F7"/></svg>
             <p>Pick a provider below and say hello.<br>Your chats stay in this session.</p>
         </div>
     </div>
@@ -553,11 +577,11 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
                 <button type="button" id="attach-plus" title="Attach">+</button>
                 <div id="attach-menu" style="display:none">
                     <div class="attach-title">Add attachment</div>
-                    <button class="attach-opt" data-type="camera"><span class="dot" style="background:#FFD500"></span><span><div>Camera</div><div class="opt-sub">Take a photo &middot; 8 MB max</div></span></button>
+                    <button class="attach-opt" data-type="camera"><span class="dot" style="background:#A855F7"></span><span><div>Camera</div><div class="opt-sub">Take a photo &middot; 8 MB max</div></span></button>
                     <button class="attach-opt" data-type="photos"><span class="dot" style="background:#4dd0e1"></span><span><div>Photos</div><div class="opt-sub">Choose from gallery &middot; 8 MB max</div></span></button>
                     <button class="attach-opt" data-type="videos"><span class="dot" style="background:#f5c518"></span><span><div>Videos</div><div class="opt-sub">Choose a video &middot; 20 MB max</div></span></button>
                     <button class="attach-opt" data-type="files"><span class="dot" style="background:#c0c0c0"></span><span><div>Files</div><div class="opt-sub">PDF, DOCX, TXT, MD, CSV, JSON, LOG &middot; 10 MB max</div></span></button>
-                    <button class="attach-opt" data-type="link"><span class="dot" style="background:#FFE45C"></span><span><div>Link</div><div class="opt-sub">Paste any photo or video link</div></span></button>
+                    <button class="attach-opt" data-type="link"><span class="dot" style="background:#C084FC"></span><span><div>Link</div><div class="opt-sub">Paste any photo or video link</div></span></button>
                 </div>
             </div>
             <textarea id="composer-message" rows="1" placeholder="Type a message..."></textarea>
@@ -791,7 +815,7 @@ document.getElementById("refresh-quotas").addEventListener("click", async () => 
     if (!statusEl) {
         statusEl = document.createElement("div");
         statusEl.id = "refresh-status";
-        statusEl.style.cssText = "text-align:center;margin-top:8px;font-size:13px;color:#FFD500;min-height:20px";
+        statusEl.style.cssText = "text-align:center;margin-top:8px;font-size:13px;color:#A855F7;min-height:20px";
         btn.parentNode.insertBefore(statusEl, btn.nextSibling);
     }
     statusEl.textContent = "";
@@ -844,7 +868,7 @@ if (attachPlus && attachMenu) {
     });
     // Hover effect for options
     document.querySelectorAll('.attach-opt').forEach(btn => {
-        btn.addEventListener('mouseenter', () => btn.style.background = 'rgba(255,213,0,.07)');
+        btn.addEventListener('mouseenter', () => btn.style.background = 'rgba(168,85,247,.07)');
         btn.addEventListener('mouseleave', () => btn.style.background = 'none');
         btn.addEventListener('click', () => {
             attachMenu.style.display = 'none';
@@ -868,13 +892,13 @@ if (attachPlus && attachMenu) {
 function showPreview(type, src, name) {
     let previewHtml = '';
     if (type === 'image' || type === 'camera' || type === 'photos') {
-        previewHtml = '<img src="' + src + '" style="max-width:200px;border-radius:8px;border:1px solid rgba(255,213,0,.2)">';
+        previewHtml = '<img src="' + src + '" style="max-width:200px;border-radius:8px;border:1px solid rgba(168,85,247,.2)">';
     } else if (type === 'videos') {
         previewHtml = '<video src="' + src + '" style="max-width:200px;border-radius:8px" controls></video>';
     } else if (type === 'files') {
-        previewHtml = '<div style="background:#141419;border:1px solid rgba(255,213,0,.2);padding:12px;border-radius:8px;font-size:13px">File: ' + (name || 'File') + '</div>';
+        previewHtml = '<div style="background:#141419;border:1px solid rgba(168,85,247,.2);padding:12px;border-radius:8px;font-size:13px">File: ' + (name || 'File') + '</div>';
     } else if (type === 'link') {
-        previewHtml = '<div style="background:#141419;border:1px solid rgba(255,213,0,.2);padding:12px;border-radius:8px;font-size:13px;word-break:break-all">Link: ' + src.substring(0,50) + '</div>';
+        previewHtml = '<div style="background:#141419;border:1px solid rgba(168,85,247,.2);padding:12px;border-radius:8px;font-size:13px;word-break:break-all">Link: ' + src.substring(0,50) + '</div>';
     }
     attachPreview.innerHTML = previewHtml
         + '<button type="button" onclick="clearAttachment()" style="margin-left:8px;background:#ef4444;border:0;border-radius:8px;color:#fff;padding:8px 12px;cursor:pointer">✕</button>';
