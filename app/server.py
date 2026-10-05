@@ -128,7 +128,7 @@ RELAY_UPSTREAMS = {
     # Individual providers via relay (user's own keys)
     "groq": "https://api.groq.com/openai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
-    "siliconflow": "https://api.siliconflow.cn/v1",
+    "siliconflow": "https://api.siliconflow.com/v1",
     "nvidia": "https://integrate.api.nvidia.com/v1",
     "mistral": "https://api.mistral.ai/v1",
     "zhipu": "https://open.bigmodel.cn/api/paas/v4",
