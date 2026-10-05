@@ -832,11 +832,16 @@ class Handler(BaseHTTPRequestHandler):
                     if not provider.startswith("relay_") and provider not in ("freellmapi", "google", "relay_gemini"):
                         models = [m for m in models if m.startswith(provider + "/") or "/" not in m]
             except Exception as e:
-                pass
+                dbg_err = str(e)[:200]
+            else:
+                dbg_err = ""
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self._send_body(js.dumps({"models": models}).encode())
+            out = {"models": models}
+            if parse_qs(parsed.query).get("debug", [""])[0] == "1":
+                out["debug_error"] = dbg_err
+            self._send_body(js.dumps(out).encode())
             return
         self.send_error(404, "Not Found")
 
