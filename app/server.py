@@ -838,8 +838,13 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         # OpenAI format: {"data": [{"id": "..."}]}
                         models = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
-                    # Filter by provider if needed
-                    if not provider.startswith("relay_") and provider not in ("freellmapi", "google", "relay_gemini"):
+                    # Rudra's rule: only free/freemium models. Only OpenRouter has
+                    # paid models — its free lane is the :free suffix. Every
+                    # other provider's key is already a free/freemium tier,
+                    # so their full rosters stay.
+                    if provider in ("openrouter", "relay_openrouter"):
+                        models = [m for m in models if m.endswith(":free")]
+                    elif not provider.startswith("relay_") and provider not in ("freellmapi", "google", "relay_gemini"):
                         models = [m for m in models if m.startswith(provider + "/") or "/" not in m]
             except Exception as e:
                 pass
