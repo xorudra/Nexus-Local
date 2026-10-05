@@ -373,48 +373,87 @@ border-radius:10px;padding:8px 14px;font-size:13px}
 .typing span{width:8px;height:8px;border-radius:50%;background:#FFD500;animation:blink 1.2s infinite}
 .typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
 @keyframes blink{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
-.composer-controls{background:transparent}
-.ctrl-row{display:flex;gap:10px;margin-bottom:10px}
-.ctrl-field{flex:1;min-width:0}
-.ctrl-field label{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8a8a92;
-margin-bottom:6px;font-family:'Oswald',sans-serif;font-weight:500}
-.ctrl-field select,.ctrl-field input{width:100%;background:#0a0a0d;border:1px solid #26262c;border-radius:8px;
-color:#e8e8ea;padding:11px 12px;font-size:14px;font-family:inherit}
-.ctrl-field select:focus,.ctrl-field input:focus{outline:none;border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.15)}
-.input-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:end}
-.attach-wrap{position:relative;flex:none}
-#attach-plus{width:44px;height:44px;border-radius:50%;background:#141418;border:1px solid rgba(255,213,0,.35);
-color:#FFD500;font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
-#attach-plus:hover{background:rgba(255,213,0,.12);box-shadow:0 0 16px rgba(255,213,0,.2)}
-#attach-menu{position:absolute;left:0;bottom:52px;background:#101014;border:1px solid rgba(255,213,0,.18);
-border-radius:12px;padding:8px;z-index:100;min-width:280px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
-.attach-title{padding:10px 14px 6px;color:#e8e8ea;font-weight:600;font-size:14px}
-.attach-opt{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e8e8ea;
-padding:10px 14px;cursor:pointer;border-radius:8px;text-align:left;font-size:14px}
-.attach-opt:hover{background:rgba(255,213,0,.07)}
-.attach-opt .dot{width:14px;height:14px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.5)}
-.attach-opt .opt-sub{font-size:12px;color:#8a8a92}
-#composer-message{flex:1;min-width:0;background:#0a0a0d;border:1px solid #26262c;border-radius:22px;color:#e8e8ea;
-padding:12px 16px;font-size:14px;font-family:inherit;line-height:1.45;resize:none;min-height:44px;max-height:130px}
-#composer-message:focus{outline:none;border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.15)}
-#composer-send{flex:none;height:44px;padding:0 24px;border-radius:22px;background:linear-gradient(#FFE45C,#F5B800);
-color:#0a0a0a;border:1px solid #0a0a0a;box-shadow:0 0 24px rgba(255,213,0,.25), inset 0 1px 0 rgba(255,255,255,.5);
-font-family:'Oswald',sans-serif;font-weight:600;font-size:13px;letter-spacing:.2em;text-transform:uppercase;cursor:pointer;transition:all .15s}
-#composer-send:hover{filter:brightness(1.06);box-shadow:0 0 36px rgba(255,213,0,.4), inset 0 1px 0 rgba(255,255,255,.5)}
-#composer-send:disabled{opacity:.55;cursor:wait}
-#attach-preview{margin-top:10px}
-#attach-preview:empty{margin-top:0}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 @media(max-width:560px){
-.ctrl-row{flex-direction:column;gap:8px}
+
 .msg{max-width:94%}
-#composer-send{padding:0 16px;font-size:12px;letter-spacing:.12em}
-#composer-message{min-width:0}
-#attach-plus{width:40px;height:40px;font-size:20px}
-#composer-send{height:40px}
+
+
+
+
 .thread{min-height:150px;max-height:320px}
 .thread-empty{padding:20px 14px}
 .thread-empty svg{width:40px;margin-bottom:8px}
 .thread-empty p{font-size:12px}
+}
+
+
+/* ===== Composer: unified pill input ===== */
+.composer-box{background:#0a0a0d;border:1px solid #232329;border-radius:20px;padding:12px}
+.picker-row{display:flex;gap:8px;margin-bottom:10px}
+.picker{flex:1;min-width:0;background:#141419;border:1px solid rgba(255,213,0,.16);border-radius:10px;
+color:#e8e8ea;padding:9px 12px;font-size:13px;font-family:inherit;appearance:none}
+select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23FFD500' fill='none' stroke-width='1.6'/%3E%3C/svg%3E");
+background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;cursor:pointer}
+.picker:focus{outline:none;border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.12)}
+.picker::placeholder{color:#5a5a64}
+.input-pill{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;
+background:#141419;border:1px solid #2a2a32;border-radius:28px;padding:8px;min-height:66px;transition:border-color .2s,box-shadow .2s}
+.input-pill:focus-within{border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.12),0 0 28px rgba(255,213,0,.08)}
+.attach-wrap{position:relative}
+#attach-plus{width:40px;height:40px;border-radius:50%;background:transparent;border:none;color:#8a8a92;
+font-size:26px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+#attach-plus:hover{color:#FFD500;background:rgba(255,213,0,.1)}
+#attach-menu{position:absolute;left:0;bottom:50px;background:#101014;border:1px solid rgba(255,213,0,.18);
+border-radius:12px;padding:8px;z-index:100;min-width:280px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+.attach-title{padding:10px 14px 6px;color:#e8e8ea;font-weight:600;font-size:14px}
+.attach-opt{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e8e8ea;
+padding:10px 14px;cursor:pointer;border-radius:8px;text-align:left;font-size:14px;font-family:inherit}
+.attach-opt:hover{background:rgba(255,213,0,.07)}
+.attach-opt .dot{width:14px;height:14px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.5)}
+.attach-opt .opt-sub{font-size:12px;color:#8a8a92}
+#composer-message{background:transparent;border:none;outline:none;color:#e8e8ea;font-size:15px;
+font-family:inherit;line-height:1.45;resize:none;min-height:26px;max-height:140px;padding:6px 4px;width:100%}
+#composer-message::placeholder{color:#5a5a64}
+#composer-send{width:44px;height:44px;border-radius:50%;background:linear-gradient(#FFE45C,#F5B800);
+border:1px solid #0a0a0a;box-shadow:0 0 22px rgba(255,213,0,.32),inset 0 1px 0 rgba(255,255,255,.5);
+cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .15s;flex:none}
+#composer-send:hover{filter:brightness(1.07);box-shadow:0 0 34px rgba(255,213,0,.48),inset 0 1px 0 rgba(255,255,255,.5)}
+#composer-send:disabled{opacity:.35;cursor:wait;box-shadow:none}
+#attach-preview{margin-top:10px}
+#attach-preview:empty{margin-top:0}
+@media(max-width:560px){
+.picker-row{flex-direction:column;gap:8px}
+.msg{max-width:94%}
+#composer-send{width:40px;height:40px}
+#attach-plus{width:36px;height:36px;font-size:22px}
+.thread{min-height:150px;max-height:320px}
+.thread-empty{padding:20px 14px}
+.thread-empty svg{width:40px;margin-bottom:8px}
+.thread-empty p{font-size:12px}
+.composer-box{padding:10px}
 }
 
 /* ===== CINEMATIC LAYER ===== */
@@ -484,18 +523,12 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
             <p>Pick a provider below and say hello.<br>Your chats stay in this session.</p>
         </div>
     </div>
-    <div class="composer-controls">
-        <div class="ctrl-row">
-            <div class="ctrl-field">
-                <label for="composer-provider">Provider</label>
-                <select id="composer-provider" onchange="loadModels(this.value)"></select>
-            </div>
-            <div class="ctrl-field">
-                <label for="composer-model">Model</label>
-                <input type="text" id="composer-model" placeholder="e.g. llama-3.1-8b-instant">
-            </div>
+    <div class="composer-box">
+        <div class="picker-row">
+            <select id="composer-provider" class="picker" onchange="loadModels(this.value)" title="Provider"></select>
+            <input type="text" id="composer-model" class="picker" placeholder="Model" title="Model">
         </div>
-        <div class="input-bar">
+        <div class="input-pill">
             <div class="attach-wrap">
                 <button type="button" id="attach-plus" title="Attach">+</button>
                 <div id="attach-menu" style="display:none">
@@ -507,8 +540,8 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
                     <button class="attach-opt" data-type="link"><span class="dot" style="background:#FFE45C"></span><span><div>Link</div><div class="opt-sub">Paste any photo or video link</div></span></button>
                 </div>
             </div>
-            <textarea id="composer-message" rows="1" placeholder="Type a message...  (Enter to send)"></textarea>
-            <button id="composer-send">Send</button>
+            <textarea id="composer-message" rows="1" placeholder="Type a message..."></textarea>
+            <button id="composer-send" title="Send"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 19V5M5 12l7-7 7 7" stroke="#0a0a0a" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
         <input type="file" id="attach-input" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
         <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
