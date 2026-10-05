@@ -144,6 +144,17 @@ RELAY_UPSTREAMS = {
 # relay_pollinations needs no key
 RELAY_KEYLESS = {"relay_pollinations", "aihorde", "pollinations", "kilo", "ovh"}
 
+def register_custom_providers(keys):
+    """Register custom relay providers from keys dict into RELAY_UPSTREAMS."""
+    if not keys:
+        return
+    for k, v in keys.items():
+        if k.startswith("custom_relay_") and not k.endswith("_url"):
+            name = k[len("custom_relay_"):]
+            url = keys.get(k + "_url", "").strip()
+            if url and name not in RELAY_UPSTREAMS:
+                RELAY_UPSTREAMS[name] = url.rstrip("/")
+
 
 class RelayHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -186,7 +197,10 @@ class RelayHandler(BaseHTTPRequestHandler):
             if k.lower() not in ("host", "content-length", "authorization"):
                 req.add_header(k, v)
         if name not in RELAY_KEYLESS:
-            key = (Handler.keys or {}).get(name)
+            # Check for custom relay key first, then standard key
+            key = (Handler.keys or {}).get(f"custom_relay_{name}")
+            if not key:
+                key = (Handler.keys or {}).get(name)
             if not key:
                 self._send_json({"error": f"no key configured for {name}"}, 502)
                 return
@@ -437,6 +451,40 @@ class Handler(BaseHTTPRequestHandler):
                     "}"
                     "</script>"
                     "<form method='POST' action='/setup'>" + relay_section + freellmapi_section +
+                    "<details style='background:#0f1622;border:1px solid #22c55e;border-radius:12px;padding:16px;margin-bottom:16px'>"
+                    "<summary style='color:#22c55e;cursor:pointer;font-size:18px;font-weight:700'>Add Custom Relay Provider</summary>"
+                    "<p style='color:#9aa3b2;font-size:14px;margin:12px 0'>Bring your own provider. It will route through the built-in relay and appear in your Relay Providers.</p>"
+                    "<div id='custom-relay-list'></div>"
+                    "<button type='button' onclick='addCustomRelay()' style='background:#1a1f2a;color:#22c55e;border:1px solid #22c55e;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;margin-top:8px'>+ Add Provider</button>"
+                    "</details>"
+                    "<details style='background:#0f1622;border:1px solid #3b82f6;border-radius:12px;padding:16px;margin-bottom:16px'>"
+                    "<summary style='color:#3b82f6;cursor:pointer;font-size:18px;font-weight:700'>Add Custom FreeLLMAPI Provider</summary>"
+                    "<p style='color:#9aa3b2;font-size:14px;margin:12px 0'>Add a provider through the FreeLLMAPI gateway. It will appear in your FreeLLMAPI Providers.</p>"
+                    "<div id='custom-fl-list'></div>"
+                    "<button type='button' onclick='addCustomFL()' style='background:#1a1f2a;color:#3b82f6;border:1px solid #3b82f6;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;margin-top:8px'>+ Add Provider</button>"
+                    "</details>"
+                    "<script>"
+                    "var crCount=0;var cfCount=0;"
+                    "function addCustomRelay(){"
+                    "crCount++;"
+                    "var d=document.createElement('div');"
+                    "d.style.cssText='background:#0a0c11;border:1px solid #1e2430;border-radius:8px;padding:12px;margin-bottom:10px';"
+                    "d.innerHTML='<label>Provider name (lowercase, no spaces)<input type=\"text\" name=\"cr_name_'+crCount+'\" placeholder=\"myprovider\" pattern=\"[a-z0-9_]+\"></label>'"
+                    "+'<label>API endpoint (base URL)<input type=\"text\" name=\"cr_url_'+crCount+'\" placeholder=\"https://api.example.com/v1\"></label>'"
+                    "+'<label>API key<input type=\"password\" name=\"cr_key_'+crCount+'\" autocomplete=\"off\"></label>'"
+                    "+'<button type=\"button\" onclick=\"this.parentElement.remove()\" style=\"background:none;color:#ef4444;border:0;cursor:pointer;font-size:13px;padding:4px\">Remove</button>';"
+                    "document.getElementById('custom-relay-list').appendChild(d);"
+                    "}"
+                    "function addCustomFL(){"
+                    "cfCount++;"
+                    "var d=document.createElement('div');"
+                    "d.style.cssText='background:#0a0c11;border:1px solid #1e2430;border-radius:8px;padding:12px;margin-bottom:10px';"
+                    "d.innerHTML='<label>Provider name (lowercase, no spaces)<input type=\"text\" name=\"cf_name_'+cfCount+'\" placeholder=\"myprovider\" pattern=\"[a-z0-9_]+\"></label>'"
+                    "+'<label>API key<input type=\"password\" name=\"cf_key_'+cfCount+'\" autocomplete=\"off\"></label>'"
+                    "+'<button type=\"button\" onclick=\"this.parentElement.remove()\" style=\"background:none;color:#ef4444;border:0;cursor:pointer;font-size:13px;padding:4px\">Remove</button>';"
+                    "document.getElementById('custom-fl-list').appendChild(d);"
+                    "}"
+                    "</script>"
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required></label>"
                     "<button type='submit'>Encrypt and Finish Setup</button>"
@@ -586,6 +634,32 @@ class Handler(BaseHTTPRequestHandler):
                         "daily_usage": {"requests": 0, "tokens": 0},
                         "monthly_usage": {"requests": 0, "tokens": 0},
                     })
+                # Add custom providers
+                for k in (Handler.keys or {}).keys():
+                    if k.startswith("custom_relay_") and not k.endswith("_url"):
+                        cname = k[len("custom_relay_"):]
+                        quotas["providers"].append({
+                            "provider": k,
+                            "display_name": f"Relay: {cname.title()} (Custom)",
+                            "reset": "",
+                            "history": {"requests": [0] * 7, "tokens": [0] * 7},
+                            "limits": {},
+                            "key_configured": True,
+                            "daily_usage": {"requests": 0, "tokens": 0},
+                            "monthly_usage": {"requests": 0, "tokens": 0},
+                        })
+                    elif k.startswith("custom_fl_"):
+                        cname = k[len("custom_fl_"):]
+                        quotas["providers"].append({
+                            "provider": k,
+                            "display_name": f"FreeLLMAPI: {cname.title()} (Custom)",
+                            "reset": "",
+                            "history": {"requests": [0] * 7, "tokens": [0] * 7},
+                            "limits": {},
+                            "key_configured": True,
+                            "daily_usage": {"requests": 0, "tokens": 0},
+                            "monthly_usage": {"requests": 0, "tokens": 0},
+                        })
             if os.path.exists(USAGE_PATH):
                 with open(USAGE_PATH) as f:
                     for line in f:
@@ -639,6 +713,29 @@ class Handler(BaseHTTPRequestHandler):
                 v = form.get("k_" + n, [""])[0].strip()
                 if v:
                     keys[n] = v
+            # Custom relay providers: cr_name_N, cr_url_N, cr_key_N
+            import re
+            for fk in list(form.keys()):
+                m = re.match(r"^cr_name_(\d+)$", fk)
+                if m:
+                    idx = m.group(1)
+                    name = form.get(fk, [""])[0].strip().lower()
+                    url = form.get(f"cr_url_{idx}", [""])[0].strip()
+                    key = form.get(f"cr_key_{idx}", [""])[0].strip()
+                    if name and url and key and re.match(r"^[a-z0-9_]+$", name):
+                        if not (url.startswith("http://") or url.startswith("https://")):
+                            continue
+                        keys[f"custom_relay_{name}"] = key
+                        keys[f"custom_relay_{name}_url"] = url
+            # Custom FreeLLMAPI providers: cf_name_N, cf_key_N
+            for fk in list(form.keys()):
+                m = re.match(r"^cf_name_(\d+)$", fk)
+                if m:
+                    idx = m.group(1)
+                    name = form.get(fk, [""])[0].strip().lower()
+                    key = form.get(f"cf_key_{idx}", [""])[0].strip()
+                    if name and key and re.match(r"^[a-z0-9_]+$", name):
+                        keys[f"custom_fl_{name}"] = key
             gw_url = form.get("url_freellmapi", [""])[0].strip()
             if gw_url:
                 if not (gw_url.startswith("http://") or gw_url.startswith("https://")):
@@ -685,6 +782,7 @@ class Handler(BaseHTTPRequestHandler):
             encrypt_keys(keys, pw, key_path)
             os.chmod(key_path, 0o600)
             Handler.keys = keys  # refresh in-memory
+            register_custom_providers(keys)
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
@@ -769,6 +867,26 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
                     return
                 base = gw_url.rstrip("/")
+            elif provider.startswith("custom_fl_"):
+                # Custom FreeLLMAPI provider - routes through the FreeLLMAPI gateway
+                gw_url = ((Handler.keys or {}).get("freellmapi_url") or "").strip()
+                if not gw_url:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
+                    return
+                base = gw_url.rstrip("/")
+                if not key:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
+                    return
+            elif provider.startswith("custom_relay_"):
+                # Custom relay provider - routes through the relay
+                cname = provider[len("custom_relay_"):]
+                base = f"http://127.0.0.1:{RELAY_PORT}/{cname}/v1"
+                if not key:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
+                    return
             else:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"chat not supported for {provider} in local version"}).encode())
@@ -777,8 +895,8 @@ class Handler(BaseHTTPRequestHandler):
                 "Content-Type": "application/json",
             }
             # For relay providers, the integrated relay attaches the key
-            # For freellmapi, attach the unified key here
-            if provider == "freellmapi":
+            # For freellmapi and custom_fl, attach the key here
+            if provider == "freellmapi" or provider.startswith("custom_fl_"):
                 headers["Authorization"] = f"Bearer {key}"
             if provider == "openrouter" or provider == "relay_openrouter":
                 headers["X-Title"] = "NexusLocal"
@@ -858,6 +976,7 @@ class Handler(BaseHTTPRequestHandler):
             token = secrets.token_hex(32)
             SESSIONS[token] = time.time()
             Handler.keys = dec_keys
+            register_custom_providers(dec_keys)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             cookie = f"session={token}; HttpOnly; SameSite=Lax; Path=/"
