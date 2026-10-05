@@ -893,7 +893,8 @@ composerSend.addEventListener('click', async () => {
     const provider = composerProviders.value;
     const model = document.getElementById('composer-model').value;
     const msg = composerMsg.value.trim();
-    if (!provider || !model || !msg) {
+    // Allow auto provider with empty model (backend auto-selects)
+    if (!provider || (!model && provider !== 'auto') || !msg) {
         hideEmpty(); addMsg('system', 'Please select a provider, model, and enter a message');
         return;
     }

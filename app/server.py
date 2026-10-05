@@ -1059,39 +1059,60 @@ class Handler(BaseHTTPRequestHandler):
                 message = f"[Attached file: {file_data.get('name', 'file')}]\n{file_data['text'][:8000]}\n\n{message}"
             if link:
                 message = f"[Attached link: {link}]\n{message}"
-            if not provider or not model or not message:
-                self._set_json_headers(400)
-                self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
-                return
             # Routing mode: quality | save | auto (stored in keys dict)
             routing = (Handler.keys or {}).get("_routing_mode", "quality")
+            # Default models for auto-selection (known working)
+            _DEFAULT_MODELS = {
+                "groq": "openai/gpt-oss-20b",
+                "relay_groq": "openai/gpt-oss-20b",
+                "google": "gemini-2.0-flash",
+                "relay_gemini": "gemini-2.0-flash",
+                "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
+                "relay_openrouter": "meta-llama/llama-3.3-70b-instruct:free",
+                "nvidia": "meta/llama-3.3-70b-instruct",
+                "relay_nvidia": "meta/llama-3.3-70b-instruct",
+                "mistral": "mistral-small-latest",
+                "cohere": "command-a-03-2025",
+                "zhipu": "glm-4-flash",
+                "ovh": "Meta-Llama-3.3-70B-Instruct",
+                "pollinations": "openai",
+                "relay_pollinations": "openai",
+            }
             # Auto provider selection when provider is "auto"
             if provider == "auto":
                 if routing == "save":
-                    # Prefer fast, light providers
                     for cand in ["groq", "relay_groq", "pollinations", "relay_pollinations",
                                  "openrouter", "relay_openrouter"]:
                         if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
                             provider = cand
                             break
                 elif routing == "auto":
-                    # Code tasks -> quality, simple chat -> save
-                    if mode == "code" or (message and any(k in message.lower() for k in
-                            ["code", "function", "class", "debug", "python", "javascript", "bug"])):
+                    ml = (message or "").lower()
+                    if mode == "code" or any(k in ml for k in
+                            ["code", "function", "class", "debug", "python", "javascript", "bug"]):
                         routing_eff = "quality"
                     else:
                         routing_eff = "save"
-                    # fall through to quality/save selection below
                     routing = routing_eff
+                    # Re-run selection with effective routing
+                    if routing_eff == "save":
+                        for cand in ["groq", "relay_groq", "pollinations", "relay_pollinations"]:
+                            if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
+                                provider = cand
+                                break
                 if provider == "auto" or routing == "quality":
-                    # Prefer best models for the task
                     for cand in ["relay_gemini", "google", "relay_openrouter", "openrouter",
                                  "relay_nvidia", "nvidia", "mistral", "cohere"]:
                         if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
                             provider = cand
                             break
-                # Auto-pick first available model if none specified (frontend
-                # should call /api/models for the chosen provider)
+                # Auto-pick model if none specified
+                if not model and provider in _DEFAULT_MODELS:
+                    model = _DEFAULT_MODELS[provider]
+            if not provider or not model or not message:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
+                return
             key = Handler.keys.get(provider) if Handler.keys else None
             if not key:
                 self._set_json_headers(400)
