@@ -844,8 +844,6 @@ class Handler(BaseHTTPRequestHandler):
                     # so their full rosters stay.
                     if provider in ("openrouter", "relay_openrouter"):
                         models = [m for m in models if m.endswith(":free")]
-                    elif not provider.startswith("relay_") and provider not in ("freellmapi", "google", "relay_gemini"):
-                        models = [m for m in models if m.startswith(provider + "/") or "/" not in m]
             except Exception as e:
                 pass
             self.send_response(200)
