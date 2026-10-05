@@ -269,75 +269,19 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
     color: #FFD500;
 }
 
-.composer .form {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-}
 
-.composer label {
-    flex: 1 1 120px;
-    font-size: 0.9rem;
-    color: #aaa;
-    align-self: center;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-}
 
-.composer input, .composer select, .composer textarea {
-    flex: 2 1 200px;
-    padding: 8px 10px;
-    background: #0a0a0d;
-    border: 1px solid #26262c;
-    border-radius: 8px;
-    color: #eee;
-    font-size: 1em;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-}
 
-.composer button#composer-send {
-    flex: 1 1 100%;
-    background: linear-gradient(#FFE45C,#F5B800);
-    color: #0a0a0a;
-    border: 1px solid #0a0a0a;
-    border-radius: 8px;
-    box-shadow: 0 0 24px rgba(255,213,0,.25), inset 0 1px 0 rgba(255,255,255,.5);
-    padding: 16px 32px;
-    margin-top: 12px;
-    cursor: pointer;
-    font-family: 'Oswald', sans-serif;
-    font-weight: 600;
-    font-size: 14px;
-    letter-spacing: .22em;
-    text-transform: uppercase;
-}
 
-.composer button#composer-send:hover {
-    filter: brightness(1.06);
-    box-shadow: 0 0 32px rgba(255,213,0,.4), inset 0 1px 0 rgba(255,255,255,.5);
-}
-.composer button#composer-send:active {
-    transform: translateY(1px);
-}
 
-.composer pre {
-    background: #0d1117;
-    border-radius: 12px;
-    padding: 18px;
-    margin-top: 16px;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    max-height: 500px;
-    overflow-y: auto;
-    border: 1px solid rgba(255,213,0,.14);
-    border-radius: 10px;
-    font-size: 14px;
-    line-height: 1.6;
-    display: none;
-}
-.composer pre.has-content {
-    display: block;
-    animation: fadeIn .3s;
-}
+
+
+
+
+
+
+
+
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: none; }
@@ -407,6 +351,61 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
     }
 }
 
+
+/* ===== Task Composer: chat UI ===== */
+.thread{background:#08080b;border:1px solid #1e1e24;border-radius:12px;min-height:230px;max-height:430px;
+overflow-y:auto;padding:16px;margin-bottom:14px;display:flex;flex-direction:column;gap:12px}
+.thread-empty{text-align:center;color:#5a5a64;margin:auto;padding:36px 20px}
+.thread-empty svg{width:56px;opacity:.35;margin-bottom:10px}
+.thread-empty p{font-size:13px;line-height:1.6;margin:0}
+.msg{max-width:88%;animation:fadeUp .3s both}
+.msg-user{align-self:flex-end}
+.msg-user .msg-body{background:linear-gradient(#FFE45C,#F5B800);color:#0a0a0a;border-radius:16px 16px 4px 16px;
+padding:10px 14px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
+.msg-ai{align-self:flex-start}
+.msg-ai .msg-body{background:#141419;border:1px solid rgba(255,213,0,.12);color:#e8e8ea;border-radius:16px 16px 16px 4px;
+padding:10px 14px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word}
+.msg-system{align-self:center;max-width:100%}
+.msg-system .msg-body{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.3);color:#ff9a9a;
+border-radius:10px;padding:8px 14px;font-size:13px}
+.msg-meta{font-size:11px;color:#FFD500;margin-bottom:4px;letter-spacing:.08em;font-family:'Oswald',sans-serif}
+.typing{display:flex;gap:6px;padding:13px 15px;background:#141419;border:1px solid rgba(255,213,0,.12);border-radius:16px}
+.typing span{width:8px;height:8px;border-radius:50%;background:#FFD500;animation:blink 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
+.composer-controls{background:transparent}
+.ctrl-row{display:flex;gap:10px;margin-bottom:10px}
+.ctrl-field{flex:1;min-width:0}
+.ctrl-field label{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8a8a92;
+margin-bottom:6px;font-family:'Oswald',sans-serif;font-weight:500}
+.ctrl-field select,.ctrl-field input{width:100%;background:#0a0a0d;border:1px solid #26262c;border-radius:8px;
+color:#e8e8ea;padding:11px 12px;font-size:14px;font-family:inherit}
+.ctrl-field select:focus,.ctrl-field input:focus{outline:none;border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.15)}
+.input-bar{display:flex;gap:8px;align-items:flex-end}
+.attach-wrap{position:relative;flex:none}
+#attach-plus{width:44px;height:44px;border-radius:50%;background:#141418;border:1px solid rgba(255,213,0,.35);
+color:#FFD500;font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+#attach-plus:hover{background:rgba(255,213,0,.12);box-shadow:0 0 16px rgba(255,213,0,.2)}
+#attach-menu{position:absolute;left:0;bottom:52px;background:#101014;border:1px solid rgba(255,213,0,.18);
+border-radius:12px;padding:8px;z-index:100;min-width:280px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+.attach-title{padding:10px 14px 6px;color:#e8e8ea;font-weight:600;font-size:14px}
+.attach-opt{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e8e8ea;
+padding:10px 14px;cursor:pointer;border-radius:8px;text-align:left;font-size:14px}
+.attach-opt:hover{background:rgba(255,213,0,.07)}
+.attach-opt .dot{width:14px;height:14px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.5)}
+.attach-opt .opt-sub{font-size:12px;color:#8a8a92}
+#composer-message{flex:1;background:#0a0a0d;border:1px solid #26262c;border-radius:22px;color:#e8e8ea;
+padding:12px 16px;font-size:14px;font-family:inherit;line-height:1.45;resize:none;min-height:44px;max-height:130px}
+#composer-message:focus{outline:none;border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.15)}
+#composer-send{flex:none;height:44px;padding:0 24px;border-radius:22px;background:linear-gradient(#FFE45C,#F5B800);
+color:#0a0a0a;border:1px solid #0a0a0a;box-shadow:0 0 24px rgba(255,213,0,.25), inset 0 1px 0 rgba(255,255,255,.5);
+font-family:'Oswald',sans-serif;font-weight:600;font-size:13px;letter-spacing:.2em;text-transform:uppercase;cursor:pointer;transition:all .15s}
+#composer-send:hover{filter:brightness(1.06);box-shadow:0 0 36px rgba(255,213,0,.4), inset 0 1px 0 rgba(255,255,255,.5)}
+#composer-send:disabled{opacity:.55;cursor:wait}
+#attach-preview{margin-top:10px}
+#attach-preview:empty{margin-top:0}
+@media(max-width:560px){.ctrl-row{flex-direction:column}.msg{max-width:94%}}
+
 /* ===== CINEMATIC LAYER ===== */
 body::before{content:"";position:fixed;inset:0;z-index:2000;pointer-events:none;
 background:radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.62) 100%)}
@@ -467,43 +466,43 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
 
 <div class="composer" id="composer-card">
     <div class="eyebrow">TASK COMPOSER</div>
-    <h2>Build and <span class="accent">send</span> your tasks</h2>
-    <div class="form">
-        <div>
-            <label for="composer-provider">Provider</label>
-            <select id="composer-provider" onchange="loadModels(this.value)"></select>
-        </div>
-        <div>
-            <label for="composer-model">Model</label>
-            <input type="text" id="composer-model" placeholder="e.g. llama-3.1-8b-instant">
-        </div>
-        <div style="flex: 1 1 100%">
-            
-<label for="composer-message">Message</label>
-            <div style="position:relative">
-<textarea id="composer-message" rows="4"></textarea>
-<button type="button" id="attach-plus" style="position:absolute;left:12px;bottom:12px;width:36px;height:36px;border-radius:50%;background:#1e2430;border:1px solid #2a3342;color:#e6e9f0;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
-<input type="file" id="attach-input" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
-<input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
-<div id="attach-preview" style="margin-top:8px"></div>
-<div id="attach-menu" style="display:none;position:absolute;left:12px;bottom:56px;background:#11141b;border:1px solid #1e2430;border-radius:16px;padding:8px;z-index:100;min-width:280px;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
-<div style="padding:12px 16px 8px;color:#e6e9f0;font-weight:600">Add attachment</div>
-<button class="attach-opt" data-type="camera" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
-<span style="width:16px;height:16px;background:#FFD500;border:2px solid #000;display:inline-block;flex:none"></span><span><div style="font-weight:600">Camera</div><div style="font-size:12px;color:#9aa3b2">Take a photo · 8 MB max</div></span></button>
-<button class="attach-opt" data-type="photos" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
-<span style="width:16px;height:16px;background:#4dd0e1;border:2px solid #000;display:inline-block;flex:none"></span><span><div style="font-weight:600">Photos</div><div style="font-size:12px;color:#9aa3b2">Choose from gallery · 8 MB max</div></span></button>
-<button class="attach-opt" data-type="videos" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
-<span style="width:16px;height:16px;background:#f5c518;border:2px solid #000;display:inline-block;flex:none"></span><span><div style="font-weight:600">Videos</div><div style="font-size:12px;color:#9aa3b2">Choose a video · 20 MB max</div></span></button>
-<button class="attach-opt" data-type="files" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
-<span style="width:16px;height:16px;background:#c0c0c0;border:2px solid #000;display:inline-block;flex:none"></span><span><div style="font-weight:600">Files</div><div style="font-size:12px;color:#9aa3b2">PDF, DOCX, TXT, MD, CSV, JSON or LOG · 10 MB max</div></span></button>
-<button class="attach-opt" data-type="link" style="display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#e6e9f0;padding:12px 16px;cursor:pointer;border-radius:12px;text-align:left">
-<span style="width:16px;height:16px;background:#FFE45C;border:2px solid #000;display:inline-block;flex:none"></span><span><div style="font-weight:600">Link</div><div style="font-size:12px;color:#9aa3b2">Paste any photo or video link</div></span></button>
-</div>
-</div>
+    <h2>Chat with <span class="accent">any</span> provider</h2>
+    <div class="thread" id="composer-thread">
+        <div class="thread-empty" id="thread-empty">
+            <svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#FFD500"/></svg>
+            <p>Pick a provider below and say hello.<br>Your chats stay in this session.</p>
         </div>
     </div>
-    <button id="composer-send">Send</button>
-    <pre id="composer-reply"></pre>
+    <div class="composer-controls">
+        <div class="ctrl-row">
+            <div class="ctrl-field">
+                <label for="composer-provider">Provider</label>
+                <select id="composer-provider" onchange="loadModels(this.value)"></select>
+            </div>
+            <div class="ctrl-field">
+                <label for="composer-model">Model</label>
+                <input type="text" id="composer-model" placeholder="e.g. llama-3.1-8b-instant">
+            </div>
+        </div>
+        <div class="input-bar">
+            <div class="attach-wrap">
+                <button type="button" id="attach-plus" title="Attach">+</button>
+                <div id="attach-menu" style="display:none">
+                    <div class="attach-title">Add attachment</div>
+                    <button class="attach-opt" data-type="camera"><span class="dot" style="background:#FFD500"></span><span><div>Camera</div><div class="opt-sub">Take a photo &middot; 8 MB max</div></span></button>
+                    <button class="attach-opt" data-type="photos"><span class="dot" style="background:#4dd0e1"></span><span><div>Photos</div><div class="opt-sub">Choose from gallery &middot; 8 MB max</div></span></button>
+                    <button class="attach-opt" data-type="videos"><span class="dot" style="background:#f5c518"></span><span><div>Videos</div><div class="opt-sub">Choose a video &middot; 20 MB max</div></span></button>
+                    <button class="attach-opt" data-type="files"><span class="dot" style="background:#c0c0c0"></span><span><div>Files</div><div class="opt-sub">PDF, DOCX, TXT, MD, CSV, JSON, LOG &middot; 10 MB max</div></span></button>
+                    <button class="attach-opt" data-type="link"><span class="dot" style="background:#FFE45C"></span><span><div>Link</div><div class="opt-sub">Paste any photo or video link</div></span></button>
+                </div>
+            </div>
+            <textarea id="composer-message" rows="1" placeholder="Type a message...  (Enter to send)"></textarea>
+            <button id="composer-send">Send</button>
+        </div>
+        <input type="file" id="attach-input" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
+        <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
+        <div id="attach-preview"></div>
+    </div>
 </div>
 
 <button class="refresh" id="refresh-quotas">Refresh</button>
@@ -514,7 +513,19 @@ const combinedUsage = document.getElementById('combined-usage');
 const logoutBtn = document.getElementById('logout-btn');
 const composerProviders = document.getElementById('composer-provider');
 const composerSend = document.getElementById('composer-send');
-const composerReply = document.getElementById('composer-reply');
+const thread = document.getElementById('composer-thread');
+function hideEmpty(){const e=document.getElementById('thread-empty');if(e)e.style.display='none';}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function addMsg(kind,text,meta){
+  const div=document.createElement('div');div.className='msg msg-'+kind;
+  div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body">'+esc(text)+'</div>';
+  thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
+}
+function addTyping(){
+  const div=document.createElement('div');div.className='msg msg-ai';
+  div.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
+  thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
+}
 
 async function fetchQuotas() {
     try {
@@ -694,7 +705,7 @@ if (attachPlus && attachMenu) {
     });
     // Hover effect for options
     document.querySelectorAll('.attach-opt').forEach(btn => {
-        btn.addEventListener('mouseenter', () => btn.style.background = '#1e2430');
+        btn.addEventListener('mouseenter', () => btn.style.background = 'rgba(255,213,0,.07)');
         btn.addEventListener('mouseleave', () => btn.style.background = 'none');
         btn.addEventListener('click', () => {
             attachMenu.style.display = 'none';
@@ -718,13 +729,13 @@ if (attachPlus && attachMenu) {
 function showPreview(type, src, name) {
     let previewHtml = '';
     if (type === 'image' || type === 'camera' || type === 'photos') {
-        previewHtml = '<img src="' + src + '" style="max-width:200px;border-radius:8px">';
+        previewHtml = '<img src="' + src + '" style="max-width:200px;border-radius:8px;border:1px solid rgba(255,213,0,.2)">';
     } else if (type === 'videos') {
         previewHtml = '<video src="' + src + '" style="max-width:200px;border-radius:8px" controls></video>';
     } else if (type === 'files') {
-        previewHtml = '<div style="background:#1e2430;padding:12px;border-radius:8px">📄 ' + (name || 'File') + '</div>';
+        previewHtml = '<div style="background:#141419;border:1px solid rgba(255,213,0,.2);padding:12px;border-radius:8px;font-size:13px">File: ' + (name || 'File') + '</div>';
     } else if (type === 'link') {
-        previewHtml = '<div style="background:#1e2430;padding:12px;border-radius:8px">🔗 ' + src.substring(0,50) + '</div>';
+        previewHtml = '<div style="background:#141419;border:1px solid rgba(255,213,0,.2);padding:12px;border-radius:8px;font-size:13px;word-break:break-all">Link: ' + src.substring(0,50) + '</div>';
     }
     attachPreview.innerHTML = previewHtml
         + '<button type="button" onclick="clearAttachment()" style="margin-left:8px;background:#ef4444;border:0;border-radius:8px;color:#fff;padding:8px 12px;cursor:pointer">✕</button>';
@@ -788,18 +799,27 @@ function clearAttachment() {
     if (attachPreview) attachPreview.innerHTML = '';
 }
 
+const composerMsg = document.getElementById('composer-message');
+composerMsg.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); composerSend.click(); }
+});
+composerMsg.addEventListener('input', () => {
+    composerMsg.style.height = 'auto';
+    composerMsg.style.height = Math.min(composerMsg.scrollHeight, 130) + 'px';
+});
 composerSend.addEventListener('click', async () => {
     const provider = composerProviders.value;
     const model = document.getElementById('composer-model').value;
-    const msg = document.getElementById('composer-message').value;
+    const msg = composerMsg.value.trim();
     if (!provider || !model || !msg) {
-        composerReply.classList.add('has-content'); composerReply.textContent = 'Please select a provider, model, and enter a message';
+        hideEmpty(); addMsg('system', 'Please select a provider, model, and enter a message');
         return;
     }
+    hideEmpty();
+    addMsg('user', msg);
+    composerMsg.value = ''; composerMsg.style.height = 'auto';
+    const typingEl = addTyping();
     composerSend.disabled = true;
-    composerSend.textContent = 'Sending…';
-    composerReply.classList.add('has-content');
-    composerReply.textContent = 'Thinking…';
     try {
         const payload = { provider, model, message: msg };
         if (attachedImage) payload.image = attachedImage;
@@ -811,12 +831,14 @@ composerSend.addEventListener('click', async () => {
             body: JSON.stringify(payload)
         });
         const j = await r.json();
-        composerReply.textContent = j.error ? j.error : j.reply;
+        typingEl.remove();
+        if (j.error) addMsg('system', j.error);
+        else addMsg('ai', j.reply, friendlyName(provider) + '  ·  ' + model);
     } catch (e) {
-        composerReply.textContent = 'Error ' + e.message;
+        typingEl.remove();
+        addMsg('system', 'Error: ' + e.message);
     } finally {
         composerSend.disabled = false;
-        composerSend.textContent = 'Send';
         clearAttachment();
     }
 });
