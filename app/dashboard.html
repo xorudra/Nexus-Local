@@ -917,7 +917,12 @@ composerSend.addEventListener('click', async () => {
         const j = await r.json();
         typingEl.remove();
         if (j.error) addMsg('system', j.error);
-        else addMsg('ai', j.reply, friendlyName(provider) + '  ·  ' + model + '  ·  ' + mode);
+        else {
+            // Use actual provider/model if auto-selected
+            const dispProvider = j.used_provider || provider;
+            const dispModel = j.used_model || model;
+            addMsg('ai', j.reply, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
+        }
     } catch (e) {
         typingEl.remove();
         addMsg('system', 'Error: ' + e.message);
