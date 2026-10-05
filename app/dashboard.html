@@ -364,7 +364,13 @@ overflow-y:auto;padding:16px;margin-bottom:14px;display:flex;flex-direction:colu
 padding:10px 14px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
 .msg-ai{align-self:flex-start}
 .msg-ai .msg-body{background:#141419;border:1px solid rgba(255,213,0,.12);color:#e8e8ea;border-radius:16px 16px 16px 4px;
-padding:10px 14px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word}
+padding:10px 14px;font-size:14px;line-height:1.55;word-wrap:break-word}
+.msg-ai .msg-body .md-p{margin:0 0 8px}.msg-ai .msg-body .md-p:last-child{margin-bottom:0}
+.msg-ai .msg-body .md-h{color:#FFD500;margin:12px 0 6px;font-size:15px}
+.msg-ai .msg-body .md-code{background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;padding:10px 12px;margin:8px 0;overflow-x:auto;font-family:monospace;font-size:13px;line-height:1.5;white-space:pre}
+.msg-ai .msg-body .md-inline{background:#0a0a0d;border:1px solid #2a2a32;border-radius:4px;padding:1px 6px;font-family:monospace;font-size:13px;color:#FFE45C}
+.msg-ai .msg-body .md-ul{margin:6px 0;padding-left:20px}.msg-ai .msg-body .md-li{margin:4px 0}
+.msg-ai .msg-body strong{color:#FFE45C}
 .msg-system{align-self:center;max-width:100%}
 .msg-system .msg-body{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.3);color:#ff9a9a;
 border-radius:10px;padding:8px 14px;font-size:13px}
@@ -574,9 +580,32 @@ const composerSend = document.getElementById('composer-send');
 const thread = document.getElementById('composer-thread');
 function hideEmpty(){const e=document.getElementById('thread-empty');if(e)e.style.display='none';}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function md(text){
+  // Simple markdown to HTML: escape first, then apply formatting
+  let h = esc(text);
+  // Code blocks (```lang\ncode```)
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code){
+    return '<pre class="md-code"><code>' + code.trim() + '</code></pre>';
+  });
+  // Inline code (`code`)
+  h = h.replace(/`([^`\n]+)`/g, '<code class="md-inline">$1</code>');
+  // Headers (###, ##)
+  h = h.replace(/^### (.+)$/gm, '<h4 class="md-h">$1</h4>');
+  h = h.replace(/^## (.+)$/gm, '<h3 class="md-h">$1</h3>');
+  // Bold (**text**)
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Lists (- item)
+  h = h.replace(/^- (.+)$/gm, '<li class="md-li">$1</li>');
+  h = h.replace(/(<li class="md-li">.*<\/li>\n?)+/g, '<ul class="md-ul">$&</ul>');
+  // Line breaks (double newline = paragraph, single = br)
+  h = h.replace(/\n\n/g, '</p><p class="md-p">');
+  h = h.replace(/\n/g, '<br>');
+  return '<p class="md-p">' + h + '</p>';
+}
 function addMsg(kind,text,meta){
   const div=document.createElement('div');div.className='msg msg-'+kind;
-  div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body">'+esc(text)+'</div>';
+  const bodyHtml = kind === 'ai' ? md(text) : esc(text).replace(/\n/g,'<br>');
+  div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body">'+bodyHtml+'</div>';
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addTyping(){
