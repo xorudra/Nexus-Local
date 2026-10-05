@@ -526,7 +526,7 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
     <div class="composer-box">
         <div class="picker-row">
             <select id="composer-provider" class="picker" onchange="loadModels(this.value)" title="Provider"></select>
-            <input type="text" id="composer-model" class="picker" placeholder="Model" title="Model">
+            <select id="composer-model" class="picker" title="Model"><option value="">Select model...</option></select>
         </div>
         <div class="input-pill">
             <div class="attach-wrap">
@@ -616,27 +616,28 @@ async function populateComposer() {
 }
 
 async function loadModels(provider) {
-    const modelInput = document.getElementById('composer-model');
+    const modelSel = document.getElementById('composer-model');
+    modelSel.innerHTML = '<option value="">Loading models...</option>';
     try {
         const r = await fetch('/api/models?provider=' + encodeURIComponent(provider));
         const data = await r.json();
         const models = data.models || [];
-        // Replace text input with datalist for autocomplete
-        let dl = document.getElementById('model-datalist');
-        if (!dl) {
-            dl = document.createElement('datalist');
-            dl.id = 'model-datalist';
-            document.body.appendChild(dl);
-            modelInput.setAttribute('list', 'model-datalist');
+        modelSel.innerHTML = '';
+        if (!models.length) {
+            modelSel.innerHTML = '<option value="">No models found</option>';
+            return;
         }
-        dl.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value = ''; ph.textContent = 'Select model... (' + models.length + ')';
+        modelSel.appendChild(ph);
         models.forEach(m => {
             const opt = document.createElement('option');
-            opt.value = m;
-            dl.appendChild(opt);
+            opt.value = m; opt.textContent = m;
+            modelSel.appendChild(opt);
         });
     } catch (e) {
         console.error('Model load', e);
+        modelSel.innerHTML = '<option value="">Could not load models</option>';
     }
 }
 

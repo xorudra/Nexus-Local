@@ -887,12 +887,13 @@ class Handler(BaseHTTPRequestHandler):
             models = []
             try:
                 import urllib.request, json as js
-                # Try relay for relay_* providers, engine for others
-                if provider.startswith("relay_"):
-                    base = provider.replace("relay_", "")
-                    url = f"http://127.0.0.1:8099/{base}/v1/models"
+                # Route through the integrated relay for any known provider;
+                # it attaches the user's key and proxies to the upstream.
+                if provider in RELAY_UPSTREAMS:
+                    url = f"http://127.0.0.1:8099/{provider}/v1/models"
                 elif provider == "freellmapi":
-                    url = "http://127.0.0.1:3001/v1/models"
+                    gw_url = ((Handler.keys or {}).get("freellmapi_url") or "").strip()
+                    url = (gw_url.rstrip("/") if gw_url else "http://127.0.0.1:3001") + "/v1/models"
                 else:
                     # Direct providers - try engine
                     url = "http://127.0.0.1:3001/v1/models"

@@ -73,6 +73,13 @@ border-radius:8px;padding:10px 12px;margin-bottom:16px}
 .link{margin-top:20px;color:#8a8a92;font-size:13px}
 .link a{color:#FFD500;text-decoration:none;font-weight:600}
 .link a:hover{text-decoration:underline}
+#pw{padding-right:48px;margin-bottom:0}
+.pw-wrap{position:relative;margin-bottom:16px}
+#pwToggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;padding:0;
+background:transparent;border:none;box-shadow:none;color:#8a8a92;cursor:pointer;
+display:flex;align-items:center;justify-content:center;border-radius:8px}
+#pwToggle:hover{color:#FFD500;filter:none;box-shadow:none}
+#pwToggle.off{color:#4a4a52}
 </style>
 </head>
 <body>
@@ -92,7 +99,10 @@ border-radius:8px;padding:10px 12px;margin-bottom:16px}
 <div class="card" id="card">
 <h2>Enter the cave</h2>
 <p>Your password unlocks the dashboard</p>
+<div class="pw-wrap">
 <input type="password" id="pw" placeholder="Password" autocomplete="current-password" autofocus>
+<button type="button" id="pwToggle" title="Show password" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+</div>
 <div id="error">Wrong password. Try again.</div>
 <button id="loginBtn">Login</button>
 </div>
@@ -100,7 +110,15 @@ border-radius:8px;padding:10px 12px;margin-bottom:16px}
 </div>
 <script>
 const pw=document.getElementById('pw'),err=document.getElementById('error'),
-      btn=document.getElementById('loginBtn'),card=document.getElementById('card');
+      btn=document.getElementById('loginBtn'),card=document.getElementById('card'),
+      pwToggle=document.getElementById('pwToggle');
+pwToggle.addEventListener('click',()=>{
+  const show=pw.type==='password';
+  pw.type=show?'text':'password';
+  pwToggle.classList.toggle('off',!show);
+  pwToggle.title=show?'Hide password':'Show password';
+  pw.focus();
+});
 async function submit(){
   const v=pw.value.trim();if(!v)return;
   btn.disabled=true;btn.textContent='Working...';err.style.display='none';
