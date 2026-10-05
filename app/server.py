@@ -185,6 +185,9 @@ class RelayHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "unknown relay provider"}, 404)
             return
         name, rest = parts[0], "/" + parts[1]
+        # Provider-specific path quirks for model listing
+        if name == "aihorde" and rest == "/v1/models":
+            rest = "/api/v2/status/models"
         upstream = RELAY_UPSTREAMS[name] + rest
         if "?" in path:
             upstream += "?" + path.split("?", 1)[1]
@@ -204,7 +207,7 @@ class RelayHandler(BaseHTTPRequestHandler):
             if not key:
                 self._send_json({"error": f"no key configured for {name}"}, 502)
                 return
-            if name == "gemini":
+            if name == "gemini" or "generativelanguage.googleapis.com" in upstream:
                 # Google's OpenAI-compatible endpoint expects the key as a
                 # ?key= query param, not an Authorization: Bearer token.
                 sep = "&" if "?" in upstream else "?"
@@ -901,7 +904,11 @@ class Handler(BaseHTTPRequestHandler):
                 # For relay, we need to go through the dashboard's key
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = js.loads(resp.read())
-                    models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+                    if isinstance(data, list):
+                        # e.g. AI Horde: [{"name": "...", ...}]
+                        models = [m.get("name", "") for m in data if isinstance(m, dict) and m.get("name")]
+                    else:
+                        models = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
                     # Filter by provider if needed
                     if not provider.startswith("relay_") and provider != "freellmapi":
                         models = [m for m in models if m.startswith(provider + "/") or "/" not in m]
