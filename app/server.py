@@ -339,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
                     "input{width:100%;box-sizing:border-box;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px;font-size:16px}"
                     "button[type='submit']{background:#3b82f6;color:#fff;border:0;border-radius:12px;padding:16px 32px;font-size:16px;font-weight:600;width:100%;margin-top:20px;cursor:pointer}"
                     ".eyebrow{font-family:monospace;letter-spacing:.35em;font-size:12px;color:#3b82f6}"
-                    "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>"
+                    "</style></head><body><div class='card'><div class='eyebrow'>NEXUS LOCAL</div>" +
                     ("<div style='background:#422006;border:1px solid #f59e0b;border-radius:12px;padding:16px;margin-bottom:16px'>"
                     "<p style='margin:0;color:#fbbf24'>⚠️ Keys are already set up. Completing this form will <b>overwrite</b> your existing keys.</p></div>" if keys_exist else "") +
                     "<h1>Set up <span>your</span> keys</h1>"
