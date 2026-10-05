@@ -795,6 +795,31 @@ class Handler(BaseHTTPRequestHandler):
                         usage_data["totals"]["tokens"] += pt + ct
             self._send_body(json.dumps(usage_data).encode())
             return
+        if parsed.path == "/api/routing":
+            if not self._get_session():
+                self.send_response(401)
+                self.end_headers()
+                return
+            qs = parse_qs(parsed.query)
+            if qs.get("set", [""])[0] in ("quality", "save", "auto"):
+                # Persist routing mode in keys.enc
+                try:
+                    keys = dict(Handler.keys or {})
+                    keys["_routing_mode"] = qs["set"][0]
+                    from pathlib import Path as _P
+                    enc_path = _P(__file__).parent / "keys.enc"
+                    # Need password - get from session or use stored
+                    # For now, store in memory only (persist on next /update-keys)
+                    Handler.keys = keys
+                except Exception:
+                    pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self._send_body(json.dumps({
+                "routing": (Handler.keys or {}).get("_routing_mode", "quality")
+            }).encode())
+            return
         if parsed.path == "/api/models":
             if not self._get_session():
                 self.send_response(401)
@@ -966,9 +991,33 @@ class Handler(BaseHTTPRequestHandler):
             provider = data.get("provider")
             model = data.get("model")
             message = data.get("message")
+            mode = data.get("mode", "text")  # text, code, search, auto
             image = data.get("image")  # base64 data URI, optional
             file_data = data.get("file")  # {name, text/data, type}, optional
             link = data.get("link")  # URL string, optional
+            # Mode-specific message preprocessing
+            if mode == "code":
+                message = ("You are an expert coding assistant. Provide clean, working code with brief explanations. "
+                          "Use markdown code blocks with language tags.\n\n" + (message or ""))
+            elif mode == "search":
+                # Web search mode: fetch DDG results and prepend to message
+                try:
+                    sq = urllib.parse.quote_plus(message or "")
+                    sreq = urllib.request.Request(
+                        f"https://html.duckduckgo.com/html/?q={sq}",
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                    with urllib.request.urlopen(sreq, timeout=15) as sresp:
+                        html = sresp.read().decode("utf-8", errors="ignore")
+                    import re as _re
+                    # Extract result snippets (basic)
+                    snippets = _re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', html, _re.S)[:5]
+                    clean = [_re.sub(r'<[^>]+>', '', s).strip() for s in snippets]
+                    clean = [c for c in clean if c]
+                    if clean:
+                        message = ("Web search results:\n" + "\n".join(f"- {c[:300]}" for c in clean) +
+                                   f"\n\nQuestion: {message}\nAnswer using the search results above.")
+                except Exception:
+                    pass  # search failed, continue with plain message
             # Prepend file text content to message
             if file_data and file_data.get("text"):
                 message = f"[Attached file: {file_data.get('name', 'file')}]\n{file_data['text'][:8000]}\n\n{message}"
@@ -978,6 +1027,35 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
                 return
+            # Routing mode: quality | save | auto (stored in keys dict)
+            routing = (Handler.keys or {}).get("_routing_mode", "quality")
+            # Auto provider selection when provider is "auto"
+            if provider == "auto":
+                if routing == "save":
+                    # Prefer fast, light providers
+                    for cand in ["groq", "relay_groq", "pollinations", "relay_pollinations",
+                                 "openrouter", "relay_openrouter"]:
+                        if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
+                            provider = cand
+                            break
+                elif routing == "auto":
+                    # Code tasks -> quality, simple chat -> save
+                    if mode == "code" or (message and any(k in message.lower() for k in
+                            ["code", "function", "class", "debug", "python", "javascript", "bug"])):
+                        routing_eff = "quality"
+                    else:
+                        routing_eff = "save"
+                    # fall through to quality/save selection below
+                    routing = routing_eff
+                if provider == "auto" or routing == "quality":
+                    # Prefer best models for the task
+                    for cand in ["relay_gemini", "google", "relay_openrouter", "openrouter",
+                                 "relay_nvidia", "nvidia", "mistral", "cohere"]:
+                        if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
+                            provider = cand
+                            break
+                # Auto-pick first available model if none specified (frontend
+                # should call /api/models for the chosen provider)
             key = Handler.keys.get(provider) if Handler.keys else None
             if not key:
                 self._set_json_headers(400)
