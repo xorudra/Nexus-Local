@@ -625,7 +625,7 @@ async function fetchQuotas() {
         renderUsage(data);
     } catch (e) {
         console.error(e);
-        providerGrid.innerHTML = '<p style="color: #ff8">Failed to load quotas</p>';
+        if (providerGrid) providerGrid.innerHTML = '<p style="color: #ff8">Failed to load quotas</p>';
     }
 }
 
@@ -783,12 +783,40 @@ fetchQuotas();
 setInterval(fetchQuotas, 10000);
 
 document.getElementById("refresh-quotas").addEventListener("click", async () => {
-    const r = await fetch("/api/refresh", { method: "POST" });
-    if (r.status === 401) {
-        location.href = "/login";
-        return;
+    const btn = document.getElementById("refresh-quotas");
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "CHECKING...";
+    let statusEl = document.getElementById("refresh-status");
+    if (!statusEl) {
+        statusEl = document.createElement("div");
+        statusEl.id = "refresh-status";
+        statusEl.style.cssText = "text-align:center;margin-top:8px;font-size:13px;color:#FFD500;min-height:20px";
+        btn.parentNode.insertBefore(statusEl, btn.nextSibling);
     }
-    fetchQuotas();
+    statusEl.textContent = "";
+    try {
+        const r = await fetch("/api/refresh", { method: "POST" });
+        if (r.status === 401) { location.href = "/login"; return; }
+        const j = await r.json();
+        const st = j.status || {};
+        const names = Object.keys(st);
+        const up = names.filter(k => st[k]).length;
+        const down = names.filter(k => !st[k]);
+        if (down.length === 0) {
+            statusEl.textContent = "✓ " + up + "/" + names.length + " providers online";
+            statusEl.style.color = "#7dff9a";
+        } else {
+            statusEl.textContent = "⚠ " + up + "/" + names.length + " online — down: " + down.join(", ");
+            statusEl.style.color = "#ffb84d";
+        }
+        fetchQuotas();
+    } catch (e) {
+        statusEl.textContent = "Refresh failed — try again";
+        statusEl.style.color = "#ff9a9a";
+    }
+    btn.disabled = false;
+    btn.textContent = orig;
 });
 
 logoutBtn.addEventListener('click', () => {
