@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nexus Local - Login</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden;
 background-color:#050507;
-background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,213,0,.09), transparent 70%);
+background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.09), transparent 70%);
 font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#e8e8ea}
 /* cinematic overlays */
 body::before{content:"";position:fixed;inset:0;z-index:60;pointer-events:none;
@@ -20,7 +20,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 @keyframes grainShift{0%,100%{transform:translate(0,0)}12%{transform:translate(-3%,-5%)}25%{transform:translate(-8%,3%)}37%{transform:translate(4%,-8%)}50%{transform:translate(-3%,8%)}62%{transform:translate(-8%,3%)}75%{transform:translate(6%,0)}87%{transform:translate(0,6%)}}
 /* bat-signal breathing glow */
 .signal{position:fixed;top:-22%;left:50%;width:1100px;height:720px;z-index:0;pointer-events:none;
-background:radial-gradient(ellipse at center, rgba(255,213,0,.11), transparent 65%);
+background:radial-gradient(ellipse at center, rgba(168,85,247,.11), transparent 65%);
 animation:breathe 6s ease-in-out infinite}
 @keyframes breathe{0%,100%{opacity:.65;transform:translateX(-50%) scale(1)}50%{opacity:1;transform:translateX(-50%) scale(1.07)}}
 /* flying bats */
@@ -42,28 +42,28 @@ animation:breathe 6s ease-in-out infinite}
 .wrap>*:nth-child(3){animation-delay:.22s}.wrap>*:nth-child(4){animation-delay:.3s}
 .wrap>*:nth-child(5){animation-delay:.38s}
 @keyframes fadeUp{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
-.bat-emblem{width:84px;height:32px;margin:0 auto 14px;filter:drop-shadow(0 0 22px rgba(255,213,0,.5));animation:flicker 5s infinite}
-.bat-emblem path{fill:#FFD500}
+.bat-emblem{width:84px;height:32px;margin:0 auto 14px;filter:drop-shadow(0 0 22px rgba(168,85,247,.5));animation:flicker 5s infinite}
+.bat-emblem path{fill:#A855F7}
 @keyframes flicker{0%,100%{opacity:1}91%{opacity:1}92%{opacity:.55}93%{opacity:1}95%{opacity:.7}96%{opacity:1}}
-.mc-logo{font-family:'Bebas Neue',sans-serif;font-size:clamp(48px,12vw,68px);color:#f2f2f4;
+.mc-logo{font-family:'Press Start 2P',monospace;font-size:clamp(28px,7vw,40px);color:#f2f2f4;
 margin:0;letter-spacing:.14em;line-height:1;
 background:linear-gradient(#ffffff,#a9a9b3);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.mc-logo .g{background:linear-gradient(#FFE45C,#F5B800);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.mc-logo .g{background:linear-gradient(#C084FC,#7C3AED);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .tagline{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.42em;color:#8a8a92;margin:10px 0 26px;text-transform:uppercase}
-.gold-div{height:2px;background:linear-gradient(90deg,transparent,rgba(255,213,0,.7),transparent);margin-bottom:26px}
-.card{background:rgba(13,13,17,.94);border:1px solid rgba(255,213,0,.18);border-radius:14px;
-box-shadow:0 24px 64px rgba(0,0,0,.65), 0 0 60px rgba(255,213,0,.05), inset 0 1px 0 rgba(255,255,255,.05);
+.gold-div{height:2px;background:linear-gradient(90deg,transparent,rgba(168,85,247,.7),transparent);margin-bottom:26px}
+.card{background:rgba(13,13,17,.94);border:1px solid rgba(168,85,247,.18);border-radius:14px;
+box-shadow:0 24px 64px rgba(0,0,0,.65), 0 0 60px rgba(168,85,247,.05), inset 0 1px 0 rgba(255,255,255,.05);
 padding:30px 26px;text-align:left}
-.card h2{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:.1em;color:#fff;margin:0 0 4px}
+.card h2{font-family:'Press Start 2P',monospace;font-size:16px;letter-spacing:.1em;color:#fff;margin:0 0 4px}
 .card p{color:#8a8a92;font-size:13px;margin:0 0 20px}
 input{width:100%;background:#08080b;border:1px solid #26262c;border-radius:8px;
 color:#e8e8ea;padding:14px;font-size:15px;margin-bottom:16px;transition:border-color .2s, box-shadow .2s}
-input:focus{outline:none;border-color:#FFD500;box-shadow:0 0 0 3px rgba(255,213,0,.15), 0 0 24px rgba(255,213,0,.12)}
+input:focus{outline:none;border-color:#A855F7;box-shadow:0 0 0 3px rgba(168,85,247,.15), 0 0 24px rgba(168,85,247,.12)}
 button{width:100%;font-family:'Oswald',sans-serif;font-weight:600;font-size:14px;letter-spacing:.22em;text-transform:uppercase;
-color:#0a0a0a;background:linear-gradient(#FFE45C,#F5B800);border:1px solid #0a0a0a;border-radius:8px;
-box-shadow:0 0 28px rgba(255,213,0,.28), inset 0 1px 0 rgba(255,255,255,.5);
+color:#0a0a0a;background:linear-gradient(#C084FC,#7C3AED);border:1px solid #0a0a0a;border-radius:8px;
+box-shadow:0 0 28px rgba(168,85,247,.28), inset 0 1px 0 rgba(255,255,255,.5);
 padding:16px;cursor:pointer;transition:filter .15s, transform .1s, box-shadow .2s}
-button:hover{filter:brightness(1.06);box-shadow:0 0 44px rgba(255,213,0,.45), inset 0 1px 0 rgba(255,255,255,.5)}
+button:hover{filter:brightness(1.06);box-shadow:0 0 44px rgba(168,85,247,.45), inset 0 1px 0 rgba(255,255,255,.5)}
 button:active{transform:translateY(1px)}
 button:disabled{opacity:.6;cursor:wait}
 #error{display:none;background:rgba(60,10,10,.6);border:1px solid #ff4d4d;color:#ff9a9a;font-size:13px;
@@ -71,15 +71,17 @@ border-radius:8px;padding:10px 12px;margin-bottom:16px}
 .shake{animation:shake .4s}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 .link{margin-top:20px;color:#8a8a92;font-size:13px}
-.link a{color:#FFD500;text-decoration:none;font-weight:600}
+.link a{color:#A855F7;text-decoration:none;font-weight:600}
 .link a:hover{text-decoration:underline}
 #pw{padding-right:48px;margin-bottom:0}
 .pw-wrap{position:relative;margin-bottom:16px}
 #pwToggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;padding:0;
 background:transparent;border:none;box-shadow:none;color:#8a8a92;cursor:pointer;
 display:flex;align-items:center;justify-content:center;border-radius:8px}
-#pwToggle:hover{color:#FFD500;filter:none;box-shadow:none}
+#pwToggle:hover{color:#A855F7;filter:none;box-shadow:none}
 #pwToggle.off{color:#4a4a52}
+@keyframes logoPulse{0%,100%{text-shadow:0 0 10px rgba(168,85,247,.5)}50%{text-shadow:0 0 30px rgba(168,85,247,.9),0 0 60px rgba(168,85,247,.4)}}
+.mc-logo{animation:logoPulse 3s ease-in-out infinite}
 </style>
 </head>
 <body>
