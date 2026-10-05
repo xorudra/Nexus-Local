@@ -996,26 +996,62 @@ class Handler(BaseHTTPRequestHandler):
             file_data = data.get("file")  # {name, text/data, type}, optional
             link = data.get("link")  # URL string, optional
             # Mode-specific message preprocessing
+            if mode == "auto":
+                # Auto-detect: code keywords -> code mode, question words -> search, else text
+                ml = (message or "").lower()
+                code_kw = ["code", "function", "class", "def ", "import ", "debug", "python",
+                           "javascript", "java ", " bug", "error", "script", "algorithm"]
+                search_kw = ["who is", "what is", "when did", "where is", "latest", "current",
+                             "news", "today", "2024", "2025", "2026", "price of", "who won"]
+                if any(k in ml for k in code_kw):
+                    mode = "code"
+                elif any(k in ml for k in search_kw):
+                    mode = "search"
+                else:
+                    mode = "text"
             if mode == "code":
                 message = ("You are an expert coding assistant. Provide clean, working code with brief explanations. "
                           "Use markdown code blocks with language tags.\n\n" + (message or ""))
-            elif mode == "search":
-                # Web search mode: fetch DDG results and prepend to message
+            elif mode == "image":
+                # Image generation via Pollinations (free, no key)
+                # Return the image URL directly - frontend will display it
                 try:
-                    sq = urllib.parse.quote_plus(message or "")
-                    sreq = urllib.request.Request(
-                        f"https://html.duckduckgo.com/html/?q={sq}",
-                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-                    with urllib.request.urlopen(sreq, timeout=15) as sresp:
-                        html = sresp.read().decode("utf-8", errors="ignore")
-                    import re as _re
-                    # Extract result snippets (basic)
-                    snippets = _re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', html, _re.S)[:5]
-                    clean = [_re.sub(r'<[^>]+>', '', s).strip() for s in snippets]
-                    clean = [c for c in clean if c]
-                    if clean:
-                        message = ("Web search results:\n" + "\n".join(f"- {c[:300]}" for c in clean) +
-                                   f"\n\nQuestion: {message}\nAnswer using the search results above.")
+                    import urllib.parse as _up2
+                    prompt = _up2.quote_plus((message or "")[:500])
+                    img_url = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true"
+                    self._set_json_headers(200)
+                    self.wfile.write(json.dumps({
+                        "reply": f"![Generated image]({img_url})",
+                        "image_url": img_url
+                    }).encode())
+                except Exception as e:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": f"image gen failed: {str(e)[:100]}"}).encode())
+                return
+            elif mode == "search":
+                # Web search mode: use Wikipedia API (reliable, free, no key)
+                # plus DuckDuckGo as fallback
+                try:
+                    import urllib.parse as _up
+                    # Try Wikipedia first for factual queries
+                    # Extract likely topic (first few words)
+                    topic = (message or "").strip().split("?")[0][:50]
+                    # Remove question words
+                    for qw in ["what is", "what are", "who is", "who was", "where is", "when did", "how does"]:
+                        if topic.lower().startswith(qw):
+                            topic = topic[len(qw):].strip()
+                            break
+                    if topic:
+                        wq = _up.quote_plus(topic)
+                        wreq = urllib.request.Request(
+                            f"https://en.wikipedia.org/api/rest_v1/page/summary/{wq}",
+                            headers={"User-Agent": "NexusLocal/1.0"})
+                        with urllib.request.urlopen(wreq, timeout=10) as wresp:
+                            wdata = json.loads(wresp.read().decode())
+                            extract = wdata.get("extract", "")
+                            if extract:
+                                message = (f"Reference information:\n{extract[:800]}\n\n"
+                                         f"Question: {message}\nAnswer using the reference above.")
                 except Exception:
                     pass  # search failed, continue with plain message
             # Prepend file text content to message
