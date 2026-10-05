@@ -844,6 +844,12 @@ class Handler(BaseHTTPRequestHandler):
                     # so their full rosters stay.
                     if provider in ("openrouter", "relay_openrouter"):
                         models = [m for m in models if m.endswith(":free")]
+                    # Exclude non-chat models (embedding, TTS, image gen,
+                    # transcription) — they fail on /chat/completions.
+                    _NON_CHAT = ("embed", "tts", "transcribe", "-image", "_image",
+                                 "text-to-image", "image-gen", "speech", "voxtral")
+                    models = [m for m in models
+                              if not any(k in m.lower() for k in _NON_CHAT)]
             except Exception as e:
                 pass
             self.send_response(200)
