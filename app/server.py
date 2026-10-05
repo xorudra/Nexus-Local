@@ -188,6 +188,13 @@ class RelayHandler(BaseHTTPRequestHandler):
         # Provider-specific path quirks for model listing
         if name == "aihorde" and rest == "/v1/models":
             rest = "/api/v2/status/models"
+        # RELAY_UPSTREAMS bases already include the API version prefix
+        # (e.g. /v1, /api/v1, /v1beta/openai), so strip a leading /v1 from
+        # the relay path to avoid doubling it (/v1/v1/models -> /v1/models).
+        elif rest.startswith("/v1/"):
+            rest = rest[3:]
+        elif rest == "/v1":
+            rest = ""
         upstream = RELAY_UPSTREAMS[name] + rest
         if "?" in path:
             upstream += "?" + path.split("?", 1)[1]
