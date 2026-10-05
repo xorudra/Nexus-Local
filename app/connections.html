@@ -5,16 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nexus Local - Connections</title>
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
 /* Global */
 body {
     margin: 0;
     font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-    background: #0a0c11;
+    background-color: #141009;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%2232%22%3E%3Crect%20x%3D%220%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%231f1811%22/%3E%3Crect%20x%3D%228%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%2216%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%2224%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%220%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%231f1811%22/%3E%3Crect%20x%3D%2224%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%220%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%228%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%220%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%228%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3C/svg%3E");
     color: #dde;
     width: 100%;
     overflow-x: hidden;
-    background: #0a0c11;
+    background-color: #141009;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%2232%22%3E%3Crect%20x%3D%220%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%231f1811%22/%3E%3Crect%20x%3D%228%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%2216%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%2224%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%220%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%231f1811%22/%3E%3Crect%20x%3D%2224%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%220%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%228%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%220%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%228%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3C/svg%3E");
 }
 
 /* Header */
@@ -24,7 +27,8 @@ body {
     padding: 20px 32px;
     padding-left: 70px;
     background: #11141b;
-    border-bottom: 1px solid #1e2430;
+    border-bottom: 2px solid #000;
+    box-shadow: 0 2px 0 #5EB83B;
 }
 
 .header h1 {
@@ -34,10 +38,11 @@ body {
 }
 
 .header .wordmark {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 1rem;
+    color: #dcdcdc;
+    text-shadow: 2px 2px 0 #000;
     flex: none;
-    font-size: 1.6rem;
-    color: #3b82f6;
-    font-weight: 600;
     letter-spacing: 1px;
 }
 
@@ -76,7 +81,8 @@ body {
     padding: 32px 48px;
     margin: 20px auto;
     max-width: 1080px;
-    border-radius: 12px;
+    border-radius: 0;
+    border: 1px solid #000;
     border: 1px solid #1e2430;
 }
 
@@ -89,7 +95,7 @@ body {
 }
 
 .hero h2 span.accent {
-    color: #3b82f6;
+    color: #5EB83B;
 }
 
 /* Provider cards */
@@ -106,10 +112,11 @@ body {
     display: flex;
     align-items: flex-start;
     gap: 16px;
-    background: #11141b;
-    border-radius: 20px;
+    background: #1c1610;
+    border-radius: 0;
     padding: 28px;
-    border: 1px solid #1e2430;
+    border: 2px solid #000;
+    box-shadow: inset 2px 2px 0 rgba(255,255,255,.06), 0 8px 24px rgba(0,0,0,.5);
 }
 
 .card h3 {
@@ -124,11 +131,13 @@ body {
 }
 
 .card .icon {
-    background: #3b82f6;
+    background: linear-gradient(#6cc24a,#4a8f2b);
     color: #fff;
+    text-shadow: 1px 1px 0 rgba(0,0,0,.6);
     width: 40px;
     height: 40px;
-    border-radius: 8px;
+    border-radius: 0;
+    border: 2px solid #000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -151,12 +160,14 @@ body {
 }
 
 .pill {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 8px;
     display: inline-block;
     background: #0cff6a;
     color: #111;
-    border-radius: 12px;
-    padding: 2px 8px;
-    font-size: 0.75rem;
+    border-radius: 0;
+    border: 1px solid #000;
+    padding: 4px 8px;
     vertical-align: middle;
     margin-top: 4px;
     font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
@@ -186,7 +197,7 @@ body {
 .bar > div {
     height: 100%;
     border-radius: 4px;
-    background: linear-gradient(90deg, #3b82f6, #06d);
+    background: linear-gradient(90deg, #6cc24a, #4a8f2b);
 }
 
 .bar.hot > div {
@@ -235,7 +246,8 @@ body {
 /* Composer card */
 .composer {
     background: #11141b;
-    border-radius: 12px;
+    border-radius: 0;
+    border: 1px solid #000;
     padding: 20px;
     margin: 20px auto;
     max-width: 1080px;
@@ -251,7 +263,7 @@ body {
 }
 
 .composer h2 span.accent {
-    color: #3b82f6;
+    color: #5EB83B;
 }
 
 .composer .form {
@@ -281,10 +293,14 @@ body {
 
 .composer button {
     flex: 1 1 100%;
-    background: #3b82f6;
+    background: linear-gradient(#6cc24a,#4a8f2b);
     color: #fff;
-    border: none;
-    border-radius: 12px;
+    text-shadow: 2px 2px 0 rgba(0,0,0,.55);
+    border: 2px solid #000;
+    border-radius: 0;
+    box-shadow: inset 2px 2px 0 rgba(255,255,255,.35), inset -2px -2px 0 rgba(0,0,0,.4);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 11px;
     padding: 16px 32px;
     margin-top: 12px;
     cursor: pointer;
@@ -310,19 +326,22 @@ body {
 .refresh {
     display: block;
     margin: 20px auto;
-    padding: 10px 20px;
-    background: #3b82f6;
+    padding: 12px 24px;
+    background: linear-gradient(#a6a6a6,#707070);
     color: #fff;
-    border: none;
-    border-radius: 8px;
+    text-shadow: 1px 1px 0 rgba(0,0,0,.6);
+    border: 2px solid #000;
+    border-radius: 0;
+    box-shadow: inset 2px 2px 0 rgba(255,255,255,.35), inset -2px -2px 0 rgba(0,0,0,.4);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 10px;
     cursor: pointer;
-    transition: background 0.2s;
     font-family: 'Inter', sans-serif;
     font-weight: 600;
 }
 
 .refresh:hover {
-    background: #2563eb;
+    filter: brightness(1.1);
 }
 
 /* Typography */
@@ -332,10 +351,10 @@ body {
 
 /* Eyebrow labels */
 .eyebrow {
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-    font-size: 12px;
-    color: #3b82f6;
-    letter-spacing: 0.35em;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 10px;
+    color: #5EB83B;
+    letter-spacing: 0.15em;
     margin-bottom: 8px;
     text-transform: uppercase;
 }
@@ -392,7 +411,8 @@ details.provider-group summary .count {
     font-weight: normal;
 }
 details.provider-group[open] summary {
-    border-bottom: 1px solid #1e2430;
+    border-bottom: 2px solid #000;
+    box-shadow: 0 2px 0 #5EB83B;
 }
 .group-content {
     padding: 20px;
@@ -403,9 +423,13 @@ details.provider-group[open] summary {
     padding: 32px 32px 0;
 }
 .page-header h1 {
-    font-size: 2rem;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 18px;
+    text-shadow: 2px 2px 0 #222, 4px 4px 0 #000;
     margin: 0 0 8px;
+    line-height: 1.6;
 }
+.page-header h1 .accent { color: #5EB83B; text-shadow: 2px 2px 0 #1d3a12, 4px 4px 0 #000; }
 .page-header p {
     color: #9aa3b2;
     margin: 0;
@@ -415,13 +439,14 @@ details.provider-group[open] summary {
 <body>
 <!-- Nexus Sidebar -->
 <style>
-.nexus-burger{position:fixed;top:18px;left:18px;z-index:1001;background:#11141b;border:1px solid #1e2430;border-radius:10px;padding:10px 12px;cursor:pointer;color:#e6e9f0;font-size:20px;line-height:1}
-.nexus-sidebar{position:fixed;top:0;left:-280px;width:260px;height:100%;background:#11141b;border-right:1px solid #1e2430;z-index:1000;transition:left .25s ease;padding:70px 0 20px;box-sizing:border-box}
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+.nexus-burger{position:fixed;top:18px;left:18px;z-index:1001;background:linear-gradient(#8a8a8a,#6a6a6a);border:2px solid #000;border-radius:0;box-shadow:inset 2px 2px 0 rgba(255,255,255,.3),inset -2px -2px 0 rgba(0,0,0,.35);padding:10px 12px;cursor:pointer;color:#fff;text-shadow:1px 1px 0 rgba(0,0,0,.6);font-size:20px;line-height:1}
+.nexus-sidebar{position:fixed;top:0;left:-280px;width:260px;height:100%;background:#1c1610;border-right:2px solid #000;z-index:1000;transition:left .25s ease;padding:70px 0 20px;box-sizing:border-box}
 .nexus-sidebar.open{left:0}
 .nexus-sidebar a{display:block;padding:14px 24px;color:#9aa3b2;text-decoration:none;font-size:15px;border-left:3px solid transparent}
 .nexus-sidebar a:hover{color:#e6e9f0;background:#0f1622}
-.nexus-sidebar a.active{color:#3b82f6;border-left-color:#3b82f6;background:#0f1622}
-.nexus-sidebar .nav-title{padding:0 24px 12px;color:#3b82f6;font-size:12px;letter-spacing:.3em;font-family:monospace}
+.nexus-sidebar a.active{color:#7ee83f;border-left-color:#5EB83B;background:#141009}
+.nexus-sidebar .nav-title{padding:0 24px 12px;color:#5EB83B;font-size:11px;letter-spacing:.15em;font-family:'Press Start 2P',monospace;text-shadow:1px 1px 0 #000}
 .nexus-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:999;display:none}
 .nexus-overlay.show{display:block}
 </style>

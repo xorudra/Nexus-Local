@@ -3,49 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nexus Login</title>
+<title>Nexus Local - Login</title>
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 *{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0c11;color:#e6e9f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.wrap{width:100%;max-width:400px;text-align:center}
-.eyebrow{font-family:ui-monospace,monospace;letter-spacing:.35em;font-size:11px;color:#3b82f6;margin-bottom:16px}
-h1{font-size:1.8rem;font-weight:800;margin:0 0 8px;letter-spacing:-.02em}
-h1 span{color:#3b82f6}
-.sub{color:#9aa3b2;font-size:14px;margin:0 0 32px}
-.card{background:#11141b;border:1px solid #1e2430;border-radius:16px;padding:28px;animation:fi .3s}
-@keyframes fi{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-input{width:100%;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px 16px;font-size:16px;margin-bottom:12px;transition:border-color .2s}
-input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
-button{width:100%;background:#3b82f6;color:#fff;border:0;border-radius:12px;padding:15px;font-size:15px;font-weight:700;cursor:pointer;transition:all .15s}
-button:hover{background:#2563eb}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+background-color:#141009;background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%2232%22%3E%3Crect%20x%3D%220%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%231f1811%22/%3E%3Crect%20x%3D%228%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%2216%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%2224%22%20y%3D%220%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%220%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%231f1811%22/%3E%3Crect%20x%3D%2224%22%20y%3D%228%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%220%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%228%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%220%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232e241a%22/%3E%3Crect%20x%3D%228%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3Crect%20x%3D%2216%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%232b2118%22/%3E%3Crect%20x%3D%2224%22%20y%3D%2224%22%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23241b13%22/%3E%3C/svg%3E");
+font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#e6e9f0}
+.wrap{text-align:center;width:100%;max-width:420px}
+.mc-logo{font-family:'Press Start 2P',monospace;font-size:clamp(26px,7vw,40px);color:#dcdcdc;
+text-shadow:2px 2px 0 #2a2a2a,4px 4px 0 #000;margin:0;letter-spacing:.02em}
+.mc-logo .g{color:#5EB83B;text-shadow:2px 2px 0 #1d3a12,4px 4px 0 #000}
+.splash-line{height:36px;margin:6px 0 14px}
+.splash{font-family:'Press Start 2P',monospace;color:#ffff54;font-size:12px;text-shadow:2px 2px 0 #3f3f00;
+display:inline-block;animation:splashPulse .45s ease-in-out infinite alternate}
+@keyframes splashPulse{from{transform:rotate(-6deg) scale(.94)}to{transform:rotate(-6deg) scale(1.06)}}
+.grass{height:8px;background:linear-gradient(#5EB83B 0 4px,#6b4a2f 4px);border-top:2px solid #000;border-bottom:2px solid #000;margin-bottom:24px}
+.card{background:#1c1610;border:2px solid #000;box-shadow:inset 2px 2px 0 rgba(255,255,255,.07),0 12px 32px rgba(0,0,0,.55);
+padding:28px 24px;text-align:left}
+.card h2{font-family:'Press Start 2P',monospace;font-size:13px;color:#fff;margin:0 0 6px;text-shadow:2px 2px 0 #000}
+.card p{color:#9aa3b2;font-size:13px;margin:0 0 18px}
+input{width:100%;background:#0d0a07;border:2px solid #000;box-shadow:inset 2px 2px 0 rgba(0,0,0,.6);
+color:#e6e9f0;padding:13px;font-size:15px;margin-bottom:14px;border-radius:0}
+input:focus{outline:none;border-color:#5EB83B;box-shadow:inset 2px 2px 0 rgba(0,0,0,.6),0 0 0 2px rgba(94,184,59,.35)}
+button{width:100%;font-family:'Press Start 2P',monospace;font-size:12px;color:#fff;text-shadow:2px 2px 0 rgba(0,0,0,.55);
+background:linear-gradient(#6cc24a,#4a8f2b);border:2px solid #000;border-radius:0;
+box-shadow:inset 2px 2px 0 rgba(255,255,255,.35),inset -2px -2px 0 rgba(0,0,0,.4);padding:16px;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+button:active{transform:translateY(1px)}
 button:disabled{opacity:.6;cursor:wait}
-button:active{transform:scale(.98)}
-#error{display:none;background:rgba(239,68,68,.08);border:1px solid #ef4444;border-radius:10px;padding:12px;color:#ef4444;font-size:13px;margin-bottom:12px}
-.link{margin-top:20px;color:#6b7280;font-size:13px}
-.link a{color:#3b82f6;text-decoration:none;font-weight:600}
-.link a:hover{text-decoration:underline}
+#error{display:none;background:#2a0f0f;border:2px solid #ef4444;color:#ff9a9a;font-size:13px;padding:10px 12px;margin-bottom:14px}
 .shake{animation:shake .4s}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+.link{margin-top:18px;color:#8a93a6;font-size:13px}
+.link a{color:#7ee83f;text-decoration:none;font-weight:600}
+.link a:hover{text-decoration:underline}
 </style>
 </head>
 <body>
 <div class="wrap">
-<div class="eyebrow">NEXUS LOCAL</div>
-<h1>Welcome <span>back</span></h1>
-<p class="sub">Enter your password to unlock your dashboard</p>
+<h1 class="mc-logo">NEXUS<span class="g">LOCAL</span></h1>
+<div class="splash-line"><span class="splash" id="splash"></span></div>
+<div class="grass"></div>
 <div class="card" id="card">
+<h2>Unlock your world</h2>
+<p>Enter your password to continue</p>
 <input type="password" id="pw" placeholder="Password" autocomplete="current-password" autofocus>
 <div id="error">Wrong password. Try again.</div>
-<button id="loginBtn">Unlock Dashboard</button>
+<button id="loginBtn">Login</button>
 </div>
-<p class="link">New here? <a href="/setup">Set up your keys →</a></p>
+<p class="link">New here? <a href="/setup">Set up your keys &rarr;</a></p>
 </div>
 <script>
+var splashes=["Punch trees, get keys!","19 providers, one app!","Creeper approved!","100% JavaScript!","Also try Terraria!","Runs on localhost!","Now with less lag!","Watch out for phantoms!","Handcrafted, not vibe-coded!"];
+document.getElementById('splash').textContent=splashes[Math.floor(Math.random()*splashes.length)];
 const pw=document.getElementById('pw'),err=document.getElementById('error'),
       btn=document.getElementById('loginBtn'),card=document.getElementById('card');
 async function submit(){
   const v=pw.value.trim();if(!v)return;
-  btn.disabled=true;btn.textContent='Unlocking…';err.style.display='none';
+  btn.disabled=true;btn.textContent='Loading...';err.style.display='none';
   try{
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:v})});
     const j=await r.json();
@@ -54,7 +70,7 @@ async function submit(){
   }catch(e){
     err.style.display='block';card.classList.remove('shake');void card.offsetWidth;card.classList.add('shake');
   }
-  btn.disabled=false;btn.textContent='Unlock Dashboard';pw.value='';pw.focus();
+  btn.disabled=false;btn.textContent='Login';pw.value='';pw.focus();
 }
 btn.addEventListener('click',submit);
 pw.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
