@@ -840,6 +840,13 @@ class Handler(BaseHTTPRequestHandler):
                         models = [m for m in models if m.startswith(provider + "/") or "/" not in m]
             except Exception as e:
                 dbg_err = str(e)[:200]
+                # Try to capture upstream error body for HTTP errors
+                try:
+                    import urllib.error as _ue
+                    if isinstance(e, _ue.HTTPError):
+                        dbg_err += " | body: " + e.read().decode()[:300]
+                except Exception:
+                    pass
             else:
                 dbg_err = ""
             self.send_response(200)
