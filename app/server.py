@@ -979,6 +979,31 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
                 return
+            # Cohere uses its native API (not OpenAI-compatible) — call directly
+            if provider == "cohere":
+                try:
+                    cohere_body = {"model": model, "message": message}
+                    if image:
+                        # Cohere chat doesn't support images in this simple path
+                        pass
+                    req = Request("https://api.cohere.com/v1/chat",
+                                  data=json.dumps(cohere_body).encode(),
+                                  headers={"Content-Type": "application/json",
+                                           "Authorization": f"Bearer {key}"},
+                                  method="POST")
+                    with urlopen(req, timeout=60) as resp:
+                        resp_data = json.loads(resp.read().decode())
+                        reply = resp_data.get("text", "")
+                        self._set_json_headers(200)
+                        self.wfile.write(json.dumps({"reply": reply}).encode())
+                except HTTPError as e:
+                    body_err = e.read().decode()[:200]
+                    self._set_json_headers(e.code)
+                    self.wfile.write(json.dumps({"error": f"provider {e.code}: {body_err}"}).encode())
+                except URLError as e:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": f"network error: {str(e)[:100]}"}).encode())
+                return
             # All providers route through the relay (RELAY_UPSTREAMS) or freellmapi gateway
             if provider.startswith("relay_") or provider in RELAY_UPSTREAMS:
                 # Relay providers (including individual keys) - route through localhost:8099
