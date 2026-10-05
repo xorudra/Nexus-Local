@@ -303,20 +303,20 @@ class Handler(BaseHTTPRequestHandler):
                 for n in relay_names
             )
             relay_section = (
-                "<div style='background:#0f1622;border:1px solid #22c55e;border-radius:12px;padding:16px;margin-bottom:16px'>"
-                "<h3 style='margin:0 0 8px;color:#22c55e'>Relay Providers</h3>"
-                "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>Your outside keys via the built-in relay. Pollinations needs no key.</p>"
+                "<details style='background:#0f1622;border:1px solid #22c55e;border-radius:12px;padding:16px;margin-bottom:16px'>"
+                "<summary style='color:#22c55e;cursor:pointer;font-size:18px;font-weight:700'>Relay Providers</summary>"
+                "<p style='color:#9aa3b2;font-size:14px;margin:12px 0'>Your outside keys via the built-in relay. Pollinations needs no key.</p>"
                 + relay_fields +
-                "</div>"
+                "</details>"
             )
             fields = "".join(
                 '<label>' + n + '<input type="password" name="k_' + n + '" autocomplete="off"></label>'
                 for n in other_names
             )
             freellmapi_section = (
-                "<div style='background:#0f1622;border:1px solid #3b82f6;border-radius:12px;padding:16px;margin-bottom:16px'>"
-                "<h3 style='margin:0 0 8px;color:#3b82f6'>FreeLLMAPI Gateway</h3>"
-                "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>One key for all providers. "
+                "<details style='background:#0f1622;border:1px solid #3b82f6;border-radius:12px;padding:16px;margin-bottom:16px'>"
+                "<summary style='color:#3b82f6;cursor:pointer;font-size:18px;font-weight:700'>FreeLLMAPI Gateway</summary>"
+                "<p style='color:#9aa3b2;font-size:14px;margin:12px 0'>One key for all providers. "
                 "The gateway starts automatically with Nexus-Local on 127.0.0.1:3001.</p>"
                 "<label>FreeLLMAPI unified API key"
                 "<input type=\"password\" name=\"k_freellmapi\" autocomplete=\"off\"></label>"
@@ -327,7 +327,7 @@ class Handler(BaseHTTPRequestHandler):
                 "<div style='margin-top:12px'>"
                 + fields +
                 "</div></details>"
-                "</div>"
+                "</details>"
             )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -345,7 +345,7 @@ class Handler(BaseHTTPRequestHandler):
                     "<h1>Set up <span>your</span> keys</h1>"
                     "<p style='color:#9aa3b2'>Enter your FreeLLMAPI key, relay keys, or expand below for individual keys. Choose a strong password.</p>"
                     "<div style='background:#0f1622;border:1px solid #f59e0b;border-radius:12px;padding:16px;margin-bottom:16px'>"
-                    "<h3 style='margin:0 0 8px;color:#f59e0b'>⚡ Quick Import</h3>"
+                    "<h3 style='margin:0 0 8px;color:#f59e0b'>Quick Import</h3>"
                     "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>Paste all keys at once, one per line as <code style=\"background:#1a1f2a;padding:2px 6px;border-radius:4px\">name: key</code>. Valid names:</p>"
                     "<div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px'>"
                     "<span style='background:#1a1f2a;color:#60a5fa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>freellmapi</span>"
@@ -367,7 +367,7 @@ class Handler(BaseHTTPRequestHandler):
                     "<textarea id='bulk' rows='6' oninput='previewKeys()' style='width:100%;box-sizing:border-box;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px;font-size:14px;font-family:monospace' placeholder='freellmapi: sk-...&#10;relay_groq: gsk_...&#10;groq: gsk_...&#10;openrouter: sk-or-v1-...'></textarea>"
                     "<div id='bulk-preview' style='margin:12px 0;font-size:13px'></div>"
                     "<div style='display:flex;gap:10px'>"
-                    "<button type='button' onclick='fillKeys()' style='background:#f59e0b;color:#000;border:0;border-radius:12px;padding:14px 24px;font-size:15px;font-weight:700;flex:1;cursor:pointer;transition:transform .1s' onmousedown=\"this.style.transform='scale(.97)'\" onmouseup=\"this.style.transform='scale(1)'\">✨ Fill Fields Below</button>"
+                    "<button type='button' onclick='fillKeys()' style='background:#f59e0b;color:#000;border:0;border-radius:12px;padding:14px 24px;font-size:15px;font-weight:700;flex:1;cursor:pointer;transition:transform .1s' onmousedown=\"this.style.transform='scale(.97)'\" onmouseup=\"this.style.transform='scale(1)'\">Fill Fields Below</button>"
                     "<button type='button' onclick=\"document.getElementById('bulk').value='';previewKeys()\" style='background:#1a1f2a;color:#9aa3b2;border:1px solid #2a3142;border-radius:12px;padding:14px 20px;font-size:15px;cursor:pointer'>Clear</button>"
                     "</div>"
                     "</div>"
@@ -387,8 +387,8 @@ class Handler(BaseHTTPRequestHandler):
                     "function previewKeys(){"
                     "var p=parseBulk();var el=document.getElementById('bulk-preview');"
                     "var h='';"
-                    "if(p.found.length>0){h+='<div style=\"color:#22c55e;margin-bottom:6px\">✅ Will fill: <b>'+p.found.join(', ')+'</b> ('+p.found.length+')</div>';}"
-                    "if(p.unknown.length>0){h+='<div style=\"color:#ef4444\">⚠️ Unknown names (skipped): <b>'+p.unknown.join(', ')+'</b></div>';}"
+                    "if(p.found.length>0){h+='<div style=\"color:#22c55e;margin-bottom:6px\">Will fill: <b>'+p.found.join(', ')+'</b> ('+p.found.length+')</div>';}"
+                    "if(p.unknown.length>0){h+='<div style=\"color:#ef4444\">Unknown names (skipped): <b>'+p.unknown.join(', ')+'</b></div>';}"
                     "if(p.found.length==0&&p.unknown.length==0&&document.getElementById('bulk').value.trim()){h='<div style=\"color:#9aa3b2\">Type lines as <code>name: key</code>...</div>';}"
                     "el.innerHTML=h;"
                     "}"
@@ -404,8 +404,8 @@ class Handler(BaseHTTPRequestHandler):
                     "else{skipped.push(k);}"
                     "});"
                     "var msg=document.getElementById('bulk-preview');"
-                    "if(n>0){msg.innerHTML='<div style=\"background:#0f2f0f;border:1px solid #22c55e;border-radius:8px;padding:12px;color:#22c55e\">🎉 <b>'+n+' keys filled!</b> Fields are highlighted in green below. Scroll down to review.</div>';}"
-                    "else{msg.innerHTML='<div style=\"background:#2f0f0f;border:1px solid #ef4444;border-radius:8px;padding:12px;color:#ef4444\">❌ No valid keys found. Check the format: <code>name: key</code></div>';}"
+                    "if(n>0){msg.innerHTML='<div style=\"background:#0f2f0f;border:1px solid #22c55e;border-radius:8px;padding:12px;color:#22c55e\"><b>'+n+' keys filled!</b> Fields are highlighted in green below. Scroll down to review.</div>';}"
+                    "else{msg.innerHTML='<div style=\"background:#2f0f0f;border:1px solid #ef4444;border-radius:8px;padding:12px;color:#ef4444\">No valid keys found. Check the format: <code>name: key</code></div>';}"
                     "if(skipped.length>0){msg.innerHTML+='<div style=\"color:#f59e0b;margin-top:8px;font-size:13px\">Skipped unknown: '+skipped.join(', ')+'</div>';}"
                     "}"
                     "</script>"
