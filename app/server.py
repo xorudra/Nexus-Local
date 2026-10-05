@@ -114,6 +114,8 @@ with open(Path(__file__).parent / "quotas.json", "r") as f:
 # Integrated relay for the 5 outside providers.
 # Serves relay_openrouter, relay_gemini, relay_groq, relay_nvidia,
 # relay_pollinations (keyless) on 127.0.0.1:8099 in a daemon thread.
+# Also serves individual provider keys (groq, openrouter, etc.) through
+# the same relay - user provides their own keys via setup.
 # Keys come from Handler.keys (decrypted in-memory, never on disk).
 # ---------------------------------------------------------------------------
 RELAY_PORT = 8099
@@ -123,9 +125,24 @@ RELAY_UPSTREAMS = {
     "relay_groq": "https://api.groq.com/openai/v1",
     "relay_nvidia": "https://integrate.api.nvidia.com/v1",
     "relay_pollinations": "https://text.pollinations.ai/openai",
+    # Individual providers via relay (user's own keys)
+    "groq": "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "siliconflow": "https://api.siliconflow.cn/v1",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
+    "mistral": "https://api.mistral.ai/v1",
+    "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+    "kilo": "https://api.kilo.ai/v1",
+    "ovh": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+    "google": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "cloudflare": "https://api.cloudflare.com/client/v4/accounts",
+    "cohere": "https://api.cohere.com/v1",
+    "huggingface": "https://api-inference.huggingface.co/v1",
+    "aihorde": "https://stablehorde.net/api/v2",
+    "pollinations": "https://text.pollinations.ai/openai",
 }
 # relay_pollinations needs no key
-RELAY_KEYLESS = {"relay_pollinations"}
+RELAY_KEYLESS = {"relay_pollinations", "aihorde", "pollinations", "kilo", "ovh"}
 
 
 class RelayHandler(BaseHTTPRequestHandler):
@@ -346,13 +363,20 @@ class Handler(BaseHTTPRequestHandler):
                     "<p style='color:#9aa3b2'>Enter your FreeLLMAPI key, relay keys, or expand below for individual keys. Choose a strong password.</p>"
                     "<div style='background:#0f1622;border:1px solid #f59e0b;border-radius:12px;padding:16px;margin-bottom:16px'>"
                     "<h3 style='margin:0 0 8px;color:#f59e0b'>Quick Import</h3>"
-                    "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>Paste all keys at once, one per line as <code style=\"background:#1a1f2a;padding:2px 6px;border-radius:4px\">name: key</code>. Valid names:</p>"
-                    "<div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px'>"
-                    "<span style='background:#1a1f2a;color:#60a5fa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>freellmapi</span>"
+                    "<p style='color:#9aa3b2;font-size:14px;margin:0 0 12px'>Paste all keys at once, one per line as <code style=\"background:#1a1f2a;padding:2px 6px;border-radius:4px\">name: key</code>. Expand below to see valid names:</p>"
+                    "<details style='margin-bottom:8px;background:#0a0c11;border:1px solid #1e2430;border-radius:8px;padding:10px 14px'>"
+                    "<summary style='color:#60a5fa;cursor:pointer;font-size:14px;font-weight:600'>Relay Providers (5)</summary>"
+                    "<div style='display:flex;flex-wrap:wrap;gap:6px;margin-top:10px'>"
                     "<span style='background:#1a1f2a;color:#60a5fa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>relay_groq</span>"
                     "<span style='background:#1a1f2a;color:#60a5fa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>relay_gemini</span>"
                     "<span style='background:#1a1f2a;color:#60a5fa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>relay_openrouter</span>"
                     "<span style='background:#1a1f2a;color:#60a5fa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>relay_nvidia</span>"
+                    "<span style='background:#1a1f2a;color:#60a5fa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>relay_pollinations</span>"
+                    "</div></details>"
+                    "<details style='margin-bottom:12px;background:#0a0c11;border:1px solid #1e2430;border-radius:8px;padding:10px 14px'>"
+                    "<summary style='color:#a78bfa;cursor:pointer;font-size:14px;font-weight:600'>FreeLLMAPI Providers (14)</summary>"
+                    "<div style='display:flex;flex-wrap:wrap;gap:6px;margin-top:10px'>"
+                    "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>freellmapi</span>"
                     "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>groq</span>"
                     "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>google</span>"
                     "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>openrouter</span>"
@@ -363,7 +387,10 @@ class Handler(BaseHTTPRequestHandler):
                     "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>mistral</span>"
                     "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>siliconflow</span>"
                     "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>zhipu</span>"
-                    "</div>"
+                    "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>aihorde</span>"
+                    "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>kilo</span>"
+                    "<span style='background:#1a1f2a;color:#a78bfa;font-size:12px;padding:4px 10px;border-radius:20px;font-family:monospace'>ovh</span>"
+                    "</div></details>"
                     "<textarea id='bulk' rows='6' oninput='previewKeys()' style='width:100%;box-sizing:border-box;background:#0a0c11;border:1px solid #1e2430;border-radius:12px;color:#e6e9f0;padding:14px;font-size:14px;font-family:monospace' placeholder='freellmapi: sk-...&#10;relay_groq: gsk_...&#10;groq: gsk_...&#10;openrouter: sk-or-v1-...'></textarea>"
                     "<div id='bulk-preview' style='margin:12px 0;font-size:13px'></div>"
                     "<div style='display:flex;gap:10px'>"
@@ -724,18 +751,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
                 return
-            provider_endpoints = {
-                "groq": "https://api.groq.com/openai/v1",
-                "openrouter": "https://openrouter.ai/api/v1",
-                "siliconflow": "https://api.siliconflow.cn/v1",
-                "nvidia": "https://integrate.api.nvidia.com/v1",
-                "mistral": "https://api.mistral.ai/v1",
-                "zhipu": "https://open.bigmodel.cn/api/paas/v4",
-                "kilo": "https://api.kilo.ai/v1",
-                "ovh": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
-            }
-            if provider.startswith("relay_"):
-                # Integrated relay providers - route through localhost:8099
+            # All providers route through the relay (RELAY_UPSTREAMS) or freellmapi gateway
+            if provider.startswith("relay_") or provider in RELAY_UPSTREAMS:
+                # Relay providers (including individual keys) - route through localhost:8099
                 # The relay attaches the key from Handler.keys
                 base = f"http://127.0.0.1:{RELAY_PORT}/{provider}/v1"
                 # For relay, we still check that a key is configured (except keyless)
@@ -751,18 +769,16 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
                     return
                 base = gw_url.rstrip("/")
-            elif provider not in provider_endpoints:
+            else:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"chat not supported for {provider} in local version"}).encode())
                 return
-            else:
-                base = provider_endpoints[provider]
             headers = {
                 "Content-Type": "application/json",
             }
             # For relay providers, the integrated relay attaches the key
-            # For direct providers, attach the key here
-            if not provider.startswith("relay_"):
+            # For freellmapi, attach the unified key here
+            if provider == "freellmapi":
                 headers["Authorization"] = f"Bearer {key}"
             if provider == "openrouter" or provider == "relay_openrouter":
                 headers["X-Title"] = "NexusLocal"
