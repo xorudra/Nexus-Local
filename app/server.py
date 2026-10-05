@@ -1217,7 +1217,7 @@ class Handler(BaseHTTPRequestHandler):
                     with open(USAGE_PATH, "a") as f2:
                         f2.write(json.dumps(usage_line) + "\n")
                     self._set_json_headers(200)
-                    self.wfile.write(json.dumps({"reply": reply}).encode())
+                    self.wfile.write(json.dumps({"reply": reply, "used_provider": provider, "used_model": model}).encode())
             except HTTPError as e:
                 body_err = e.read().decode()[:200]
                 # User-friendly messages for common errors
