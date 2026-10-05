@@ -354,7 +354,7 @@ class Handler(BaseHTTPRequestHandler):
                 "<label>Gateway URL"
                 "<input type=\"text\" name=\"url_freellmapi\" placeholder=\"http://127.0.0.1:3001\" autocomplete=\"off\"></label>"
                 "<details style='margin-top:16px'>"
-                "<summary style='color:#9aa3b2;cursor:pointer'>Or enter individual provider keys</summary>"
+                "<summary style='color:#9aa3b2;cursor:pointer'>Or enter FreeLLMAPI providers keys manually</summary>"
                 "<div style='margin-top:12px'>"
                 + fields +
                 "</div></details>"
