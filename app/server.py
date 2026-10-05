@@ -1065,8 +1065,8 @@ class Handler(BaseHTTPRequestHandler):
             _DEFAULT_MODELS = {
                 "groq": "openai/gpt-oss-20b",
                 "relay_groq": "openai/gpt-oss-20b",
-                "google": "gemini-2.0-flash",
-                "relay_gemini": "gemini-2.0-flash",
+                "google": "gemini-3.8-flash",
+                "relay_gemini": "gemini-3.8-flash",
                 "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
                 "relay_openrouter": "meta-llama/llama-3.3-70b-instruct:free",
                 "nvidia": "meta/llama-3.3-70b-instruct",
