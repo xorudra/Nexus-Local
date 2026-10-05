@@ -1079,13 +1079,12 @@ class Handler(BaseHTTPRequestHandler):
                 "relay_pollinations": "openai",
             }
             # Auto provider selection when provider is "auto"
+            # Returns a LIST of (provider, model) to try in order (fallback)
+            _auto_candidates = []
             if provider == "auto":
                 if routing == "save":
-                    for cand in ["groq", "relay_groq", "pollinations", "relay_pollinations",
-                                 "openrouter", "relay_openrouter"]:
-                        if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
-                            provider = cand
-                            break
+                    pref_list = ["groq", "relay_groq", "pollinations", "relay_pollinations",
+                                 "openrouter", "relay_openrouter"]
                 elif routing == "auto":
                     ml = (message or "").lower()
                     if mode == "code" or any(k in ml for k in
@@ -1094,21 +1093,24 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         routing_eff = "save"
                     routing = routing_eff
-                    # Re-run selection with effective routing
-                    if routing_eff == "save":
-                        for cand in ["groq", "relay_groq", "pollinations", "relay_pollinations"]:
-                            if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
-                                provider = cand
-                                break
-                if provider == "auto" or routing == "quality":
-                    for cand in ["relay_gemini", "google", "relay_openrouter", "openrouter",
-                                 "relay_nvidia", "nvidia", "mistral", "cohere"]:
-                        if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
-                            provider = cand
-                            break
-                # Auto-pick model if none specified
-                if not model and provider in _DEFAULT_MODELS:
-                    model = _DEFAULT_MODELS[provider]
+                    pref_list = (["relay_gemini", "google", "relay_openrouter", "openrouter",
+                                  "relay_nvidia", "nvidia", "mistral", "cohere"]
+                                 if routing_eff == "quality" else
+                                 ["groq", "relay_groq", "pollinations", "relay_pollinations"])
+                else:  # quality
+                    # Prefer reliable providers first (Google often 503s)
+                    pref_list = ["relay_openrouter", "openrouter",
+                                 "relay_nvidia", "nvidia", "mistral",
+                                 "relay_gemini", "google", "cohere"]
+                for cand in pref_list:
+                    if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
+                        cand_model = model or _DEFAULT_MODELS.get(cand, "")
+                        if cand_model:
+                            _auto_candidates.append((cand, cand_model))
+                if _auto_candidates:
+                    provider, model = _auto_candidates[0]
+                # Store remaining for fallback
+                _fallback_candidates = _auto_candidates[1:]
             if not provider or not model or not message:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
@@ -1218,8 +1220,22 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"reply": reply}).encode())
             except HTTPError as e:
                 body_err = e.read().decode()[:200]
+                # User-friendly messages for common errors
+                if e.code == 503:
+                    msg = "Provider is temporarily overloaded. Try again in a moment."
+                elif e.code == 429:
+                    msg = "Rate limit hit. Try again in a moment."
+                elif e.code == 402:
+                    msg = "This model requires payment. Try a different model."
+                else:
+                    # Try to extract clean message from JSON
+                    try:
+                        ej = json.loads(body_err)
+                        msg = ej.get("error", {}).get("message", body_err[:100]) if isinstance(ej.get("error"), dict) else str(ej.get("error", body_err[:100]))
+                    except:
+                        msg = body_err[:100]
                 self._set_json_headers(e.code)
-                self.wfile.write(json.dumps({"error": f"provider {e.code}: {body_err}"}).encode())
+                self.wfile.write(json.dumps({"error": msg}).encode())
             except URLError as e:
                 self._set_json_headers(500)
                 self.wfile.write(json.dumps({"error": f"provider error: {e.reason}"}).encode())
