@@ -890,27 +890,42 @@ class Handler(BaseHTTPRequestHandler):
             models = []
             try:
                 import urllib.request, json as js
-                # Route through the integrated relay for any known provider;
-                # it attaches the user's key and proxies to the upstream.
-                if provider in RELAY_UPSTREAMS:
+                keys = Handler.keys or {}
+                if provider in ("google", "relay_gemini"):
+                    # Google's OpenAI-compat endpoint has no /models; use the
+                    # native API with ?key= instead.
+                    gkey = keys.get("google") or keys.get("relay_gemini") or ""
+                    url = ("https://generativelanguage.googleapis.com/v1beta/models?key="
+                           + _urlquote(gkey, safe="")) if gkey else ""
+                elif provider in RELAY_UPSTREAMS:
+                    # Route through the integrated relay; it attaches the
+                    # user's key and proxies to the upstream.
                     url = f"http://127.0.0.1:8099/{provider}/v1/models"
                 elif provider == "freellmapi":
-                    gw_url = ((Handler.keys or {}).get("freellmapi_url") or "").strip()
+                    gw_url = (keys.get("freellmapi_url") or "").strip()
                     url = (gw_url.rstrip("/") if gw_url else "http://127.0.0.1:3001") + "/v1/models"
                 else:
                     # Direct providers - try engine
                     url = "http://127.0.0.1:3001/v1/models"
-                req = urllib.request.Request(url, headers={"Authorization": "Bearer dummy"})
-                # For relay, we need to go through the dashboard's key
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                if not url:
+                    raise ValueError("no key configured")
+                # No auth header needed: the relay strips it and attaches the
+                # real key; native endpoints use ?key= above.
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=10) as resp:
                     data = js.loads(resp.read())
                     if isinstance(data, list):
                         # e.g. AI Horde: [{"name": "...", ...}]
                         models = [m.get("name", "") for m in data if isinstance(m, dict) and m.get("name")]
+                    elif "models" in data and isinstance(data["models"], list):
+                        # e.g. Google native: {"models": [{"name": "models/xxx"}]}
+                        models = [str(m.get("name", "")).replace("models/", "")
+                                  for m in data["models"] if isinstance(m, dict) and m.get("name")]
                     else:
+                        # OpenAI format: {"data": [{"id": "..."}]}
                         models = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
                     # Filter by provider if needed
-                    if not provider.startswith("relay_") and provider != "freellmapi":
+                    if not provider.startswith("relay_") and provider not in ("freellmapi", "google", "relay_gemini"):
                         models = [m for m in models if m.startswith(provider + "/") or "/" not in m]
             except Exception as e:
                 pass
