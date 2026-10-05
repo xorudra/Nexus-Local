@@ -558,6 +558,7 @@ class Handler(BaseHTTPRequestHandler):
                     "</div></body></html>")
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self._send_body(page.encode())
             return
@@ -573,6 +574,7 @@ class Handler(BaseHTTPRequestHandler):
                 content = (Path(__file__).parent / "login.html").read_text(encoding="utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
                 self.end_headers()
                 self._send_body(content.encode())
             except Exception as e:
@@ -627,6 +629,7 @@ class Handler(BaseHTTPRequestHandler):
                     "</div></body></html>")
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self._send_body(page.encode())
             return
@@ -641,6 +644,7 @@ class Handler(BaseHTTPRequestHandler):
                 content = (Path(__file__).parent / "connections.html").read_text(encoding="utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
                 self.end_headers()
                 self._send_body(content.encode())
             except Exception as e:
@@ -659,6 +663,7 @@ class Handler(BaseHTTPRequestHandler):
                     content = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html")
+                    self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
                     self.end_headers()
                     self._send_body(content.encode())
                 except Exception as e:
