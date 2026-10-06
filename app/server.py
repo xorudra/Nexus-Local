@@ -1489,12 +1489,21 @@ class Handler(BaseHTTPRequestHandler):
                 code_kw = ["code", "function", "class", "def ", "import ", "debug", "python",
                            "javascript", "java ", " bug", "error in", "script", "algorithm",
                            "write a program", "fix this code"]
+                # "Generate lewis hamilton with his f1 car" — a bare create-verb at
+                # the start means media generation UNLESS the object is text/code.
+                gen_start = _re_auto.match(r"\s*(generate|create|make|render|produce|imagine)\b", ml)
+                text_object = any(k in ml for k in ["website", "web page", "webpage", "landing page",
+                            " app ", "application", "code", "function", "script", "program", "software",
+                            "essay", "story", "poem", "song", "email", "letter", "report", "summary",
+                            "resume", "list", "plan", "itinerary", "database", "table", "presentation",
+                            "slides", "document", "article", "blog", "video", "audio", "voice", "speech",
+                            "recipe", "joke", "quote", "caption", "tweet", "greeting"])
                 if any(k in ml for k in video_kw):
                     mode = "video"
-                elif image_verb or image_start or any(k in ml for k in image_kw):
-                    mode = "image"
                 elif any(k in ml for k in voice_kw):
                     mode = "voice"
+                elif image_verb or image_start or any(k in ml for k in image_kw) or (gen_start and not text_object):
+                    mode = "image"
                 elif has_url or any(k in ml for k in agent_kw):
                     mode = "agent"
                 elif any(k in ml for k in code_kw):
