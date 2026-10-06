@@ -378,6 +378,7 @@ padding:10px 14px;font-size:14px;line-height:1.55;word-wrap:break-word}
 .msg-ai .msg-body .md-p{margin:0 0 8px}.msg-ai .msg-body .md-p:last-child{margin-bottom:0}
 .msg-ai .msg-body .md-h{color:#A855F7;margin:12px 0 6px;font-size:15px}
 .msg-ai .msg-body .md-code{background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;padding:10px 12px;margin:8px 0;overflow-x:auto;font-family:monospace;font-size:13px;line-height:1.5;white-space:pre}
+.msg-ai .msg-body .md-img{max-width:100%;border-radius:12px;display:block;margin:6px 0;border:1px solid #2a2a32}
 .msg-ai .msg-body .md-inline{background:#0a0a0d;border:1px solid #2a2a32;border-radius:4px;padding:1px 6px;font-family:monospace;font-size:13px;color:#C084FC}
 .msg-ai .msg-body .md-ul{margin:6px 0;padding-left:20px}.msg-ai .msg-body .md-li{margin:4px 0}
 .msg-ai .msg-body strong{color:#C084FC}
@@ -617,6 +618,8 @@ function md(text){
   });
   // Inline code (`code`)
   h = h.replace(/`([^`\n]+)`/g, '<code class="md-inline">$1</code>');
+  // Images ![alt](url)
+  h = h.replace(/!\[([^\]]*)\]\((https?:[^)\s]+|data:image[^)\s]+)\)/g, '<img class="md-img" src="$2" alt="$1" loading="lazy">');
   // Headers (###, ##)
   h = h.replace(/^### (.+)$/gm, '<h4 class="md-h">$1</h4>');
   h = h.replace(/^## (.+)$/gm, '<h3 class="md-h">$1</h3>');

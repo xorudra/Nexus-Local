@@ -1190,6 +1190,13 @@ class Handler(BaseHTTPRequestHandler):
                         models = [m for m in models if "chat" in _model_caps(provider, m)]
                     else:
                         models = [m for m in models if cap in _model_caps(provider, m)]
+                    # Pollinations' catalog only lists text models, but its image
+                    # service (image.pollinations.ai) serves flux/turbo — inject them.
+                    if provider in ("pollinations", "relay_pollinations"):
+                        if cap == "image":
+                            models = ["flux", "turbo"]
+                        elif cap == "all":
+                            models = models + [m for m in ("flux", "turbo") if m not in models]
             except Exception as e:
                 pass
             self.send_response(200)
@@ -1402,18 +1409,83 @@ class Handler(BaseHTTPRequestHandler):
                 message = ("You are an expert coding assistant. Provide clean, working code with brief explanations. "
                           "Use markdown code blocks with language tags.\n\n" + (message or ""))
             elif mode == "image":
-                # Image generation via Pollinations (free, no key)
-                # Return the image URL directly - frontend will display it
+                # Image generation routed by the picked provider/model:
+                #   aihorde           -> AI Horde async queue (Pollinations if too slow)
+                #   google/relay_gemini -> Gemini native image call (Pollinations on failure)
+                #   pollinations/etc  -> Pollinations image service (flux/turbo)
+                import urllib.parse as _up2
+                _prompt = (message or "").strip()[:1000]
+                _img = None
+                _used_p, _used_m = provider, model
+                def _pollinations(mdl):
+                    pm = mdl if mdl in ("flux", "turbo") else "flux"
+                    u = ("https://image.pollinations.ai/prompt/" + _up2.quote(_prompt)
+                         + f"?width=1024&height=1024&nologo=true&model={pm}&seed={secrets.randbelow(999999) + 1}")
+                    rq = Request(u, headers={"User-Agent": "Mozilla/5.0"})
+                    with urlopen(rq, timeout=90) as rs:
+                        if rs.status == 200 and "image" in (rs.headers.get("Content-Type") or ""):
+                            rs.read()
+                            return u
+                    return None
                 try:
-                    import urllib.parse as _up2
-                    prompt = _up2.quote_plus((message or "")[:500])
-                    img_url = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true"
-                    self._set_json_headers(200)
-                    self.wfile.write(json.dumps({
-                        "reply": f"![Generated image]({img_url})",
-                        "image_url": img_url
-                    }).encode())
-                except Exception as e:
+                    if provider == "aihorde" and model:
+                        try:
+                            hk = ((_ekeys or {}).get("aihorde") or "0000000000")
+                            sub_req = Request("https://stablehorde.net/api/v2/generate/async",
+                                data=json.dumps({"prompt": _prompt,
+                                    "params": {"width": 512, "height": 512, "steps": 25, "sampler_name": "k_euler", "n": 1},
+                                    "models": [model], "nsfw": False, "censor_nsfw": True}).encode(),
+                                headers={"Content-Type": "application/json", "apikey": hk, "Client-Agent": "NexusLocal:1.0"}, method="POST")
+                            with urlopen(sub_req, timeout=30) as rs:
+                                rid = json.loads(rs.read().decode()).get("id")
+                            _t0 = time.time()
+                            _deadline = _t0 + 110
+                            while rid and time.time() < _deadline:
+                                time.sleep(6)
+                                chk_req = Request(f"https://stablehorde.net/api/v2/generate/check/{rid}", headers={"Client-Agent": "NexusLocal:1.0"})
+                                with urlopen(chk_req, timeout=20) as rs:
+                                    chk = json.loads(rs.read().decode())
+                                if chk.get("faulted"):
+                                    break
+                                # Anonymous queue can mean a 5+ min wait — bail to
+                                # Pollinations fast instead of holding the user.
+                                if (chk.get("wait_time") or 0) > 240 and time.time() > _t0 + 10:
+                                    break
+                                if chk.get("done"):
+                                    st_req = Request(f"https://stablehorde.net/api/v2/generate/status/{rid}", headers={"Client-Agent": "NexusLocal:1.0"})
+                                    with urlopen(st_req, timeout=20) as rs:
+                                        gens = json.loads(rs.read().decode()).get("generations", [])
+                                    if gens and gens[0].get("img"):
+                                        _img = gens[0]["img"]
+                                    break
+                        except Exception:
+                            _img = None
+                    elif provider in ("google", "relay_gemini") and model:
+                        try:
+                            gk = (_ekeys or {}).get("google") or (_ekeys or {}).get("relay_gemini") or ""
+                            if gk:
+                                gurl = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_urlquote(gk, safe='')}"
+                                gbody = {"contents": [{"parts": [{"text": _prompt}]}], "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}}
+                                greq = Request(gurl, data=json.dumps(gbody).encode(), headers={"Content-Type": "application/json"}, method="POST")
+                                with urlopen(greq, timeout=90) as rs:
+                                    gd = json.loads(rs.read().decode())
+                                for part in gd.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                                    if "inlineData" in part:
+                                        _img = "data:" + part["inlineData"]["mimeType"] + ";base64," + part["inlineData"]["data"]
+                                        break
+                        except Exception:
+                            _img = None
+                    if not _img:
+                        _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
+                        if _img and provider not in ("pollinations", "relay_pollinations"):
+                            _used_p, _used_m = "pollinations", "flux"
+                    if _img:
+                        self._set_json_headers(200)
+                        self.wfile.write(json.dumps({"reply": f"![Generated image]({_img})", "image_url": _img, "used_provider": _used_p, "used_model": _used_m}).encode())
+                    else:
+                        self._set_json_headers(502)
+                        self.wfile.write(json.dumps({"error": "image generation failed, try again"}).encode())
+                except Exception:
                     self._set_json_headers(500)
                     self.wfile.write(json.dumps({"error": "image generation failed, try again"}).encode())
                 return
