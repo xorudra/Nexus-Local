@@ -97,9 +97,14 @@ def _save_access(d, master_pw=None):
 def _restore_access(master_pw):
     """Restore access.json from encrypted users.enc after a redeploy wiped the disk."""
     try:
+        needs = True
         if ACCESS_PATH.exists():
-            return
-        if USERS_PATH.exists():
+            try:
+                existing = json.loads(ACCESS_PATH.read_text())
+                needs = not isinstance(existing, dict) or not existing
+            except Exception:
+                needs = True
+        if needs and USERS_PATH.exists():
             d = decrypt_keys(USERS_PATH, master_pw)
             if isinstance(d, dict):
                 ACCESS_PATH.write_text(json.dumps(d, indent=2))
