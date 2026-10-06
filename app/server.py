@@ -54,11 +54,11 @@ USERKEYS_DIR = Path(__file__).parent / "userkeys"
 USERKEYS_DIR.mkdir(exist_ok=True)
 
 import re as _re
-_LABEL_RE = _re.compile(r"^[a-z0-9_]{1,30}$")
+_LABEL_RE = _re.compile(r"^[a-zA-Z0-9_]{1,30}$")
 
 def _userkey_path(label):
-    # Label is validated against _LABEL_RE before this is called
-    return USERKEYS_DIR / f"{label}.enc"
+    # Vault filename is the lowercased label (labels are matched case-insensitively)
+    return USERKEYS_DIR / f"{label.lower()}.enc"
 
 def _load_userkeys(label, password):
     """Decrypt a friend's personal key vault. Returns dict or None."""
@@ -1829,14 +1829,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
             if action == "revoke":
-                label = (data.get("label") or "").strip().lower()
+                label = (data.get("label") or "").strip()
                 master_pw = data.get("master_pw") or ""
                 if not master_pw:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "master password required"}).encode())
                     return
                 access = _load_access()
-                if label in access:
+                # Match stored label case-insensitively (labels keep original case)
+                stored_label = None
+                for k in access.keys():
+                    if k.lower() == label.lower():
+                        stored_label = k
+                        break
+                if stored_label is not None:
+                    label = stored_label
                     # Verify master password by decrypting keys.enc
                     try:
                         decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
@@ -1849,7 +1856,7 @@ class Handler(BaseHTTPRequestHandler):
                     # Delete their personal key vault too
                     try:
                         vp = _userkey_path(label)
-                        if _LABEL_RE.match(label) and vp.exists():
+                        if vp.exists():
                             vp.unlink()
                     except Exception:
                         pass
