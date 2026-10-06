@@ -52,6 +52,9 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div class="row">
 <input id="fname" placeholder="Friend's name (e.g. Kreetika)" maxlength="30">
 <input id="fpass" type="password" placeholder="Their password (min 4 chars)">
+</div>
+<div class="row">
+<input id="mPW" type="password" placeholder="Your master password (to save)">
 <button id="addBtn" onclick="addFriend()">Add friend</button>
 </div>
 <div id="msg"></div>
@@ -114,15 +117,18 @@ function esc(s) {
 async function addFriend() {
     const label = document.getElementById('fname').value.trim();
     const password = document.getElementById('fpass').value;
+    const master_pw = document.getElementById('mPW').value;
     if (!label || password.length < 4) { showMsg('Name and password (min 4 chars) required', false); return; }
+    if (!master_pw) { showMsg('Enter your master password to save', false); return; }
     const btn = document.getElementById('addBtn');
     btn.disabled = true;
-    const j = await api('add', {label, password});
+    const j = await api('add', {label, password, master_pw});
     btn.disabled = false;
     if (j && j.ok) {
         showMsg('Friend added: ' + label, true);
         document.getElementById('fname').value = '';
         document.getElementById('fpass').value = '';
+        document.getElementById('mPW').value = '';
         load();
     } else {
         showMsg((j && j.error) || 'Failed', false);
@@ -130,8 +136,11 @@ async function addFriend() {
 }
 async function revoke(label) {
     if (!confirm('Revoke access for ' + label + '? They will be logged out immediately.')) return;
-    const j = await api('revoke', {label});
+    const master_pw = prompt('Enter your master password to confirm:');
+    if (!master_pw) return;
+    const j = await api('revoke', {label, master_pw});
     if (j && j.ok) { showMsg('Access revoked: ' + label, true); load(); }
+    else { showMsg((j && j.error) || 'Failed', false); }
 }
 load();
 </script>

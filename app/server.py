@@ -60,6 +60,34 @@ def _load_access():
 def _save_access(d):
     ACCESS_PATH.write_text(json.dumps(d, indent=2))
 
+def _persist_access_to_vault(d, master_pw):
+    """Back up friend access list inside encrypted keys.enc so it survives redeploys."""
+    try:
+        key_path = Path(__file__).parent / "keys.enc"
+        keys = decrypt_keys(key_path, master_pw)
+        keys["_access"] = d
+        encrypt_keys(keys, master_pw, key_path)
+        os.chmod(key_path, 0o600)
+        # Keep in-memory copy in sync
+        if Handler.keys is not None:
+            Handler.keys["_access"] = d
+        return True
+    except Exception:
+        return False
+
+def _restore_access_from_vault(master_pw):
+    """Restore access.json from keys.enc backup (after a redeploy wiped the disk)."""
+    try:
+        if ACCESS_PATH.exists():
+            return  # already there, nothing to do
+        key_path = Path(__file__).parent / "keys.enc"
+        keys = decrypt_keys(key_path, master_pw)
+        d = keys.get("_access")
+        if isinstance(d, dict):
+            ACCESS_PATH.write_text(json.dumps(d, indent=2))
+    except Exception:
+        pass
+
 def get_usage_history():
     """Last 7 days of per-provider usage from usage.jsonl.
 
@@ -1431,6 +1459,8 @@ class Handler(BaseHTTPRequestHandler):
             if master_ok:
                 Handler.keys = dec_keys
                 register_custom_providers(dec_keys)
+                # Restore friend access list if a redeploy wiped access.json
+                _restore_access_from_vault(password)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             cookie = f"session={token}; HttpOnly; SameSite=Lax; Path=/"
@@ -1476,9 +1506,14 @@ class Handler(BaseHTTPRequestHandler):
             if action == "add":
                 label = (data.get("label") or "").strip()
                 password = data.get("password") or ""
+                master_pw = data.get("master_pw") or ""
                 if not label or not password or len(password) < 4:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "label and password (min 4 chars) required"}).encode())
+                    return
+                if not master_pw:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "master password required to persist"}).encode())
                     return
                 access = _load_access()
                 if label in access or label.lower() == "rudra":
@@ -1487,15 +1522,28 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 access[label] = hashlib.sha256(password.encode()).hexdigest()
                 _save_access(access)
+                if not _persist_access_to_vault(access, master_pw):
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
             if action == "revoke":
                 label = (data.get("label") or "").strip()
+                master_pw = data.get("master_pw") or ""
+                if not master_pw:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "master password required"}).encode())
+                    return
                 access = _load_access()
                 if label in access:
                     del access[label]
                     _save_access(access)
+                    if not _persist_access_to_vault(access, master_pw):
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                        return
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and s.get("label") == label]:
                         del SESSIONS[tok]
