@@ -46,8 +46,9 @@ SESSIONS = {}
 _login_attempts = {}
 
 SESSION_EXPIRY = 1800
-# Friend access: {label: sha256(password)} — per-friend passwords, revocable
+# Friend access: runtime copy at ACCESS_PATH, encrypted persistent store at USERS_PATH
 ACCESS_PATH = Path(__file__).parent / "access.json"
+USERS_PATH = Path(__file__).parent / "users.enc"
 
 def _load_access():
     try:
@@ -57,34 +58,25 @@ def _load_access():
         pass
     return {}
 
-def _save_access(d):
+def _save_access(d, master_pw=None):
     ACCESS_PATH.write_text(json.dumps(d, indent=2))
+    # Persist encrypted backup so it survives redeploys (users.enc is tracked in git)
+    if master_pw:
+        try:
+            encrypt_keys(d, master_pw, USERS_PATH)
+            os.chmod(USERS_PATH, 0o600)
+        except Exception:
+            pass
 
-def _persist_access_to_vault(d, master_pw):
-    """Back up friend access list inside encrypted keys.enc so it survives redeploys."""
-    try:
-        key_path = Path(__file__).parent / "keys.enc"
-        keys = decrypt_keys(key_path, master_pw)
-        keys["_access"] = d
-        encrypt_keys(keys, master_pw, key_path)
-        os.chmod(key_path, 0o600)
-        # Keep in-memory copy in sync
-        if Handler.keys is not None:
-            Handler.keys["_access"] = d
-        return True
-    except Exception:
-        return False
-
-def _restore_access_from_vault(master_pw):
-    """Restore access.json from keys.enc backup (after a redeploy wiped the disk)."""
+def _restore_access(master_pw):
+    """Restore access.json from encrypted users.enc after a redeploy wiped the disk."""
     try:
         if ACCESS_PATH.exists():
-            return  # already there, nothing to do
-        key_path = Path(__file__).parent / "keys.enc"
-        keys = decrypt_keys(key_path, master_pw)
-        d = keys.get("_access")
-        if isinstance(d, dict):
-            ACCESS_PATH.write_text(json.dumps(d, indent=2))
+            return
+        if USERS_PATH.exists():
+            d = decrypt_keys(USERS_PATH, master_pw)
+            if isinstance(d, dict):
+                ACCESS_PATH.write_text(json.dumps(d, indent=2))
     except Exception:
         pass
 
@@ -1460,7 +1452,7 @@ class Handler(BaseHTTPRequestHandler):
                 Handler.keys = dec_keys
                 register_custom_providers(dec_keys)
                 # Restore friend access list if a redeploy wiped access.json
-                _restore_access_from_vault(password)
+                _restore_access(password)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             cookie = f"session={token}; HttpOnly; SameSite=Lax; Path=/"
@@ -1520,12 +1512,15 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "label already exists"}).encode())
                     return
-                access[label] = hashlib.sha256(password.encode()).hexdigest()
-                _save_access(access)
-                if not _persist_access_to_vault(access, master_pw):
+                # Verify master password by decrypting keys.enc
+                try:
+                    decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
+                except Exception:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
+                access[label] = hashlib.sha256(password.encode()).hexdigest()
+                _save_access(access, master_pw)
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
@@ -1538,12 +1533,15 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 access = _load_access()
                 if label in access:
-                    del access[label]
-                    _save_access(access)
-                    if not _persist_access_to_vault(access, master_pw):
+                    # Verify master password by decrypting keys.enc
+                    try:
+                        decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
+                    except Exception:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
+                    del access[label]
+                    _save_access(access, master_pw)
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and s.get("label") == label]:
                         del SESSIONS[tok]
