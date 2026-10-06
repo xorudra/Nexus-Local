@@ -388,7 +388,8 @@ def wizard_collect_keys() -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "LocalDashboard/0.1"
+    server_version = "NexusLocal"
+    sys_version = ""
     keys: dict | None = None
     _head_only = False  # set True during do_HEAD so bodies are suppressed
 
@@ -398,6 +399,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        # CSP: allow self + Google Fonts (used by pages); no inline scripts from other origins
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                         "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+                         "connect-src 'self'; frame-ancestors 'none'")
         super().end_headers()
 
     # Session helpers
@@ -427,6 +434,21 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(sess, dict):
             return sess
         return None
+
+    def _check_origin(self):
+        """CSRF defense-in-depth: verify Origin/Referer matches Host for POSTs.
+        SameSite=Lax already blocks cross-site POST cookies; this is backup."""
+        origin = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        if not origin:
+            return True  # Same-origin form posts may omit Origin; SameSite still protects
+        host = self.headers.get("Host", "")
+        # Extract host from origin
+        try:
+            from urllib.parse import urlparse
+            ohost = urlparse(origin).netloc
+        except Exception:
+            return False
+        return ohost == host
 
     def _effective_keys(self):
         """Keys for this request: friend's own vault if present, else shared keys."""
@@ -1052,7 +1074,8 @@ class Handler(BaseHTTPRequestHandler):
             models = []
             try:
                 import urllib.request, json as js
-                keys = Handler.keys or {}
+                keys = self._effective_keys()
+                vault_key = keys.get(provider, "") if isinstance(keys, dict) else ""
                 if provider in ("google", "relay_gemini"):
                     # Google's OpenAI-compat endpoint has no /models; use the
                     # native API with ?key= instead.
@@ -1074,6 +1097,10 @@ class Handler(BaseHTTPRequestHandler):
                 # No auth header needed: the relay strips it and attaches the
                 # real key; native endpoints use ?key= above.
                 req = urllib.request.Request(url)
+                # Pass the effective (per-user) key so the relay uses the
+                # friend's own key for model discovery when present.
+                if vault_key and provider in RELAY_UPSTREAMS:
+                    req.add_header("X-Vault-Key", vault_key)
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = js.loads(resp.read())
                     if isinstance(data, list):
@@ -1148,29 +1175,6 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             return
-        if parsed.path == "/connections":
-            info = self._session_info()
-            if not info:
-                self.send_response(302)
-                self.send_header("Location", "/login")
-                self.end_headers()
-                return
-            if not info.get("admin"):
-                self.send_response(403)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self._send_body(b"<h1>Admin only</h1>")
-                return
-            try:
-                content = (Path(__file__).parent / "connections.html").read_text(encoding="utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-                self.end_headers()
-                self._send_body(content.encode())
-            except Exception as e:
-                self.send_error(500, str(e))
-            return
         self.send_error(404, "Not Found")
 
     def do_POST(self):
@@ -1185,6 +1189,11 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError):
             pass
         parsed = urlparse(self.path)
+        # CSRF defense-in-depth on state-changing POSTs (login excluded: no session yet)
+        if parsed.path != "/api/login" and not self._check_origin():
+            self._set_json_headers(403)
+            self.wfile.write(json.dumps({"error": "origin mismatch"}).encode())
+            return
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
             keys_exist = key_path.exists()
