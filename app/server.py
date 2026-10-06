@@ -44,6 +44,21 @@ from key_security import encrypt_keys, decrypt_keys
 USAGE_PATH = Path(__file__).parent / "usage.jsonl"
 SESSIONS = {}
 _login_attempts = {}
+# Provider health (circuit breaker): provider -> {"fails": int, "down_until": float}
+_PROVIDER_HEALTH = {}
+
+def _provider_down(p):
+    h = _PROVIDER_HEALTH.get(p)
+    return bool(h) and h.get("down_until", 0) > time.time()
+
+def _note_failure(p):
+    h = _PROVIDER_HEALTH.setdefault(p, {"fails": 0, "down_until": 0.0})
+    h["fails"] = h.get("fails", 0) + 1
+    if h["fails"] >= 2:
+        h["down_until"] = time.time() + 180  # skip for 3 min after 2 straight failures
+
+def _note_success(p):
+    _PROVIDER_HEALTH.pop(p, None)
 
 SESSION_EXPIRY = 1800
 def _model_caps(provider, model):
@@ -1457,6 +1472,7 @@ class Handler(BaseHTTPRequestHandler):
             # Auto provider selection when provider is "auto"
             # Returns a LIST of (provider, model) to try in order (fallback)
             _auto_candidates = []
+            _fallback_candidates = []
             if provider == "auto":
                 if routing == "save":
                     pref_list = ["groq", "relay_groq", "pollinations", "relay_pollinations",
@@ -1483,6 +1499,10 @@ class Handler(BaseHTTPRequestHandler):
                         cand_model = model or _DEFAULT_MODELS.get(cand, "")
                         if cand_model:
                             _auto_candidates.append((cand, cand_model))
+                # Health first: providers recently failing go to the back
+                _healthy = [(p, m) for (p, m) in _auto_candidates if not _provider_down(p)]
+                _down = [(p, m) for (p, m) in _auto_candidates if _provider_down(p)]
+                _auto_candidates = _healthy + _down
                 if _auto_candidates:
                     provider, model = _auto_candidates[0]
                 # Store remaining for fallback
@@ -1491,140 +1511,136 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
                 return
-            key = _ekeys.get(provider) if _ekeys else None
-            if not key and provider not in RELAY_KEYLESS:
-                self._set_json_headers(400)
-                self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
-                return
-            # Cohere uses its native API (not OpenAI-compatible) — call directly
-            if provider == "cohere":
-                try:
-                    cohere_body = {"model": model, "message": message}
-                    if image:
-                        # Cohere chat doesn't support images in this simple path
-                        pass
-                    req = Request("https://api.cohere.com/v1/chat",
-                                  data=json.dumps(cohere_body).encode(),
-                                  headers={"Content-Type": "application/json",
-                                           "Authorization": f"Bearer {key}"},
-                                  method="POST")
-                    with urlopen(req, timeout=60) as resp:
-                        resp_data = json.loads(resp.read().decode())
-                        reply = resp_data.get("text", "")
-                        self._set_json_headers(200)
-                        self.wfile.write(json.dumps({"reply": reply}).encode())
-                except HTTPError as e:
-                    self._set_json_headers(e.code)
-                    self.wfile.write(json.dumps({"error": f"provider returned an error ({e.code})"}).encode())
-                except URLError as e:
-                    self._set_json_headers(500)
-                    self.wfile.write(json.dumps({"error": "network error reaching provider"}).encode())
-                return
-            # All providers route through the relay (RELAY_UPSTREAMS) or freellmapi gateway
-            if provider.startswith("relay_") or provider in RELAY_UPSTREAMS:
-                # Relay providers (including individual keys) - route through localhost:8099
-                # The relay attaches the key from Handler.keys
-                base = f"http://127.0.0.1:{RELAY_PORT}/{provider}/v1"
-                # For relay, we still check that a key is configured (except keyless)
-                if provider not in RELAY_KEYLESS and not key:
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
-                    return
-            elif provider == "freellmapi":
-                # Unified gateway key; base URL comes from setup (not a fixed endpoint)
-                gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
-                if not gw_url:
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
-                    return
-                base = gw_url.rstrip("/")
-            elif provider.startswith("custom_fl_"):
-                # Custom FreeLLMAPI provider - routes through the FreeLLMAPI gateway
-                gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
-                if not gw_url:
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
-                    return
-                base = gw_url.rstrip("/")
-                if not key:
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
-                    return
-            elif provider.startswith("custom_relay_"):
-                # Custom relay provider - routes through the relay
-                cname = provider[len("custom_relay_"):]
-                base = f"http://127.0.0.1:{RELAY_PORT}/{cname}/v1"
-                if not key:
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
-                    return
-            else:
-                self._set_json_headers(400)
-                self.wfile.write(json.dumps({"error": f"chat not supported for {provider} in local version"}).encode())
-                return
-            headers = {
-                "Content-Type": "application/json",
-            }
-            # Relay calls carry the per-process token (relay rejects others)
-            if provider.startswith("relay_") or provider in RELAY_UPSTREAMS or provider.startswith("custom_relay_"):
-                headers["X-Relay-Token"] = RELAY_TOKEN
-            # For relay providers, the integrated relay attaches the key.
-            # Pass the effective (per-user) key via X-Vault-Key so friends use their own.
-            if (provider.startswith("relay_") or provider in RELAY_UPSTREAMS
-                    or provider.startswith("custom_relay_")) and key:
-                headers["X-Vault-Key"] = key
-            # For freellmapi and custom_fl, attach the key here
-            if provider == "freellmapi" or provider.startswith("custom_fl_"):
-                headers["Authorization"] = f"Bearer {key}"
-            if provider == "openrouter" or provider == "relay_openrouter":
-                headers["X-Title"] = "NexusLocal"
-            body = {
-                "model": model,
-                "messages": [{"role": "user", "content": ([{"type": "text", "text": message}] + ([{"type": "image_url", "image_url": {"url": image}}] if image else [])) if image else message}],
-                "max_tokens": 1024,
-            }
-            try:
-                req = Request(f"{base}/chat/completions", data=json.dumps(body).encode(), headers=headers, method="POST")
-                with urlopen(req, timeout=60) as resp:
-                    resp_data = json.loads(resp.read().decode())
-                    reply = resp_data["choices"][0]["message"]["content"]
-                    usage = resp_data.get("usage", {})
-                    usage_line = {
-                        "ts": datetime.datetime.now().isoformat(),
-                        "provider": provider,
-                        "model": model,
-                        "prompt_tokens": usage.get("prompt_tokens", 0),
-                        "completion_tokens": usage.get("completion_tokens", 0),
-                    }
-                    with open(USAGE_PATH, "a") as f2:
-                        try:
-                            f2.write(json.dumps(usage_line) + "\n")
-                        except OSError:
-                            pass  # disk full — don't break chat for logging
-                    self._set_json_headers(200)
-                    self.wfile.write(json.dumps({"reply": reply, "used_provider": provider, "used_model": model}).encode())
-            except HTTPError as e:
-                # Never forward raw upstream error bodies to the user.
-                if e.code == 503:
-                    msg = "Provider is temporarily overloaded. Try again in a moment."
-                elif e.code == 429:
-                    msg = "Rate limit hit. Try again in a moment."
-                elif e.code == 402:
-                    msg = "This model requires payment. Try a different model."
-                elif e.code == 401 or e.code == 403:
-                    msg = "Provider rejected the request. Check the API key."
-                elif e.code == 404:
-                    msg = "Model not found for this provider."
+            # ---- Failover dispatch ----
+            # _attempt() runs ONE provider/model and returns (ok, reply_or_err...).
+            # The loop below tries the chosen provider first, then fallbacks, so a
+            # dead key / retired model / rate limit routes around automatically.
+            def _attempt(prov, mdl, timeout):
+                akey = _ekeys.get(prov) if _ekeys else None
+                if not akey and prov not in RELAY_KEYLESS:
+                    return (False, 400, f"no key configured for {prov}")
+                # Cohere uses its native API (not OpenAI-compatible)
+                if prov == "cohere":
+                    try:
+                        cohere_body = {"model": mdl, "message": message}
+                        req = Request("https://api.cohere.com/v1/chat",
+                                      data=json.dumps(cohere_body).encode(),
+                                      headers={"Content-Type": "application/json",
+                                               "Authorization": f"Bearer {akey}"},
+                                      method="POST")
+                        with urlopen(req, timeout=timeout) as resp:
+                            resp_data = json.loads(resp.read().decode())
+                            return (True, resp_data.get("text", ""))
+                    except HTTPError as e:
+                        return (False, e.code, f"provider returned an error ({e.code})")
+                    except Exception:
+                        return (False, 502, "Could not reach the provider.")
+                # Base URL per provider type
+                if prov.startswith("relay_") or prov in RELAY_UPSTREAMS:
+                    base = f"http://127.0.0.1:{RELAY_PORT}/{prov}/v1"
+                elif prov == "freellmapi":
+                    gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
+                    if not gw_url:
+                        return (False, 400, "Set your gateway URL in setup")
+                    base = gw_url.rstrip("/")
+                elif prov.startswith("custom_fl_"):
+                    gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
+                    if not gw_url:
+                        return (False, 400, "Set your gateway URL in setup")
+                    base = gw_url.rstrip("/")
+                elif prov.startswith("custom_relay_"):
+                    cname = prov[len("custom_relay_"):]
+                    base = f"http://127.0.0.1:{RELAY_PORT}/{cname}/v1"
                 else:
-                    msg = f"Provider returned an error ({e.code})."
-                self._set_json_headers(e.code if e.code in (401, 403, 404, 429, 503) else 502)
-                self.wfile.write(json.dumps({"error": msg}).encode())
-            except URLError:
-                self._set_json_headers(502)
-                self.wfile.write(json.dumps({"error": "Could not reach the provider."}).encode())
-            except Exception:
-                self._set_json_headers(500)
-                self.wfile.write(json.dumps({"error": "server error, try again"}).encode())
+                    return (False, 400, f"chat not supported for {prov} in local version")
+                headers = {"Content-Type": "application/json"}
+                if prov.startswith("relay_") or prov in RELAY_UPSTREAMS or prov.startswith("custom_relay_"):
+                    headers["X-Relay-Token"] = RELAY_TOKEN
+                    if akey:
+                        headers["X-Vault-Key"] = akey
+                if prov == "freellmapi" or prov.startswith("custom_fl_"):
+                    headers["Authorization"] = f"Bearer {akey}"
+                if prov == "openrouter" or prov == "relay_openrouter":
+                    headers["X-Title"] = "NexusLocal"
+                body = {
+                    "model": mdl,
+                    "messages": [{"role": "user", "content": ([{"type": "text", "text": message}] + ([{"type": "image_url", "image_url": {"url": image}}] if image else [])) if image else message}],
+                    "max_tokens": 1024,
+                }
+                try:
+                    req = Request(f"{base}/chat/completions", data=json.dumps(body).encode(), headers=headers, method="POST")
+                    with urlopen(req, timeout=timeout) as resp:
+                        resp_data = json.loads(resp.read().decode())
+                        reply = resp_data["choices"][0]["message"]["content"]
+                        usage = resp_data.get("usage", {})
+                        try:
+                            with open(USAGE_PATH, "a") as f2:
+                                try:
+                                    f2.write(json.dumps({
+                                        "ts": datetime.datetime.now().isoformat(),
+                                        "provider": prov, "model": mdl,
+                                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                                        "completion_tokens": usage.get("completion_tokens", 0),
+                                    }) + "\n")
+                                except OSError:
+                                    pass
+                        except Exception:
+                            pass
+                        return (True, reply)
+                except HTTPError as e:
+                    if e.code == 503:
+                        msg = "Provider is temporarily overloaded. Try again in a moment."
+                    elif e.code == 429:
+                        msg = "Rate limit hit. Try again in a moment."
+                    elif e.code == 402:
+                        msg = "This model requires payment. Try a different model."
+                    elif e.code in (401, 403):
+                        msg = "Provider rejected the request. Check the API key."
+                    elif e.code == 404:
+                        msg = "Model not found for this provider."
+                    else:
+                        msg = f"Provider returned an error ({e.code})."
+                    return (False, e.code if e.code in (401, 403, 404, 429, 503) else 502, msg)
+                except URLError:
+                    return (False, 502, "Could not reach the provider.")
+                except Exception:
+                    return (False, 500, "server error, try again")
+
+            # Build the attempt list: chosen provider first, then fallbacks.
+            _attempts = [(provider, model)]
+            _fb = list(_fallback_candidates)
+            if not _fb:
+                # Explicit pick: fall back across known-good providers (default models),
+                # skipping any currently marked down.
+                _pref = ["relay_openrouter", "openrouter", "groq", "relay_groq",
+                         "google", "relay_gemini", "mistral", "cohere",
+                         "nvidia", "relay_nvidia", "pollinations", "relay_pollinations"]
+                for cand in _pref:
+                    if cand == provider:
+                        continue
+                    cm = _DEFAULT_MODELS.get(cand, "")
+                    if cm and ((_ekeys or {}).get(cand) or cand in RELAY_KEYLESS):
+                        _fb.append((cand, cm))
+            healthy = [(p, m) for (p, m) in _fb if not _provider_down(p)]
+            _attempts += (healthy if healthy else _fb)
+            _last = (502, "Could not reach the provider.")
+            _answered = None
+            for _i, (_ap, _am) in enumerate(_attempts[:4]):
+                _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30)
+                if _ok:
+                    _note_success(_ap)
+                    _answered = (_ap, _am, _rest[0])
+                    break
+                _note_failure(_ap)
+                _last = (_rest[0], _rest[1])
+            if _answered:
+                self._set_json_headers(200)
+                self.wfile.write(json.dumps({"reply": _answered[2],
+                                             "used_provider": _answered[0],
+                                             "used_model": _answered[1]}).encode())
+            else:
+                self._set_json_headers(_last[0])
+                self.wfile.write(json.dumps({"error": _last[1]}).encode())
             return
         if parsed.path == "/api/refresh":
             if not self._require_admin():
