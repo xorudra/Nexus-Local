@@ -659,9 +659,25 @@ class Handler(BaseHTTPRequestHandler):
             def masked(k):
                 v = current.get(k, "")
                 return f"***{v[-4:]}" if v and len(v) > 4 else ("set" if v else "not set")
-            rows = ""
-            for n in PROVIDER_NAMES:
-                rows += f"<label>{n} <span style='color:#A855F7;font-size:12px'>({masked(n)})</span><input type='password' name='k_{n}' autocomplete='off' placeholder='Leave blank to keep current'></label>"
+            def disp_name(n):
+                if n.startswith("relay_"):
+                    return "Relay: " + n[6:].replace("_", " ").title()
+                return "FreeLLMAPI: " + n.replace("_", " ").title()
+            def key_row(n):
+                return (f"<label>{disp_name(n)} <span style='color:#A855F7;font-size:12px'>({masked(n)})</span>"
+                        f"<input type='password' name='k_{n}' autocomplete='off' placeholder='Leave blank to keep current'></label>")
+            relay_rows = "".join(key_row(n) for n in PROVIDER_NAMES if n.startswith("relay_"))
+            fl_rows = "".join(key_row(n) for n in PROVIDER_NAMES if not n.startswith("relay_"))
+            det_style = ("background:#0c0c0f;border:1px solid rgba(168,85,247,.25);border-radius:10px;"
+                         "padding:16px;margin-bottom:14px")
+            sum_style = ("color:#A855F7;cursor:pointer;font-size:15px;font-weight:600;"
+                         "font-family:Oswald,sans-serif;letter-spacing:.06em")
+            rows = (
+                f"<details style='{det_style}'><summary style='{sum_style}'>FreeLLMAPI Providers</summary>"
+                f"<div style='margin-top:12px'>{fl_rows}</div></details>"
+                f"<details style='{det_style}'><summary style='{sum_style}'>Relay Providers</summary>"
+                f"<div style='margin-top:12px'>{relay_rows}</div></details>"
+            )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                     "<title>Nexus Local - Update Keys</title><style>@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');"
