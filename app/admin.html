@@ -184,7 +184,9 @@ async function check2FA() {
     _tfaEnabled = j.enabled;
     st.innerHTML = j.enabled
         ? '<span style="color:#7dff9a">✓ 2FA is ON</span>'
-        : '<span style="color:#9aa3b2">2FA is OFF</span>';
+        : (j.pending
+            ? '<span style="color:#ffd97d">2FA setup pending — confirm with a code below</span>'
+            : '<span style="color:#9aa3b2">2FA is OFF</span>');
     document.getElementById('tfaBtn').textContent = j.enabled ? 'Disable 2FA' : 'Enable 2FA';
 }
 async function toggle2FA() {
@@ -208,10 +210,21 @@ async function toggle2FA() {
 }
 async function confirm2FA() {
     const code = document.getElementById('tfaConfirm').value.trim();
-    // Verify by attempting a disable+re-enable? No — just tell them to log out and test
-    tfaMsg('Now log out and log back in — you should be asked for a code.', true);
-    document.getElementById('tfaSecret').style.display = 'none';
-    check2FA();
+    const master_pw = document.getElementById('tfaMaster').value;
+    if (!code) { tfaMsg('Enter the 6-digit code from your app', false); return; }
+    if (!master_pw) { tfaMsg('Enter your master password above first', false); return; }
+    // Server verifies the code against the pending secret; 2FA activates only on success
+    const j = await api('2fa_confirm', {master_pw, code});
+    if (j && j.ok) {
+        tfaMsg('✓ 2FA is ON. Your next login will ask for a code.', true);
+        document.getElementById('tfaSecret').style.display = 'none';
+        document.getElementById('tfaConfirm').value = '';
+        check2FA();
+    } else {
+        tfaMsg((j && j.error) || 'Wrong code — try again', false);
+        document.getElementById('tfaConfirm').value = '';
+        document.getElementById('tfaConfirm').focus();
+    }
 }
 function tfaMsg(t, ok) {
     const m = document.getElementById('tfaMsg');

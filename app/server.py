@@ -57,8 +57,10 @@ import re as _re
 _LABEL_RE = _re.compile(r"^[a-zA-Z0-9_]{1,30}$")
 
 def _userkey_path(label):
-    # Vault filename is the lowercased label (labels are matched case-insensitively)
-    return USERKEYS_DIR / f"{label.lower()}.enc"
+    # Vault filename is the lowercased label with anything unsafe stripped,
+    # so a label can never traverse out of USERKEYS_DIR.
+    safe = _re.sub(r"[^a-z0-9_]", "", (label or "").lower())[:30]
+    return USERKEYS_DIR / f"{safe}.enc"
 
 def _load_userkeys(label, password):
     """Decrypt a friend's personal key vault. Returns dict or None."""
@@ -127,7 +129,7 @@ def _totp_verify(secret_b32, code, window=1):
             h = _hmac.new(secret, msg, hashlib.sha1).digest()
             o = h[-1] & 0x0F
             c = _struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF
-            if str(c % 1000000).zfill(6) == code:
+            if _hmac.compare_digest(str(c % 1000000).zfill(6), code):
                 return True
     except Exception:
         pass
@@ -231,6 +233,9 @@ with open(Path(__file__).parent / "quotas.json", "r") as f:
 # Keys come from Handler.keys (decrypted in-memory, never on disk).
 # ---------------------------------------------------------------------------
 RELAY_PORT = 8099
+# Random per-process token: only the main server may call the relay.
+# Prevents any other local process from using the decrypted keys via the relay.
+RELAY_TOKEN = secrets.token_hex(32)
 RELAY_UPSTREAMS = {
     "relay_openrouter": "https://openrouter.ai/api/v1",
     "relay_gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -291,6 +296,10 @@ class RelayHandler(BaseHTTPRequestHandler):
         if path == "/health":
             self._send_json({"ok": True, "providers": list(RELAY_UPSTREAMS.keys())})
             return
+        # Only the main server (holding RELAY_TOKEN) may use the relay.
+        if not _hmac.compare_digest(self.headers.get("X-Relay-Token", ""), RELAY_TOKEN):
+            self._send_json({"error": "forbidden"}, 403)
+            return
         # Expect /<name>/v1/...
         parts = path.lstrip("/").split("/", 1)
         if len(parts) < 2 or parts[0] not in RELAY_UPSTREAMS:
@@ -312,6 +321,9 @@ class RelayHandler(BaseHTTPRequestHandler):
             upstream += "?" + path.split("?", 1)[1]
 
         length = int(self.headers.get("Content-Length", 0))
+        if length > 12 * 1024 * 1024:
+            self._send_json({"error": "body too large"}, 413)
+            return
         body = self.rfile.read(length) if length else None
 
         req = Request(upstream, data=body, method=self.command)
@@ -319,7 +331,7 @@ class RelayHandler(BaseHTTPRequestHandler):
         # block Python-urllib's default signature with 403 error 1010.
         req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
         for k, v in self.headers.items():
-            if k.lower() not in ("host", "content-length", "authorization", "user-agent", "x-vault-key"):
+            if k.lower() not in ("host", "content-length", "authorization", "user-agent", "x-vault-key", "x-relay-token"):
                 req.add_header(k, v)
         if name not in RELAY_KEYLESS:
             # Prefer a per-request vault key (friend's own key) over shared keys.
@@ -354,7 +366,7 @@ class RelayHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
         except Exception as e:
-            self._send_json({"error": str(e)[:200]}, 502)
+            self._send_json({"error": "upstream error"}, 502)
 
 
 def start_relay():
@@ -779,7 +791,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self._send_body(content.encode())
             except Exception as e:
-                self.send_error(500, str(e))
+                self.send_error(500, "internal error")
             return
         # Settings page - update keys after login
         if parsed.path == "/settings":
@@ -879,7 +891,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self._send_body(content.encode())
             except Exception as e:
-                self.send_error(500, str(e))
+                self.send_error(500, "internal error")
             return
         # Root redirects based on session
         if parsed.path == "/":
@@ -898,7 +910,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.end_headers()
                     self._send_body(content.encode())
                 except Exception as e:
-                    self.send_error(500, str(e))
+                    self.send_error(500, "internal error")
             else:
                 self.send_response(302)
                 self.send_header("Location", "/login")
@@ -936,7 +948,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_admin():
                 return
             try:
-                secret = (Handler.keys or {}).get("_totp_secret", "")
+                secret = (Handler.keys or {}).get("_totp_pending") or (Handler.keys or {}).get("_totp_secret", "")
             except Exception:
                 secret = ""
             if not secret:
@@ -1106,8 +1118,10 @@ class Handler(BaseHTTPRequestHandler):
                 req = urllib.request.Request(url)
                 # Pass the effective (per-user) key so the relay uses the
                 # friend's own key for model discovery when present.
-                if vault_key and provider in RELAY_UPSTREAMS:
-                    req.add_header("X-Vault-Key", vault_key)
+                if provider in RELAY_UPSTREAMS:
+                    req.add_header("X-Relay-Token", RELAY_TOKEN)
+                    if vault_key:
+                        req.add_header("X-Vault-Key", vault_key)
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = js.loads(resp.read())
                     if isinstance(data, list):
@@ -1157,7 +1171,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self._send_body(content.encode())
             except Exception as e:
-                self.send_error(500, str(e))
+                self.send_error(500, "internal error")
             return
         if parsed.path == "/mykeys":
             # Friend's personal key vault page (friends only; admins use Update Keys)
@@ -1180,7 +1194,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self._send_body(content.encode())
             except Exception as e:
-                self.send_error(500, str(e))
+                self.send_error(500, "internal error")
             return
         self.send_error(404, "Not Found")
 
@@ -1320,6 +1334,16 @@ class Handler(BaseHTTPRequestHandler):
             image = data.get("image")  # base64 data URI, optional
             file_data = data.get("file")  # {name, text/data, type}, optional
             link = data.get("link")  # URL string, optional
+            # Input limits: cap message size so one request can't burn huge token quotas
+            if isinstance(message, str) and len(message) > 50000:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "message too long (max 50000 chars)"}).encode())
+                return
+            if image is not None and (not isinstance(image, str) or len(image) > 8 * 1024 * 1024
+                                      or not image.startswith("data:image/")):
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "invalid image"}).encode())
+                return
             # Mode-specific message preprocessing
             if mode == "auto":
                 # Auto-detect: code keywords -> code mode, question words -> search, else text
@@ -1351,7 +1375,7 @@ class Handler(BaseHTTPRequestHandler):
                     }).encode())
                 except Exception as e:
                     self._set_json_headers(500)
-                    self.wfile.write(json.dumps({"error": f"image gen failed: {str(e)[:100]}"}).encode())
+                    self.wfile.write(json.dumps({"error": "image generation failed, try again"}).encode())
                 return
             elif mode == "search":
                 # Web search mode: use Wikipedia API (reliable, free, no key)
@@ -1465,12 +1489,11 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(200)
                         self.wfile.write(json.dumps({"reply": reply}).encode())
                 except HTTPError as e:
-                    body_err = e.read().decode()[:200]
                     self._set_json_headers(e.code)
-                    self.wfile.write(json.dumps({"error": f"provider {e.code}: {body_err}"}).encode())
+                    self.wfile.write(json.dumps({"error": f"provider returned an error ({e.code})"}).encode())
                 except URLError as e:
                     self._set_json_headers(500)
-                    self.wfile.write(json.dumps({"error": f"network error: {str(e)[:100]}"}).encode())
+                    self.wfile.write(json.dumps({"error": "network error reaching provider"}).encode())
                 return
             # All providers route through the relay (RELAY_UPSTREAMS) or freellmapi gateway
             if provider.startswith("relay_") or provider in RELAY_UPSTREAMS:
@@ -1517,6 +1540,9 @@ class Handler(BaseHTTPRequestHandler):
             headers = {
                 "Content-Type": "application/json",
             }
+            # Relay calls carry the per-process token (relay rejects others)
+            if provider.startswith("relay_") or provider in RELAY_UPSTREAMS or provider.startswith("custom_relay_"):
+                headers["X-Relay-Token"] = RELAY_TOKEN
             # For relay providers, the integrated relay attaches the key.
             # Pass the effective (per-user) key via X-Vault-Key so friends use their own.
             if (provider.startswith("relay_") or provider in RELAY_UPSTREAMS
@@ -1553,29 +1579,27 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(200)
                     self.wfile.write(json.dumps({"reply": reply, "used_provider": provider, "used_model": model}).encode())
             except HTTPError as e:
-                body_err = e.read().decode()[:200]
-                # User-friendly messages for common errors
+                # Never forward raw upstream error bodies to the user.
                 if e.code == 503:
                     msg = "Provider is temporarily overloaded. Try again in a moment."
                 elif e.code == 429:
                     msg = "Rate limit hit. Try again in a moment."
                 elif e.code == 402:
                     msg = "This model requires payment. Try a different model."
+                elif e.code == 401 or e.code == 403:
+                    msg = "Provider rejected the request. Check the API key."
+                elif e.code == 404:
+                    msg = "Model not found for this provider."
                 else:
-                    # Try to extract clean message from JSON
-                    try:
-                        ej = json.loads(body_err)
-                        msg = ej.get("error", {}).get("message", body_err[:100]) if isinstance(ej.get("error"), dict) else str(ej.get("error", body_err[:100]))
-                    except:
-                        msg = body_err[:100]
-                self._set_json_headers(e.code)
+                    msg = f"Provider returned an error ({e.code})."
+                self._set_json_headers(e.code if e.code in (401, 403, 404, 429, 503) else 502)
                 self.wfile.write(json.dumps({"error": msg}).encode())
-            except URLError as e:
+            except URLError:
+                self._set_json_headers(502)
+                self.wfile.write(json.dumps({"error": "Could not reach the provider."}).encode())
+            except Exception:
                 self._set_json_headers(500)
-                self.wfile.write(json.dumps({"error": f"provider error: {e.reason}"}).encode())
-            except Exception as e:
-                self._set_json_headers(500)
-                self.wfile.write(json.dumps({"error": f"server error: {e}"}).encode())
+                self.wfile.write(json.dumps({"error": "server error, try again"}).encode())
             return
         if parsed.path == "/api/refresh":
             if not self._require_admin():
@@ -1590,7 +1614,7 @@ class Handler(BaseHTTPRequestHandler):
                         return (name, True)  # keyless, assume up
                     else:
                         return (name, bool((Handler.keys or {}).get(name)))
-                    req = Request(base + "/models", headers={"User-Agent": "Mozilla/5.0"})
+                    req = Request(base + "/models", headers={"User-Agent": "Mozilla/5.0", "X-Relay-Token": RELAY_TOKEN})
                     with urlopen(req, timeout=8) as r:
                         return (name, r.status == 200)
                 except Exception:
@@ -1799,9 +1823,9 @@ class Handler(BaseHTTPRequestHandler):
                 label = (data.get("label") or "").strip().lower()
                 password = data.get("password") or ""
                 master_pw = data.get("master_pw") or ""
-                if not label or not password or len(password) < 4:
+                if not label or not password or len(password) < 6:
                     self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "label and password (min 4 chars) required"}).encode())
+                    self.wfile.write(json.dumps({"error": "label and password (min 6 chars) required"}).encode())
                     return
                 if not _LABEL_RE.match(label):
                     self._set_json_headers(400)
@@ -1875,7 +1899,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
                 self._set_json_headers()
-                self.wfile.write(json.dumps({"enabled": bool(keys.get("_totp_secret"))}).encode())
+                self.wfile.write(json.dumps({"enabled": bool(keys.get("_totp_secret")),
+                                             "pending": bool(keys.get("_totp_pending"))}).encode())
                 return
             if action == "2fa_enable":
                 master_pw = data.get("master_pw") or ""
@@ -1886,17 +1911,49 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
-                secret = _totp_secret().strip().replace("=", "")
-                keys["_totp_secret"] = secret
+                secret = _totp_secret()
+                # PENDING only — 2FA activates after a code verifies (2fa_confirm).
+                # Prevents lockout if the QR/secret was entered wrong.
+                keys["_totp_pending"] = secret
                 encrypt_keys(keys, master_pw, key_path)
                 os.chmod(key_path, 0o600)
                 if Handler.keys is not None:
-                    Handler.keys["_totp_secret"] = secret
+                    Handler.keys["_totp_pending"] = secret
                 otpauth = (f"otpauth://totp/NexusLocal:admin?secret={secret}"
                            f"&issuer=NexusLocal")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True, "secret": secret,
-                                             "otpauth": otpauth}).encode())
+                                             "otpauth": otpauth, "pending": True}).encode())
+                return
+            if action == "2fa_confirm":
+                # Verify a code against the pending secret; only then activate.
+                master_pw = data.get("master_pw") or ""
+                code = (data.get("code") or "").strip()
+                try:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    keys = decrypt_keys(key_path, master_pw)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+                pending = keys.get("_totp_pending", "")
+                if not pending:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "no pending 2FA setup"}).encode())
+                    return
+                if not code or not _totp_verify(pending, code):
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong code — check your authenticator app"}).encode())
+                    return
+                keys["_totp_secret"] = pending
+                keys.pop("_totp_pending", None)
+                encrypt_keys(keys, master_pw, key_path)
+                os.chmod(key_path, 0o600)
+                if Handler.keys is not None:
+                    Handler.keys["_totp_secret"] = pending
+                    Handler.keys.pop("_totp_pending", None)
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "enabled": True}).encode())
                 return
             if action == "2fa_disable":
                 master_pw = data.get("master_pw") or ""
@@ -1914,10 +1971,12 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                     return
                 keys.pop("_totp_secret", None)
+                keys.pop("_totp_pending", None)
                 encrypt_keys(keys, master_pw, key_path)
                 os.chmod(key_path, 0o600)
                 if Handler.keys is not None:
                     Handler.keys.pop("_totp_secret", None)
+                    Handler.keys.pop("_totp_pending", None)
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
