@@ -868,27 +868,21 @@ class Handler(BaseHTTPRequestHandler):
                 return
             qs = parse_qs(parsed.query)
             if qs.get("set", [""])[0] in ("quality", "save", "auto"):
-                # Only admin can change routing mode (affects everyone)
-                if not (self._session_info() or {}).get("admin"):
-                    self._set_json_headers(403)
-                    self.wfile.write(json.dumps({"error": "admin only"}).encode())
-                    return
-                # Persist routing mode in keys.enc
-                try:
-                    keys = dict(Handler.keys or {})
-                    keys["_routing_mode"] = qs["set"][0]
-                    from pathlib import Path as _P
-                    enc_path = _P(__file__).parent / "keys.enc"
-                    # Need password - get from session or use stored
-                    # For now, store in memory only (persist on next /update-keys)
-                    Handler.keys = keys
-                except Exception:
-                    pass
+                # Per-session routing mode (each user picks their own)
+                token = self._get_session()
+                if token and token in SESSIONS:
+                    sess = SESSIONS[token]
+                    if isinstance(sess, dict):
+                        sess["routing"] = qs["set"][0]
+                    else:
+                        SESSIONS[token] = {"ts": sess, "label": "Rudra", "admin": True, "routing": qs["set"][0]}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
+            sess = SESSIONS.get(self._get_session() or "", {})
+            routing_val = sess.get("routing", "quality") if isinstance(sess, dict) else "quality"
             self._send_body(json.dumps({
-                "routing": (Handler.keys or {}).get("_routing_mode", "quality")
+                "routing": routing_val
             }).encode())
             return
         if parsed.path == "/api/models":
@@ -1157,7 +1151,9 @@ class Handler(BaseHTTPRequestHandler):
             if link:
                 message = f"[Attached link: {link}]\n{message}"
             # Routing mode: quality | save | auto (stored in keys dict)
-            routing = (Handler.keys or {}).get("_routing_mode", "quality")
+            # Per-session routing mode (each user has their own)
+            _sess = SESSIONS.get(self._get_session() or "", {})
+            routing = _sess.get("routing", "quality") if isinstance(_sess, dict) else "quality"
             # Default models for auto-selection (known working)
             _DEFAULT_MODELS = {
                 "groq": "openai/gpt-oss-20b",
