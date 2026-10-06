@@ -67,6 +67,19 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 </div>
 
 <div class="card">
+<h2>GITHUB SYNC (FRIEND LIST BACKUP)</h2>
+<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Makes friend logins survive website updates: after every add/remove, the encrypted friend file is pushed to GitHub automatically.</p>
+<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Create a token: GitHub → Settings → Developer settings → Personal access tokens → Fine-grained → only <b>Nexus-Local</b> repo → Contents: Read & Write.</p>
+<div id="ghStatus" style="margin-bottom:12px;font-size:14px"></div>
+<div class="row">
+<input id="ghMaster" type="password" placeholder="Your master password">
+<input id="ghToken" type="password" placeholder="GitHub token (paste once)">
+<button onclick="saveGhToken()">Save</button>
+</div>
+<div id="ghMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
+</div>
+
+<div class="card">
 <h2>TWO-FACTOR AUTH (ADMIN)</h2>
 <p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Protect your admin login with an authenticator app (Google Authenticator, Authy, etc.). Friends are not affected.</p>
 <div id="tfaStatus" style="margin-bottom:12px;font-size:14px"></div>
@@ -209,6 +222,33 @@ function tfaMsg(t, ok) {
     m.style.color = ok ? '#7dff9a' : '#ff9a9a';
 }
 document.getElementById('tfaMaster').addEventListener('change', check2FA);
+// GitHub sync token
+function ghMsg(t, ok) {
+    const m = document.getElementById('ghMsg');
+    m.textContent = t;
+    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
+}
+async function loadGh() {
+    const j = await api('github_token_status', {});
+    if (j) {
+        document.getElementById('ghStatus').innerHTML = j.configured
+            ? '<span style="color:#7dff9a">✓ GitHub sync is ON — friend list survives updates</span>'
+            : '<span style="color:#ffb84d">⚠ Not configured — friend list will be lost on updates</span>';
+    }
+}
+async function saveGhToken() {
+    const master_pw = document.getElementById('ghMaster').value;
+    const token = document.getElementById('ghToken').value.trim();
+    if (!master_pw) { ghMsg('Enter your master password', false); return; }
+    if (!token) { ghMsg('Paste your GitHub token', false); return; }
+    const j = await api('github_token_save', {master_pw, token});
+    if (j && j.ok) {
+        ghMsg('Saved. Friend changes will now auto-push to GitHub.', true);
+        document.getElementById('ghToken').value = '';
+        loadGh();
+    } else { ghMsg((j && j.error) || 'Failed', false); }
+}
+loadGh();
 load();
 </script>
 </body>
