@@ -168,6 +168,8 @@ async function submit2FA(){
     err2.style.display='block';
   }
   btn2.disabled=false;
+  document.getElementById('tfaCode').value='';
+  document.getElementById('tfaCode').focus();
 }
 btn.addEventListener('click',submit);
 pw.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});

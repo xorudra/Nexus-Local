@@ -71,7 +71,7 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div class="card">
 <h2>TWO-FACTOR AUTH (ADMIN)</h2>
 <p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Protect your admin login with an authenticator app (Google Authenticator, Authy, etc.). Friends are not affected.</p>
-<div id="tfaStatus" style="margin-bottom:12px;font-size:14px"></div>
+<div id="tfaStatus" style="margin-bottom:12px;font-size:14px;color:#9aa3b2">Enter your master password to check status</div>
 <div class="row">
 <input id="tfaMaster" type="password" placeholder="Your master password">
 <button id="tfaBtn" onclick="toggle2FA()">Enable 2FA</button>
@@ -170,14 +170,22 @@ async function revoke(label) {
 let _tfaEnabled = false;
 async function check2FA() {
     const master_pw = document.getElementById('tfaMaster').value;
-    const j = await api('2fa_status', {master_pw});
-    if (j) {
-        _tfaEnabled = j.enabled;
-        document.getElementById('tfaStatus').innerHTML = j.enabled
-            ? '<span style="color:#7dff9a">✓ 2FA is ON</span>'
-            : '<span style="color:#9aa3b2">2FA is OFF</span>';
-        document.getElementById('tfaBtn').textContent = j.enabled ? 'Disable 2FA' : 'Enable 2FA';
+    const st = document.getElementById('tfaStatus');
+    if (!master_pw) {
+        st.innerHTML = '<span style="color:#9aa3b2">Enter your master password to check status</span>';
+        return;
     }
+    const j = await api('2fa_status', {master_pw});
+    if (!j) { return; }
+    if (j.error) {
+        st.innerHTML = '<span style="color:#ff9a9a">Wrong master password</span>';
+        return;
+    }
+    _tfaEnabled = j.enabled;
+    st.innerHTML = j.enabled
+        ? '<span style="color:#7dff9a">✓ 2FA is ON</span>'
+        : '<span style="color:#9aa3b2">2FA is OFF</span>';
+    document.getElementById('tfaBtn').textContent = j.enabled ? 'Disable 2FA' : 'Enable 2FA';
 }
 async function toggle2FA() {
     const master_pw = document.getElementById('tfaMaster').value;

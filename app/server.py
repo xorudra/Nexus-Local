@@ -1513,9 +1513,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "invalid JSON"}).encode())
                 return
             # Step 2 of 2FA: verify TOTP code with pending token
+            # NOTE: only consume the pending token on SUCCESS so wrong codes can be retried
             if data.get("tmp") and data.get("code"):
-                pend = _PENDING_2FA.pop(data["tmp"], None)
+                pend = _PENDING_2FA.get(data["tmp"])
                 if not pend or time.time() - pend["ts"] > 300:
+                    _PENDING_2FA.pop(data["tmp"], None)
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "2FA session expired, log in again"}).encode())
                     return
@@ -1526,6 +1528,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                     return
+                _PENDING_2FA.pop(data["tmp"], None)  # consume only on success
                 _login_attempts.pop(ip, None)
                 token = secrets.token_hex(32)
                 SESSIONS[token] = {"ts": time.time(), "label": "Rudra", "admin": True}
@@ -1693,11 +1696,12 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     keys = decrypt_keys(Path(__file__).parent / "keys.enc",
                                         (data.get("master_pw") or ""))
-                    enabled = bool(keys.get("_totp_secret"))
                 except Exception:
-                    enabled = False
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
                 self._set_json_headers()
-                self.wfile.write(json.dumps({"enabled": enabled}).encode())
+                self.wfile.write(json.dumps({"enabled": bool(keys.get("_totp_secret"))}).encode())
                 return
             if action == "2fa_enable":
                 master_pw = data.get("master_pw") or ""
