@@ -806,6 +806,39 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(200)
             self._send_body(json.dumps({"ok": True}).encode())
             return
+        if parsed.path == "/api/2fa_qr":
+            # QR code for the TOTP secret (admin only) — scan with authenticator app
+            if not self._require_admin():
+                return
+            try:
+                secret = (Handler.keys or {}).get("_totp_secret", "")
+            except Exception:
+                secret = ""
+            if not secret:
+                self._set_json_headers(404)
+                self._send_body(json.dumps({"error": "2FA not enabled"}).encode())
+                return
+            try:
+                import qrcode, io
+                otpauth = (f"otpauth://totp/NexusLocal:admin?secret={secret}"
+                           f"&issuer=NexusLocal")
+                qr = qrcode.QRCode(box_size=6, border=2)
+                qr.add_data(otpauth)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white")
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                png = buf.getvalue()
+            except Exception:
+                self._set_json_headers(500)
+                self._send_body(json.dumps({"error": "QR generation failed"}).encode())
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(png)))
+            self.end_headers()
+            self._send_body(png)
+            return
         if parsed.path == "/api/quotas":
             if not self._require_session():
                 return
@@ -1632,7 +1665,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
-                secret = _totp_secret()
+                secret = _totp_secret().strip().replace("=", "")
                 keys["_totp_secret"] = secret
                 encrypt_keys(keys, master_pw, key_path)
                 os.chmod(key_path, 0o600)

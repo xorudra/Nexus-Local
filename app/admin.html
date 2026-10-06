@@ -75,7 +75,9 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <button id="tfaBtn" onclick="toggle2FA()">Enable 2FA</button>
 </div>
 <div id="tfaSecret" style="display:none;margin-top:12px;padding:14px;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px">
-<p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Scan this in your authenticator app, or enter the key manually:</p>
+<p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Scan this QR with your authenticator app:</p>
+<img id="tfaQR" src="" alt="2FA QR code" style="display:block;width:200px;height:200px;margin:0 auto 12px;background:#fff;border-radius:8px;padding:8px">
+<p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Or enter the key manually:</p>
 <p id="tfaKey" style="font-family:monospace;font-size:16px;color:#C084FC;letter-spacing:.1em;word-break:break-all"></p>
 <p style="font-size:12px;color:#9aa3b2;margin-top:8px">Then enter a code from the app to confirm:</p>
 <div class="row" style="margin-top:8px">
@@ -188,8 +190,9 @@ async function toggle2FA() {
         const j = await api('2fa_enable', {master_pw});
         if (j && j.ok) {
             document.getElementById('tfaKey').textContent = j.secret;
+            document.getElementById('tfaQR').src = '/api/2fa_qr?' + Date.now();
             document.getElementById('tfaSecret').style.display = 'block';
-            tfaMsg('Scan the key, then confirm with a code', true);
+            tfaMsg('Scan the QR, then confirm with a code', true);
         } else { tfaMsg((j && j.error) || 'Failed', false); }
     }
 }
