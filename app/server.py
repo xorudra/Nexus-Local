@@ -1885,7 +1885,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = {
                     "model": mdl,
                     "messages": msgs if msgs else [{"role": "user", "content": ([{"type": "text", "text": message}] + ([{"type": "image_url", "image_url": {"url": image}}] if image else [])) if image else message}],
-                    "max_tokens": 1024,
+                    "max_tokens": 4096,
                 }
                 try:
                     req = Request(f"{base}/chat/completions", data=json.dumps(body).encode(), headers=headers, method="POST")
