@@ -82,6 +82,7 @@ def _restore_access(master_pw):
 
 # ---- TOTP 2FA (admin only) ----
 import hmac as _hmac, struct as _struct, base64 as _base64
+import urllib.parse as _urlparse
 
 _PENDING_2FA = {}  # tmp_token -> {label, ts}
 
@@ -103,6 +104,18 @@ def _totp_verify(secret_b32, code, window=1):
 
 def _totp_secret():
     return _base64.b32encode(secrets.token_bytes(20)).decode()
+
+def _wa_send_code(phone, apikey, code):
+    """Send 2FA code via CallMeBot WhatsApp API. Returns True on success."""
+    try:
+        text = _urlparse.quote(f"Your Nexus login code is: {code}. Valid for 5 minutes.")
+        url = f"https://api.callmebot.com/whatsapp.php?phone={phone}&text={text}&apikey={apikey}"
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=20) as r:
+            body = r.read().decode()
+            return "sent" in body.lower() or "message sent" in body.lower()
+    except Exception:
+        return False
 
 def get_usage_history():
     """Last 7 days of per-provider usage from usage.jsonl.
@@ -1444,21 +1457,37 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "2FA session expired, log in again"}).encode())
                     return
-                key_path = Path(__file__).parent / "keys.enc"
-                try:
-                    dec_keys = decrypt_keys(key_path, pend["master_pw"])
-                    secret = dec_keys.get("_totp_secret", "")
-                except Exception:
-                    secret = ""
-                if not secret or not _totp_verify(secret, data["code"]):
+                verified = False
+                if pend.get("method") == "whatsapp":
+                    if pend.get("code") and str(data["code"]).strip() == pend["code"]:
+                        verified = True
+                else:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    try:
+                        dec_keys = decrypt_keys(key_path, pend["master_pw"])
+                        secret = dec_keys.get("_totp_secret", "")
+                    except Exception:
+                        secret = ""
+                        dec_keys = None
+                    if secret and _totp_verify(secret, data["code"]):
+                        verified = True
+                if not verified:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                     return
                 _login_attempts.pop(ip, None)
                 token = secrets.token_hex(32)
                 SESSIONS[token] = {"ts": time.time(), "label": "Rudra", "admin": True}
-                Handler.keys = dec_keys
-                register_custom_providers(dec_keys)
+                if pend.get("method") != "whatsapp":
+                    Handler.keys = dec_keys
+                    register_custom_providers(dec_keys)
+                else:
+                    try:
+                        dec_keys = decrypt_keys(Path(__file__).parent / "keys.enc", pend["master_pw"])
+                        Handler.keys = dec_keys
+                        register_custom_providers(dec_keys)
+                    except Exception:
+                        pass
                 _restore_access(pend["master_pw"])
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -1499,18 +1528,34 @@ class Handler(BaseHTTPRequestHandler):
                     return
             # Successful
             _login_attempts.pop(ip, None)
+            wa_cfg = dec_keys.get("_wa_2fa") if isinstance(dec_keys.get("_wa_2fa"), dict) else {}
             if master_ok and dec_keys.get("_totp_secret"):
-                # 2FA enabled for admin — issue pending token, ask for code
+                # 2FA via authenticator app
                 tmp = secrets.token_hex(16)
-                _PENDING_2FA[tmp] = {"ts": time.time(), "master_pw": password}
-                # Clean old pendings
+                _PENDING_2FA[tmp] = {"ts": time.time(), "master_pw": password, "method": "totp"}
                 for k in [k for k, v in _PENDING_2FA.items() if time.time() - v["ts"] > 300]:
                     del _PENDING_2FA[k]
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": tmp}).encode())
+                self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": tmp, "method": "totp"}).encode())
                 return
+            if master_ok and wa_cfg.get("enabled") and wa_cfg.get("phone") and wa_cfg.get("apikey"):
+                # 2FA via WhatsApp
+                code = str(secrets.randbelow(900000) + 100000)
+                if _wa_send_code(wa_cfg["phone"], wa_cfg["apikey"], code):
+                    tmp = secrets.token_hex(16)
+                    _PENDING_2FA[tmp] = {"ts": time.time(), "master_pw": password,
+                                         "method": "whatsapp", "code": code}
+                    for k in [k for k, v in _PENDING_2FA.items() if time.time() - v["ts"] > 300]:
+                        del _PENDING_2FA[k]
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": tmp,
+                                                 "method": "whatsapp"}).encode())
+                    return
+                # WhatsApp send failed — fall through to normal login with a warning
             token = secrets.token_hex(32)
             SESSIONS[token] = {"ts": time.time(), "label": label, "admin": is_admin}
             if master_ok:
@@ -1666,6 +1711,60 @@ class Handler(BaseHTTPRequestHandler):
                     Handler.keys.pop("_totp_secret", None)
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            if action == "wa_status":
+                try:
+                    keys = decrypt_keys(Path(__file__).parent / "keys.enc",
+                                        (data.get("master_pw") or ""))
+                    cfg = keys.get("_wa_2fa") if isinstance(keys.get("_wa_2fa"), dict) else {}
+                except Exception:
+                    cfg = {}
+                self._set_json_headers()
+                self.wfile.write(json.dumps({
+                    "enabled": bool(cfg.get("enabled")),
+                    "phone": cfg.get("phone", ""),
+                }).encode())
+                return
+            if action == "wa_save":
+                master_pw = data.get("master_pw") or ""
+                phone = "".join(c for c in (data.get("phone") or "") if c.isdigit())
+                apikey = (data.get("apikey") or "").strip()
+                enabled = bool(data.get("enabled"))
+                if enabled and (not phone or not apikey):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "phone and API key required"}).encode())
+                    return
+                try:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    keys = decrypt_keys(key_path, master_pw)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+                keys["_wa_2fa"] = {"phone": phone, "apikey": apikey, "enabled": enabled}
+                encrypt_keys(keys, master_pw, key_path)
+                os.chmod(key_path, 0o600)
+                if Handler.keys is not None:
+                    Handler.keys["_wa_2fa"] = keys["_wa_2fa"]
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            if action == "wa_test":
+                master_pw = data.get("master_pw") or ""
+                try:
+                    keys = decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
+                    cfg = keys.get("_wa_2fa") if isinstance(keys.get("_wa_2fa"), dict) else {}
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+                if not cfg.get("phone") or not cfg.get("apikey"):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "configure phone and API key first"}).encode())
+                    return
+                ok = _wa_send_code(cfg["phone"], cfg["apikey"], "123456 (test — ignore)")
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": ok}).encode())
                 return
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": "unknown action"}).encode())

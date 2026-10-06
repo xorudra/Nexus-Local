@@ -86,6 +86,29 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div id="tfaMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
 </div>
 
+<div class="card">
+<h2>WHATSAPP 2FA (ADMIN)</h2>
+<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Get your login code on WhatsApp instead of an authenticator app. Free via CallMeBot.</p>
+<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Setup: save <b>+34 644 71 56 43</b> in WhatsApp and send it <b>"I allow callmebot to send me messages"</b> — it replies with your API key.</p>
+<div id="waStatus" style="margin-bottom:12px;font-size:14px"></div>
+<div class="row">
+<input id="waPhone" placeholder="Your WhatsApp number (e.g. 919876543210)">
+<input id="waKey" placeholder="CallMeBot API key">
+</div>
+<div class="row">
+<input id="waMaster" type="password" placeholder="Your master password">
+<button id="waBtn" onclick="saveWA()">Save</button>
+<button onclick="testWA()" style="background:#141419;border:1px solid rgba(168,85,247,.35);color:#C084FC">Send test</button>
+</div>
+<div style="margin-top:10px">
+<label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer">
+<input type="checkbox" id="waEnabled" style="width:auto;min-width:0" onchange="saveWA(true)">
+<span>Enable WhatsApp 2FA</span>
+</label>
+</div>
+<div id="waMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
+</div>
+
 <div class="navlinks">
 <a href="/settings">Update Keys</a>
 <a href="/connections">Providers</a>
@@ -206,6 +229,41 @@ function tfaMsg(t, ok) {
     m.style.color = ok ? '#7dff9a' : '#ff9a9a';
 }
 document.getElementById('tfaMaster').addEventListener('change', check2FA);
+// WhatsApp 2FA
+function waMsg(t, ok) {
+    const m = document.getElementById('waMsg');
+    m.textContent = t;
+    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
+}
+async function loadWA() {
+    const j = await api('wa_status', {});
+    if (j) {
+        document.getElementById('waStatus').innerHTML = j.enabled
+            ? '<span style="color:#7dff9a">✓ WhatsApp 2FA is ON (' + esc(j.phone) + ')</span>'
+            : '<span style="color:#9aa3b2">WhatsApp 2FA is OFF</span>';
+        document.getElementById('waEnabled').checked = j.enabled;
+        if (j.phone) document.getElementById('waPhone').value = j.phone;
+    }
+}
+async function saveWA(fromToggle) {
+    const master_pw = document.getElementById('waMaster').value;
+    const phone = document.getElementById('waPhone').value.trim();
+    const apikey = document.getElementById('waKey').value.trim();
+    const enabled = document.getElementById('waEnabled').checked;
+    if (!master_pw) { waMsg('Enter your master password', false); return; }
+    if (enabled && (!phone || !apikey)) { waMsg('Phone and API key required to enable', false); document.getElementById('waEnabled').checked = false; return; }
+    const j = await api('wa_save', {master_pw, phone, apikey, enabled});
+    if (j && j.ok) { waMsg(enabled ? 'WhatsApp 2FA enabled' : 'Saved', true); loadWA(); }
+    else { waMsg((j && j.error) || 'Failed', false); }
+}
+async function testWA() {
+    const master_pw = document.getElementById('waMaster').value;
+    if (!master_pw) { waMsg('Enter your master password', false); return; }
+    waMsg('Sending test message...', true);
+    const j = await api('wa_test', {master_pw});
+    waMsg(j && j.ok ? 'Test message sent! Check WhatsApp.' : 'Failed to send. Check phone/API key.', j && j.ok);
+}
+loadWA();
 load();
 </script>
 </body>

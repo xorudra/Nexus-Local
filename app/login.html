@@ -110,7 +110,7 @@ display:flex;align-items:center;justify-content:center;border-radius:8px}
 <button id="loginBtn">Login</button>
 </div>
 <div id="tfaBox" style="display:none">
-<p style="margin-bottom:12px">Enter the 6-digit code from your authenticator app</p>
+<p id="tfaPrompt" style="margin-bottom:12px">Enter the 6-digit code from your authenticator app</p>
 <div class="pw-wrap">
 <input type="text" id="tfaCode" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="text-align:center;font-size:20px;letter-spacing:.3em">
 </div>
@@ -139,7 +139,7 @@ async function submit(){
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:v})});
     const j=await r.json();
     if(r.status===200&&j.ok){
-      if(j.need_2fa){ show2FA(j.tmp); return; }
+      if(j.need_2fa){ show2FA(j.tmp, j.method); return; }
       location.href='/';return;
     }
     throw 0;
@@ -149,10 +149,13 @@ async function submit(){
   btn.disabled=false;btn.textContent='Login';pw.value='';pw.focus();
 }
 let _tmp=null;
-function show2FA(tmp){
+function show2FA(tmp, method){
   _tmp=tmp;
   document.getElementById('pwBox').style.display='none';
   document.getElementById('tfaBox').style.display='block';
+  document.getElementById('tfaPrompt').textContent = method==='whatsapp'
+    ? 'Enter the 6-digit code sent to your WhatsApp'
+    : 'Enter the 6-digit code from your authenticator app';
   document.getElementById('tfaCode').focus();
 }
 async function submit2FA(){
