@@ -104,6 +104,29 @@ def _totp_verify(secret_b32, code, window=1):
 def _totp_secret():
     return _base64.b32encode(secrets.token_bytes(20)).decode()
 
+# ---- Friend password hashing (PBKDF2, salted) ----
+_PBKDF2_ITERS = 210000
+
+def _hash_password(password):
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERS)
+    return f"pbkdf2${_PBKDF2_ITERS}${salt.hex()}${dk.hex()}"
+
+def _verify_password(password, stored):
+    """Returns (ok, needs_upgrade). Upgrades legacy unsalted SHA-256 hashes."""
+    try:
+        if stored.startswith("pbkdf2$"):
+            _, iters, salt_hex, hash_hex = stored.split("$")
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode(),
+                                     bytes.fromhex(salt_hex), int(iters))
+            ok = _hmac.compare_digest(dk.hex(), hash_hex)
+            return ok, False
+        # Legacy unsalted SHA-256 — verify, then upgrade
+        ok = _hmac.compare_digest(hashlib.sha256(password.encode()).hexdigest(), stored)
+        return ok, True
+    except Exception:
+        return False, False
+
 def get_usage_history():
     """Last 7 days of per-provider usage from usage.jsonl.
 
@@ -1496,13 +1519,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "2FA session expired, log in again"}).encode())
                     return
-                key_path = Path(__file__).parent / "keys.enc"
-                try:
-                    dec_keys = decrypt_keys(key_path, pend["master_pw"])
-                    secret = dec_keys.get("_totp_secret", "")
-                except Exception:
-                    secret = ""
-                    dec_keys = None
+                # Pending session holds already-decrypted keys (no password stored)
+                dec_keys = pend.get("keys")
+                secret = (dec_keys or {}).get("_totp_secret", "")
                 if not secret or not _totp_verify(secret, data["code"]):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
@@ -1512,7 +1531,6 @@ class Handler(BaseHTTPRequestHandler):
                 SESSIONS[token] = {"ts": time.time(), "label": "Rudra", "admin": True}
                 Handler.keys = dec_keys
                 register_custom_providers(dec_keys)
-                _restore_access(pend["master_pw"])
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Lax; Path=/")
@@ -1525,7 +1543,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "password required"}).encode())
                 return
             key_path = Path(__file__).parent / "keys.enc"
-            import hashlib
             try:
                 dec_keys = decrypt_keys(key_path, password)
                 master_ok = True
@@ -1536,8 +1553,12 @@ class Handler(BaseHTTPRequestHandler):
                 label, is_admin = "Rudra", True
             else:
                 access = _load_access()
-                pw_hash = hashlib.sha256(password.encode()).hexdigest()
-                label = next((l for l, h in access.items() if h == pw_hash), None)
+                label = None
+                for l, h in access.items():
+                    ok, _ = _verify_password(password, h)
+                    if ok:
+                        label = l
+                        break
                 if not label:
                     recent.append(now)
                     _login_attempts[ip] = recent
@@ -1553,9 +1574,12 @@ class Handler(BaseHTTPRequestHandler):
             # Successful
             _login_attempts.pop(ip, None)
             if master_ok and dec_keys.get("_totp_secret"):
-                # 2FA enabled for admin — issue pending token, ask for code
+                # 2FA enabled for admin — issue pending token, ask for code.
+                # Restore access list now (we have the password); pending holds
+                # decrypted keys only, never the plaintext password.
+                _restore_access(password)
                 tmp = secrets.token_hex(16)
-                _PENDING_2FA[tmp] = {"ts": time.time(), "master_pw": password}
+                _PENDING_2FA[tmp] = {"ts": time.time(), "keys": dec_keys}
                 for k in [k for k, v in _PENDING_2FA.items() if time.time() - v["ts"] > 300]:
                     del _PENDING_2FA[k]
                 self.send_response(200)
@@ -1636,7 +1660,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
-                access[label] = hashlib.sha256(password.encode()).hexdigest()
+                access[label] = _hash_password(password)
                 _save_access(access, master_pw)
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
