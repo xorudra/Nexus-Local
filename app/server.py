@@ -805,10 +805,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Connections page - flow chart
         if parsed.path == "/connections":
-            if not self._get_session():
+            info = self._session_info()
+            if not info:
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.end_headers()
+                return
+            if not info.get("admin"):
+                self.send_response(403)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>Admin only</h1>")
                 return
             try:
                 content = (Path(__file__).parent / "connections.html").read_text(encoding="utf-8")
