@@ -79,7 +79,8 @@ def _model_caps(provider, model):
         return ["video"]
     if any(k in m for k in ("embed", "bge-", "bge_", "/e5-", "gte-")):
         return ["embedding"]
-    if any(k in m for k in ("ocr", "moderation", "prompt-guard", "transcribe")):
+    if any(k in m for k in ("ocr", "moderation", "prompt-guard", "llama-guard",
+                            "transcribe", "distilbert", "smart-turn")):
         return ["utility"]
     return ["chat"]
 ACCESS_PATH = Path(__file__).parent / "access.json"
@@ -284,12 +285,12 @@ RELAY_UPSTREAMS = {
     "nvidia": "https://integrate.api.nvidia.com/v1",
     "mistral": "https://api.mistral.ai/v1",
     "zhipu": "https://open.bigmodel.cn/api/paas/v4",
-    "kilo": "https://api.kilo.ai/v1",
+    "kilo": "https://api.kilo.ai/api/gateway",
     "ovh": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
     "google": "https://generativelanguage.googleapis.com/v1beta/openai",
     "cloudflare": "https://api.cloudflare.com/client/v4/accounts",
     "cohere": "https://api.cohere.com/v1",
-    "huggingface": "https://api-inference.huggingface.co/v1",
+    "huggingface": "https://router.huggingface.co/v1",
     "aihorde": "https://stablehorde.net/api/v2",
     "pollinations": "https://text.pollinations.ai/openai",
 }
@@ -341,6 +342,8 @@ class RelayHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "unknown relay provider"}, 404)
             return
         name, rest = parts[0], "/" + parts[1]
+        _cf_models = False
+        _cf_token = ""
         # Provider-specific path quirks for model listing
         if name == "aihorde" and rest == "/v1/models":
             rest = "/status/models"
@@ -354,6 +357,18 @@ class RelayHandler(BaseHTTPRequestHandler):
         upstream = RELAY_UPSTREAMS[name] + rest
         if "?" in path:
             upstream += "?" + path.split("?", 1)[1]
+        if name == "cloudflare":
+            # Stored key format is "account_id:api_token". Chat goes to the
+            # account-scoped OpenAI-compat base; the model list lives on the
+            # catalog search endpoint with a different response shape.
+            _raw = self.headers.get("X-Vault-Key") or (Handler.keys or {}).get("cloudflare") or ""
+            _acct, _, _tok = _raw.partition(":")
+            _cf_token = _tok or _raw
+            if rest == "/models":
+                upstream = f"https://api.cloudflare.com/client/v4/accounts/{_acct}/ai/models/search?per_page=100"
+                _cf_models = True
+            else:
+                upstream = f"https://api.cloudflare.com/client/v4/accounts/{_acct}/ai/v1" + rest
 
         length = int(self.headers.get("Content-Length", 0))
         if length > 12 * 1024 * 1024:
@@ -368,7 +383,11 @@ class RelayHandler(BaseHTTPRequestHandler):
         for k, v in self.headers.items():
             if k.lower() not in ("host", "content-length", "authorization", "user-agent", "x-vault-key", "x-relay-token"):
                 req.add_header(k, v)
-        if name not in RELAY_KEYLESS:
+        if name == "cloudflare":
+            # Only the token part goes upstream (account id is in the URL).
+            if _cf_token:
+                req.add_header("Authorization", f"Bearer {_cf_token}")
+        elif name not in RELAY_KEYLESS:
             # Prefer a per-request vault key (friend's own key) over shared keys.
             # X-Vault-Key is only accepted on localhost and never forwarded upstream.
             key = self.headers.get("X-Vault-Key")
@@ -388,6 +407,13 @@ class RelayHandler(BaseHTTPRequestHandler):
         try:
             with urlopen(req, timeout=60) as resp:
                 data = resp.read()
+                if _cf_models:
+                    # Translate Cloudflare's catalog shape to OpenAI's.
+                    try:
+                        _res = json.loads(data).get("result", [])
+                        data = json.dumps({"data": [{"id": m.get("name", "")} for m in _res if isinstance(m, dict) and m.get("name")]}).encode()
+                    except Exception:
+                        pass
                 self.send_response(resp.status)
                 self.send_header("Content-Type", resp.headers.get("Content-Type", "application/json"))
                 self.send_header("Content-Length", str(len(data)))
@@ -1179,6 +1205,10 @@ class Handler(BaseHTTPRequestHandler):
                     # so their full rosters stay.
                     elif provider in ("openrouter", "relay_openrouter"):
                         models = [m for m in models if m.endswith(":free")]
+                    elif provider == "kilo":
+                        # Kilo's catalog is mostly paid (401 keyless); only its
+                        # free lane works without an account.
+                        models = [m for m in models if m.endswith(":free") or m == "kilo-auto/free"]
                     # Capability filter: ?cap=chat (default) shows only chat models;
                     # cap=image/tts/stt/video shows models for that mode instead.
                     cap = parse_qs(parsed.query).get("cap", ["chat"])[0]
@@ -1588,6 +1618,21 @@ class Handler(BaseHTTPRequestHandler):
                                         except Exception:
                                             pass
                                     break
+                        except Exception:
+                            _img = None
+                    elif provider == "cloudflare" and model:
+                        try:
+                            _ck = (_ekeys or {}).get("cloudflare") or ""
+                            _acct, _, _tok = _ck.partition(":")
+                            if _acct and _tok:
+                                _creq = Request(f"https://api.cloudflare.com/client/v4/accounts/{_acct}/ai/run/{model}",
+                                    data=json.dumps({"prompt": _prompt}).encode(),
+                                    headers={"Authorization": f"Bearer {_tok}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}, method="POST")
+                                with urlopen(_creq, timeout=90) as _crs:
+                                    _cd = json.loads(_crs.read().decode())
+                                _cimg = (_cd.get("result") or {}).get("image")
+                                if _cimg:
+                                    _img = "data:image/jpeg;base64," + _cimg
                         except Exception:
                             _img = None
                     elif provider in ("google", "relay_gemini") and model:
