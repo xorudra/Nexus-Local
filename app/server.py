@@ -1361,6 +1361,66 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/")
             self.end_headers()
             return
+        if parsed.path == "/api/transcribe":
+            # Speech-to-text for the composer mic button (Groq Whisper).
+            if not self._require_session():
+                return
+            _ekeys_t = self._effective_keys()
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(content_length)
+            try:
+                data = json.loads(raw)
+            except Exception:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "invalid JSON"}).encode())
+                return
+            _gk = (_ekeys_t or {}).get("groq") or ""
+            if not _gk:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "no Groq key configured for voice input"}).encode())
+                return
+            _aud = data.get("audio") or ""
+            _mime = "audio/webm"
+            if _aud.startswith("data:"):
+                _hdr, _, _aud = _aud.partition(",")
+                _mime = _hdr[5:].split(";")[0] or _mime
+            try:
+                _raw_audio = base64.b64decode(_aud)
+            except Exception:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "invalid audio data"}).encode())
+                return
+            if len(_raw_audio) > 8 * 1024 * 1024:
+                self._set_json_headers(413)
+                self.wfile.write(json.dumps({"error": "audio too large"}).encode())
+                return
+            _ext = {"audio/webm": "webm", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/wav": "wav", "audio/mpeg": "mp3"}.get(_mime, "webm")
+            _mdl = data.get("model") or "whisper-large-v3-turbo"
+            if "whisper" not in str(_mdl):
+                _mdl = "whisper-large-v3-turbo"
+            import uuid as _uuid_t
+            _b = "----nx" + _uuid_t.uuid4().hex
+            _parts = []
+            _parts.append(f"--{_b}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{_mdl}\r\n".encode())
+            _parts.append(f"--{_b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"voice.{_ext}\"\r\nContent-Type: {_mime}\r\n\r\n".encode() + _raw_audio + b"\r\n")
+            _parts.append(f"--{_b}--\r\n".encode())
+            try:
+                _rq = Request("https://api.groq.com/openai/v1/audio/transcriptions",
+                    data=b"".join(_parts),
+                    headers={"Authorization": f"Bearer {_gk}",
+                             "Content-Type": f"multipart/form-data; boundary={_b}",
+                             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, method="POST")
+                with urlopen(_rq, timeout=60) as _rs:
+                    _txt = json.loads(_rs.read().decode()).get("text", "")
+                self._set_json_headers(200)
+                self.wfile.write(json.dumps({"text": _txt}).encode())
+            except HTTPError as e:
+                self._set_json_headers(502)
+                self.wfile.write(json.dumps({"error": "transcription failed, try again"}).encode())
+            except Exception:
+                self._set_json_headers(500)
+                self.wfile.write(json.dumps({"error": "transcription failed, try again"}).encode())
+            return
         if parsed.path == "/api/chat":
             if not self._require_session():
                 return
@@ -1498,6 +1558,81 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     self._set_json_headers(500)
                     self.wfile.write(json.dumps({"error": "image generation failed, try again"}).encode())
+                return
+            elif mode == "voice":
+                # Text-to-speech via Groq Orpheus (direct call — the relay is
+                # text-shaped). Long text is chunked (Orpheus caps ~200 chars
+                # per call) and the WAV pieces are merged into one clip.
+                import io as _io, wave as _wave, uuid as _uuid, re as _re_v
+                _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                _text = (message or "").strip()[:1200]
+                _prov = provider if provider in ("groq", "relay_groq") else "groq"
+                _gk = (_ekeys or {}).get(_prov) or (_ekeys or {}).get("groq") or ""
+                _mdl = model if (model and "orpheus" in model) else "canopylabs/orpheus-v1-english"
+                _voice = "sami" if "arabic" in _mdl else "troy"
+                if not _gk:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "no Groq key configured for voice"}).encode())
+                    return
+                if not _text:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "type something to speak"}).encode())
+                    return
+                # Chunk on sentence boundaries, <=180 chars each
+                _chunks, _cur = [], ""
+                for _piece in _re_v.split(r"(?<=[.!?])\s+", _text):
+                    while len(_piece) > 180:
+                        if _cur:
+                            _chunks.append(_cur); _cur = ""
+                        _chunks.append(_piece[:180]); _piece = _piece[180:]
+                    if len(_cur) + len(_piece) + 1 > 180:
+                        if _cur:
+                            _chunks.append(_cur)
+                        _cur = _piece
+                    else:
+                        _cur = (_cur + " " + _piece).strip()
+                if _cur:
+                    _chunks.append(_cur)
+                try:
+                    _wavs = []
+                    for _c in _chunks[:8]:
+                        _rq = Request("https://api.groq.com/openai/v1/audio/speech",
+                            data=json.dumps({"model": _mdl, "input": _c, "voice": _voice, "response_format": "wav"}).encode(),
+                            headers={"Authorization": f"Bearer {_gk}", "Content-Type": "application/json", **_UA}, method="POST")
+                        with urlopen(_rq, timeout=60) as _rs:
+                            _wavs.append(_rs.read())
+                    # Merge WAV chunks into a single clip
+                    _out = _io.BytesIO()
+                    _wout = _wave.open(_out, "wb")
+                    _params = None
+                    for _wb in _wavs:
+                        _wr = _wave.open(_io.BytesIO(_wb), "rb")
+                        if _params is None:
+                            _params = _wr.getparams()
+                            _wout.setparams(_params)
+                        _wout.writeframes(_wr.readframes(_wr.getnframes()))
+                        _wr.close()
+                    _wout.close()
+                    _b64 = base64.b64encode(_out.getvalue()).decode()
+                    self._set_json_headers(200)
+                    self.wfile.write(json.dumps({"audio": "data:audio/wav;base64," + _b64,
+                        "reply": "\U0001f50a " + _text[:120], "used_provider": _prov, "used_model": _mdl}).encode())
+                except HTTPError as e:
+                    try:
+                        _eb = e.read().decode(errors="replace")
+                    except Exception:
+                        _eb = ""
+                    if "terms acceptance" in _eb:
+                        _msg = "Voice is one click away: the Orpheus model needs its terms accepted once in the Groq console (console.groq.com -> Playground -> canopylabs/orpheus-v1-english -> Accept)."
+                    elif e.code == 429:
+                        _msg = "Voice rate limit hit. Try again in a moment."
+                    else:
+                        _msg = "Voice generation failed. Try again."
+                    self._set_json_headers(e.code if e.code in (400, 429) else 502)
+                    self.wfile.write(json.dumps({"error": _msg}).encode())
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "voice generation failed, try again"}).encode())
                 return
             elif mode == "search":
                 # Web search mode: use Wikipedia API (reliable, free, no key)

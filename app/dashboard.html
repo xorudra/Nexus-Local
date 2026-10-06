@@ -567,6 +567,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
                 <option value="code">Code</option>
                 <option value="search">Web search</option>
                 <option value="image">Image</option>
+                <option value="voice">Voice</option>
                 <option value="auto">Auto</option>
             </select>
         </div>
@@ -590,6 +591,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
                 </div>
             </div>
             <textarea id="composer-message" rows="1" placeholder="Type a message..."></textarea>
+            <button id="composer-mic" title="Voice input" style="width:40px;height:40px;border-radius:50%;background:#1a1a20;border:1px solid #2a2a32;font-size:16px;cursor:pointer;flex:none;color:#e8e8ea">🎤</button>
             <button id="composer-send" title="Send"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 19V5M5 12l7-7 7 7" stroke="#0a0a0a" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
         <input type="file" id="attach-input" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
@@ -637,6 +639,11 @@ function addMsg(kind,text,meta){
   const div=document.createElement('div');div.className='msg msg-'+kind;
   const bodyHtml = kind === 'ai' ? md(text) : esc(text).replace(/\n/g,'<br>');
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body">'+bodyHtml+'</div>';
+  thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
+}
+function addAudioMsg(src,meta){
+  const div=document.createElement('div');div.className='msg msg-ai';
+  div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><audio controls src="'+src+'" style="width:100%;max-width:340px"></audio></div>';
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addTyping(){
@@ -719,7 +726,7 @@ async function loadModels(provider) {
         // Capability follows the selected mode: Image mode shows image models,
         // everything else shows chat models.
         const modeEl = document.getElementById('composer-mode');
-        const cap = (modeEl && modeEl.value === 'image') ? 'image' : 'chat';
+        const cap = (modeEl && modeEl.value === 'image') ? 'image' : (modeEl && modeEl.value === 'voice') ? 'tts' : 'chat';
         const r = await fetch('/api/models?provider=' + encodeURIComponent(provider) + '&cap=' + cap);
         const data = await r.json();
         const models = data.models || [];
@@ -1013,7 +1020,8 @@ composerSend.addEventListener('click', async () => {
             // Use actual provider/model if auto-selected
             const dispProvider = j.used_provider || provider;
             const dispModel = j.used_model || model;
-            addMsg('ai', j.reply, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
+            if (j.audio) addAudioMsg(j.audio, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
+            else addMsg('ai', j.reply, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
         }
     } catch (e) {
         typingEl.remove();
@@ -1022,6 +1030,38 @@ composerSend.addEventListener('click', async () => {
         composerSend.disabled = false;
         clearAttachment();
     }
+});
+
+// Voice input: record from mic, transcribe via /api/transcribe (Groq Whisper),
+// drop the text into the composer.
+const micBtn = document.getElementById('composer-mic');
+let mediaRec = null, recChunks = [], recStream = null;
+if (!(navigator.mediaDevices && window.MediaRecorder)) { micBtn.style.display = 'none'; }
+micBtn.addEventListener('click', async () => {
+    if (mediaRec && mediaRec.state === 'recording') { mediaRec.stop(); return; }
+    try {
+        recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) { addMsg('system', 'Microphone permission denied'); return; }
+    recChunks = [];
+    try { mediaRec = new MediaRecorder(recStream); } catch (e) { addMsg('system', 'Recording not supported on this browser'); return; }
+    mediaRec.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
+    mediaRec.onstop = async () => {
+        recStream.getTracks().forEach(t => t.stop());
+        micBtn.style.background = '#1a1a20'; micBtn.textContent = '🎤';
+        const blob = new Blob(recChunks, { type: mediaRec.mimeType || 'audio/webm' });
+        const rd = new FileReader();
+        rd.onload = async () => {
+            try {
+                const r = await fetch('/api/transcribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audio: rd.result }) });
+                const j = await r.json();
+                if (j.text) { composerMsg.value = j.text; composerMsg.dispatchEvent(new Event('input')); composerMsg.focus(); }
+                else addMsg('system', j.error || 'Could not transcribe');
+            } catch (e) { addMsg('system', 'Transcription failed'); }
+        };
+        rd.readAsDataURL(blob);
+    };
+    mediaRec.start();
+    micBtn.style.background = '#5b1a1a'; micBtn.textContent = '⏹';
 });
 </script>
 </body>
