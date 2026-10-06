@@ -1923,12 +1923,12 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "agent":
                 # Agentic mode: the model can call tools (web search via Bing,
                 # guarded page fetch, exact calculator) in a loop before answering.
-                import re as _re_a, html as _html_a, socket as _sock_a, ipaddress as _ip_a, ast as _ast_a, operator as _op_a
+                import re as _re_a, html as _html_a, socket as _sock_a, ipaddress as _ip_a, ast as _ast_a, operator as _op_a, urllib.parse as _uparse_a, urllib.request as _ureq_a
                 _BROWSER_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
                 def _clean(s):
                     return _html_a.unescape(_re_a.sub(r"<[^>]+>", "", s or "")).strip()
                 def _tool_search(query):
-                    q = urllib.parse.quote_plus(str(query)[:200])
+                    q = _uparse_a.quote_plus(str(query)[:200])
                     req = Request(f"https://www.bing.com/search?q={q}&count=6", headers=_BROWSER_UA)
                     with urlopen(req, timeout=25) as r:
                         page = r.read().decode(errors="replace")
@@ -1948,7 +1948,7 @@ class Handler(BaseHTTPRequestHandler):
                         out.append(f"- {_clean(m.group(2))}\n  {url}\n  {_clean(sn.group(1))[:300] if sn else ''}")
                     return "\n".join(out) if out else "No results found."
                 def _safe_url(u):
-                    p = urllib.parse.urlparse(str(u))
+                    p = _uparse_a.urlparse(str(u))
                     if p.scheme not in ("http", "https") or not p.hostname:
                         return False
                     host = p.hostname.lower()
@@ -1963,7 +1963,7 @@ class Handler(BaseHTTPRequestHandler):
                         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
                             return False
                     return True
-                class _GuardedRedirect(urllib.request.HTTPRedirectHandler):
+                class _GuardedRedirect(_ureq_a.HTTPRedirectHandler):
                     def redirect_request(self, req, fp, code, msg, headers, newurl):
                         if not _safe_url(newurl):
                             return None
@@ -1971,7 +1971,7 @@ class Handler(BaseHTTPRequestHandler):
                 def _tool_fetch(url):
                     if not _safe_url(url):
                         return "Blocked: URL is not a public web address."
-                    opener = urllib.request.build_opener(_GuardedRedirect)
+                    opener = _ureq_a.build_opener(_GuardedRedirect)
                     req = Request(str(url)[:2000], headers=_BROWSER_UA)
                     with opener.open(req, timeout=20) as r:
                         raw = r.read(1500000)
