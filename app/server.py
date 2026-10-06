@@ -379,6 +379,14 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
             keys_exist = key_path.exists()
+            # If keys already set up, require admin. First-time setup is public.
+            if keys_exist:
+                info = self._session_info()
+                if not info or not info.get("admin"):
+                    self.send_response(302)
+                    self.send_header("Location", "/login")
+                    self.end_headers()
+                    return
             relay_names = [n for n in PROVIDER_NAMES if n.startswith("relay_")]
             other_names = [n for n in PROVIDER_NAMES if n != "freellmapi" and not n.startswith("relay_")]
             relay_fields = "".join(
@@ -844,6 +852,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             qs = parse_qs(parsed.query)
             if qs.get("set", [""])[0] in ("quality", "save", "auto"):
+                # Only admin can change routing mode (affects everyone)
+                if not (self._session_info() or {}).get("admin"):
+                    self._set_json_headers(403)
+                    self.wfile.write(json.dumps({"error": "admin only"}).encode())
+                    return
                 # Persist routing mode in keys.enc
                 try:
                     keys = dict(Handler.keys or {})
@@ -951,6 +964,11 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
             keys_exist = key_path.exists()
+            # If keys already set up, require admin for POST. First-time setup is public.
+            if keys_exist and not (self._session_info() or {}).get("admin"):
+                self._set_json_headers(403)
+                self.wfile.write(json.dumps({"error": "admin only"}).encode())
+                return
             length = int(self.headers.get("Content-Length", 0))
             form = parse_qs(self.rfile.read(length).decode())
             pw = form.get("password", [""])[0]
@@ -1311,6 +1329,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/refresh":
             if not self._require_session():
+                return
+            if not (self._session_info() or {}).get("admin"):
+                self._set_json_headers(403)
+                self.wfile.write(json.dumps({"error": "admin only"}).encode())
                 return
             # Live connectivity check: quick models ping for each configured provider
             import concurrent.futures

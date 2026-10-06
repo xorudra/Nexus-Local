@@ -528,7 +528,7 @@ var p=location.pathname;
 document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
 if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
 // Show Admin link only for admins
-fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})}).then(function(r){if(r.ok){var el=document.getElementById('nav-admin');if(el)el.style.display='';var k=document.getElementById('nav-keys');if(k)k.style.display='';}}).catch(function(){});
+fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})}).then(function(r){if(r.ok){var el=document.getElementById('nav-admin');if(el)el.style.display='';var k=document.getElementById('nav-keys');if(k)k.style.display='';var rb=document.getElementById('refresh-quotas');if(rb)rb.style.display='';var rm=document.getElementById('routing-mode');if(rm)rm.disabled=false;}}).catch(function(){});
 });
 })();
 </script>
@@ -569,7 +569,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
             </select>
         </div>
         <div class="picker-row" style="margin-top:6px">
-            <select id="routing-mode" class="picker" title="Routing mode" onchange="setRouting(this.value)">
+            <select id="routing-mode" class="picker" title="Routing mode" onchange="setRouting(this.value)" disabled>
                 <option value="quality">Quality first</option>
                 <option value="save">Save tokens</option>
                 <option value="auto">Auto routing</option>
@@ -596,7 +596,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
     </div>
 </div>
 
-<button class="refresh" id="refresh-quotas">Refresh</button>
+<button class="refresh" id="refresh-quotas" style="display:none">Refresh</button>
 
 <script>
 const providerGrid = document.getElementById('provider-grid');
