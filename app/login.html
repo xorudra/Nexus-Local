@@ -101,6 +101,7 @@ display:flex;align-items:center;justify-content:center;border-radius:8px}
 <div class="card" id="card">
 <h2>Enter the cave</h2>
 <p>Your password unlocks the dashboard</p>
+<div id="pwBox">
 <div class="pw-wrap">
 <input type="password" id="pw" placeholder="Password" autocomplete="current-password" autofocus>
 <button type="button" id="pwToggle" title="Show password" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
@@ -108,12 +109,22 @@ display:flex;align-items:center;justify-content:center;border-radius:8px}
 <div id="error">Wrong password. Try again.</div>
 <button id="loginBtn">Login</button>
 </div>
+<div id="tfaBox" style="display:none">
+<p style="margin-bottom:12px">Enter the 6-digit code from your authenticator app</p>
+<div class="pw-wrap">
+<input type="text" id="tfaCode" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="text-align:center;font-size:20px;letter-spacing:.3em">
+</div>
+<div id="error2" style="display:none;color:#ff9a9a;font-size:13px;margin:8px 0">Wrong code. Try again.</div>
+<button id="loginBtn2" onclick="submit2FA()">Verify</button>
+</div>
+</div>
 <p class="link">New here? <a href="/setup">Set up your keys &rarr;</a></p>
 </div>
 <script>
 const pw=document.getElementById('pw'),err=document.getElementById('error'),
       btn=document.getElementById('loginBtn'),card=document.getElementById('card'),
-      pwToggle=document.getElementById('pwToggle');
+      pwToggle=document.getElementById('pwToggle'),
+      btn2=document.getElementById('loginBtn2'),err2=document.getElementById('error2');
 pwToggle.addEventListener('click',()=>{
   const show=pw.type==='password';
   pw.type=show?'text':'password';
@@ -127,12 +138,36 @@ async function submit(){
   try{
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:v})});
     const j=await r.json();
-    if(r.status===200&&j.ok){location.href='/';return;}
+    if(r.status===200&&j.ok){
+      if(j.need_2fa){ show2FA(j.tmp); return; }
+      location.href='/';return;
+    }
     throw 0;
   }catch(e){
     err.style.display='block';card.classList.remove('shake');void card.offsetWidth;card.classList.add('shake');
   }
   btn.disabled=false;btn.textContent='Login';pw.value='';pw.focus();
+}
+let _tmp=null;
+function show2FA(tmp){
+  _tmp=tmp;
+  document.getElementById('pwBox').style.display='none';
+  document.getElementById('tfaBox').style.display='block';
+  document.getElementById('tfaCode').focus();
+}
+async function submit2FA(){
+  const code=document.getElementById('tfaCode').value.trim();
+  if(!code||!_tmp)return;
+  btn2.disabled=true;
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tmp:_tmp,code:code})});
+    const j=await r.json();
+    if(r.status===200&&j.ok){location.href='/';return;}
+    throw 0;
+  }catch(e){
+    err2.style.display='block';
+  }
+  btn2.disabled=false;
 }
 btn.addEventListener('click',submit);
 pw.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});

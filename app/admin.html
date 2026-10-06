@@ -66,6 +66,26 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div id="sessions"></div>
 </div>
 
+<div class="card">
+<h2>TWO-FACTOR AUTH (ADMIN)</h2>
+<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Protect your admin login with an authenticator app (Google Authenticator, Authy, etc.). Friends are not affected.</p>
+<div id="tfaStatus" style="margin-bottom:12px;font-size:14px"></div>
+<div class="row">
+<input id="tfaMaster" type="password" placeholder="Your master password">
+<button id="tfaBtn" onclick="toggle2FA()">Enable 2FA</button>
+</div>
+<div id="tfaSecret" style="display:none;margin-top:12px;padding:14px;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px">
+<p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Scan this in your authenticator app, or enter the key manually:</p>
+<p id="tfaKey" style="font-family:monospace;font-size:16px;color:#C084FC;letter-spacing:.1em;word-break:break-all"></p>
+<p style="font-size:12px;color:#9aa3b2;margin-top:8px">Then enter a code from the app to confirm:</p>
+<div class="row" style="margin-top:8px">
+<input id="tfaConfirm" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="text-align:center;letter-spacing:.3em">
+<button onclick="confirm2FA()">Confirm</button>
+</div>
+</div>
+<div id="tfaMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
+</div>
+
 <div class="navlinks">
 <a href="/settings">Update Keys</a>
 <a href="/connections">Providers</a>
@@ -142,6 +162,50 @@ async function revoke(label) {
     if (j && j.ok) { showMsg('Access revoked: ' + label, true); load(); }
     else { showMsg((j && j.error) || 'Failed', false); }
 }
+// 2FA management
+let _tfaEnabled = false;
+async function check2FA() {
+    const master_pw = document.getElementById('tfaMaster').value;
+    const j = await api('2fa_status', {master_pw});
+    if (j) {
+        _tfaEnabled = j.enabled;
+        document.getElementById('tfaStatus').innerHTML = j.enabled
+            ? '<span style="color:#7dff9a">✓ 2FA is ON</span>'
+            : '<span style="color:#9aa3b2">2FA is OFF</span>';
+        document.getElementById('tfaBtn').textContent = j.enabled ? 'Disable 2FA' : 'Enable 2FA';
+    }
+}
+async function toggle2FA() {
+    const master_pw = document.getElementById('tfaMaster').value;
+    if (!master_pw) { tfaMsg('Enter your master password first', false); return; }
+    if (_tfaEnabled) {
+        const code = prompt('Enter your current 2FA code to disable:');
+        if (!code) return;
+        const j = await api('2fa_disable', {master_pw, code});
+        if (j && j.ok) { tfaMsg('2FA disabled', true); check2FA(); }
+        else { tfaMsg((j && j.error) || 'Failed', false); }
+    } else {
+        const j = await api('2fa_enable', {master_pw});
+        if (j && j.ok) {
+            document.getElementById('tfaKey').textContent = j.secret;
+            document.getElementById('tfaSecret').style.display = 'block';
+            tfaMsg('Scan the key, then confirm with a code', true);
+        } else { tfaMsg((j && j.error) || 'Failed', false); }
+    }
+}
+async function confirm2FA() {
+    const code = document.getElementById('tfaConfirm').value.trim();
+    // Verify by attempting a disable+re-enable? No — just tell them to log out and test
+    tfaMsg('Now log out and log back in — you should be asked for a code.', true);
+    document.getElementById('tfaSecret').style.display = 'none';
+    check2FA();
+}
+function tfaMsg(t, ok) {
+    const m = document.getElementById('tfaMsg');
+    m.textContent = t;
+    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
+}
+document.getElementById('tfaMaster').addEventListener('change', check2FA);
 load();
 </script>
 </body>

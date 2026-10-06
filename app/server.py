@@ -80,6 +80,30 @@ def _restore_access(master_pw):
     except Exception:
         pass
 
+# ---- TOTP 2FA (admin only) ----
+import hmac as _hmac, struct as _struct, base64 as _base64
+
+_PENDING_2FA = {}  # tmp_token -> {label, ts}
+
+def _totp_verify(secret_b32, code, window=1):
+    try:
+        secret = _base64.b32decode(secret_b32.upper())
+        code = str(code).strip()
+        t = int(time.time()) // 30
+        for offset in range(-window, window + 1):
+            msg = _struct.pack(">Q", t + offset)
+            h = _hmac.new(secret, msg, hashlib.sha1).digest()
+            o = h[-1] & 0x0F
+            c = _struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF
+            if str(c % 1000000).zfill(6) == code:
+                return True
+    except Exception:
+        pass
+    return False
+
+def _totp_secret():
+    return _base64.b32encode(secrets.token_bytes(20)).decode()
+
 def get_usage_history():
     """Last 7 days of per-provider usage from usage.jsonl.
 
@@ -1413,6 +1437,35 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "invalid JSON"}).encode())
                 return
+            # Step 2 of 2FA: verify TOTP code with pending token
+            if data.get("tmp") and data.get("code"):
+                pend = _PENDING_2FA.pop(data["tmp"], None)
+                if not pend or time.time() - pend["ts"] > 300:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "2FA session expired, log in again"}).encode())
+                    return
+                key_path = Path(__file__).parent / "keys.enc"
+                try:
+                    dec_keys = decrypt_keys(key_path, pend["master_pw"])
+                    secret = dec_keys.get("_totp_secret", "")
+                except Exception:
+                    secret = ""
+                if not secret or not _totp_verify(secret, data["code"]):
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
+                    return
+                _login_attempts.pop(ip, None)
+                token = secrets.token_hex(32)
+                SESSIONS[token] = {"ts": time.time(), "label": "Rudra", "admin": True}
+                Handler.keys = dec_keys
+                register_custom_providers(dec_keys)
+                _restore_access(pend["master_pw"])
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Lax; Path=/")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True, "admin": True, "label": "Rudra"}).encode())
+                return
             password = data.get("password")
             if not password:
                 self._set_json_headers(400)
@@ -1446,6 +1499,18 @@ class Handler(BaseHTTPRequestHandler):
                     return
             # Successful
             _login_attempts.pop(ip, None)
+            if master_ok and dec_keys.get("_totp_secret"):
+                # 2FA enabled for admin — issue pending token, ask for code
+                tmp = secrets.token_hex(16)
+                _PENDING_2FA[tmp] = {"ts": time.time(), "master_pw": password}
+                # Clean old pendings
+                for k in [k for k, v in _PENDING_2FA.items() if time.time() - v["ts"] > 300]:
+                    del _PENDING_2FA[k]
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": tmp}).encode())
+                return
             token = secrets.token_hex(32)
             SESSIONS[token] = {"ts": time.time(), "label": label, "admin": is_admin}
             if master_ok:
@@ -1545,6 +1610,60 @@ class Handler(BaseHTTPRequestHandler):
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and s.get("label") == label]:
                         del SESSIONS[tok]
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            if action == "2fa_status":
+                try:
+                    keys = decrypt_keys(Path(__file__).parent / "keys.enc",
+                                        (data.get("master_pw") or ""))
+                    enabled = bool(keys.get("_totp_secret"))
+                except Exception:
+                    enabled = False
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"enabled": enabled}).encode())
+                return
+            if action == "2fa_enable":
+                master_pw = data.get("master_pw") or ""
+                try:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    keys = decrypt_keys(key_path, master_pw)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+                secret = _totp_secret()
+                keys["_totp_secret"] = secret
+                encrypt_keys(keys, master_pw, key_path)
+                os.chmod(key_path, 0o600)
+                if Handler.keys is not None:
+                    Handler.keys["_totp_secret"] = secret
+                otpauth = (f"otpauth://totp/NexusLocal:admin?secret={secret}"
+                           f"&issuer=NexusLocal")
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "secret": secret,
+                                             "otpauth": otpauth}).encode())
+                return
+            if action == "2fa_disable":
+                master_pw = data.get("master_pw") or ""
+                code = data.get("code") or ""
+                try:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    keys = decrypt_keys(key_path, master_pw)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+                secret = keys.get("_totp_secret", "")
+                if secret and not _totp_verify(secret, code):
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
+                    return
+                keys.pop("_totp_secret", None)
+                encrypt_keys(keys, master_pw, key_path)
+                os.chmod(key_path, 0o600)
+                if Handler.keys is not None:
+                    Handler.keys.pop("_totp_secret", None)
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
