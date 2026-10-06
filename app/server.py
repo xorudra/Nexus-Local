@@ -1197,6 +1197,13 @@ class Handler(BaseHTTPRequestHandler):
                             models = ["flux", "turbo"]
                         elif cap == "all":
                             models = models + [m for m in ("flux", "turbo") if m not in models]
+                    # HF's inference API dropped free video models; text-to-video
+                    # runs on the official LTX-Video Space (ZeroGPU) — inject it.
+                    if provider == "huggingface":
+                        if cap == "video":
+                            models = ["Lightricks/LTX-Video"]
+                        elif cap == "all":
+                            models = models + [m for m in ("Lightricks/LTX-Video",) if m not in models]
             except Exception as e:
                 pass
             self.send_response(200)
@@ -1633,6 +1640,73 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     self._set_json_headers(500)
                     self.wfile.write(json.dumps({"error": "voice generation failed, try again"}).encode())
+                return
+            elif mode == "video":
+                # Text-to-video via the official LTX-Video Space on HuggingFace
+                # (ZeroGPU free quota tied to the HF token). HF's inference API
+                # no longer serves video models for free. Gradio queue protocol:
+                # join with a client session_hash, then stream events until done.
+                import uuid as _uuid_v
+                _prompt_v = (message or "").strip()[:1000]
+                _hk = (_ekeys or {}).get("huggingface") or ""
+                if not _prompt_v:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "describe the video you want"}).encode())
+                    return
+                _BASE = "https://lightricks-ltx-video-distilled.hf.space"
+                _H = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+                if _hk:
+                    _H["Authorization"] = f"Bearer {_hk}"
+                _sess = _uuid_v.uuid4().hex[:12]
+                _neg = "worst quality, inconsistent motion, blurry, jittery, distorted"
+                _data = [_prompt_v, _neg, None, None, 512, 704, "text-to-video", 3, 9, 42, True, 1, True]
+                try:
+                    _rq = Request(_BASE + "/gradio_api/queue/join",
+                        data=json.dumps({"data": _data, "fn_index": 4, "session_hash": _sess}).encode(),
+                        headers=_H, method="POST")
+                    with urlopen(_rq, timeout=60) as _rs:
+                        json.loads(_rs.read().decode())
+                    _file_url = None
+                    _rq2 = Request(_BASE + f"/gradio_api/queue/data?session_hash={_sess}",
+                        headers={"User-Agent": "Mozilla/5.0", **({"Authorization": f"Bearer {_hk}"} if _hk else {})})
+                    _deadline = time.time() + 240
+                    with urlopen(_rq2, timeout=250) as _rs2:
+                        for _raw in _rs2:
+                            if time.time() > _deadline:
+                                break
+                            _line = _raw.decode(errors="replace").strip()
+                            if not _line.startswith("data:"):
+                                continue
+                            try:
+                                _ev = json.loads(_line[5:])
+                            except Exception:
+                                continue
+                            if _ev.get("msg") == "process_completed":
+                                _out = (_ev.get("output") or {}).get("data") or []
+                                if _out and isinstance(_out[0], dict):
+                                    _file_url = (_out[0].get("video") or {}).get("url")
+                                break
+                            if _ev.get("msg") == "process_failed" or _ev.get("success") is False:
+                                break
+                    if not _file_url:
+                        self._set_json_headers(502)
+                        self.wfile.write(json.dumps({"error": "video generation failed — the free GPU queue may be busy, try again"}).encode())
+                        return
+                    _rq3 = Request(_file_url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urlopen(_rq3, timeout=120) as _rs3:
+                        _vid = _rs3.read()
+                    if len(_vid) > 14 * 1024 * 1024:
+                        self._set_json_headers(502)
+                        self.wfile.write(json.dumps({"error": "generated video was too large"}).encode())
+                        return
+                    _b64 = base64.b64encode(_vid).decode()
+                    self._set_json_headers(200)
+                    self.wfile.write(json.dumps({"video": "data:video/mp4;base64," + _b64,
+                        "reply": "\U0001f3ac " + _prompt_v[:120],
+                        "used_provider": "huggingface", "used_model": "Lightricks/LTX-Video"}).encode())
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "video generation failed, try again"}).encode())
                 return
             elif mode == "search":
                 # Web search mode: use Wikipedia API (reliable, free, no key)

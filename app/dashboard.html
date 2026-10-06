@@ -568,6 +568,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
                 <option value="search">Web search</option>
                 <option value="image">Image</option>
                 <option value="voice">Voice</option>
+                <option value="video">Video</option>
                 <option value="auto">Auto</option>
             </select>
         </div>
@@ -644,6 +645,11 @@ function addMsg(kind,text,meta){
 function addAudioMsg(src,meta){
   const div=document.createElement('div');div.className='msg msg-ai';
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><audio controls src="'+src+'" style="width:100%;max-width:340px"></audio></div>';
+  thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
+}
+function addVideoMsg(src,meta){
+  const div=document.createElement('div');div.className='msg msg-ai';
+  div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><video controls src="'+src+'" style="width:100%;max-width:420px;border-radius:12px"></video></div>';
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addTyping(){
@@ -726,7 +732,7 @@ async function loadModels(provider) {
         // Capability follows the selected mode: Image mode shows image models,
         // everything else shows chat models.
         const modeEl = document.getElementById('composer-mode');
-        const cap = (modeEl && modeEl.value === 'image') ? 'image' : (modeEl && modeEl.value === 'voice') ? 'tts' : 'chat';
+        const cap = (modeEl && modeEl.value === 'image') ? 'image' : (modeEl && modeEl.value === 'voice') ? 'tts' : (modeEl && modeEl.value === 'video') ? 'video' : 'chat';
         const r = await fetch('/api/models?provider=' + encodeURIComponent(provider) + '&cap=' + cap);
         const data = await r.json();
         const models = data.models || [];
@@ -1021,6 +1027,7 @@ composerSend.addEventListener('click', async () => {
             const dispProvider = j.used_provider || provider;
             const dispModel = j.used_model || model;
             if (j.audio) addAudioMsg(j.audio, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
+            else if (j.video) addVideoMsg(j.video, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
             else addMsg('ai', j.reply, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
         }
     } catch (e) {
