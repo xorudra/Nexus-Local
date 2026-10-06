@@ -1421,12 +1421,22 @@ class Handler(BaseHTTPRequestHandler):
                     pm = mdl if mdl in ("flux", "turbo") else "flux"
                     u = ("https://image.pollinations.ai/prompt/" + _up2.quote(_prompt)
                          + f"?width=1024&height=1024&nologo=true&model={pm}&seed={secrets.randbelow(999999) + 1}")
-                    rq = Request(u, headers={"User-Agent": "Mozilla/5.0"})
-                    with urlopen(rq, timeout=90) as rs:
-                        if rs.status == 200 and "image" in (rs.headers.get("Content-Type") or ""):
-                            rs.read()
-                            return u
-                    return None
+                    # Pollinations is fast but flaky (queue spikes, per-IP rate
+                    # limits on shared datacenter IPs) — retry a few times. If it
+                    # still won't verify, return the URL anyway: the user's own
+                    # browser usually loads it fine.
+                    for _att in range(3):
+                        try:
+                            rq = Request(u, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://nexus-local.onrender.com/"})
+                            with urlopen(rq, timeout=40) as rs:
+                                if rs.status == 200 and "image" in (rs.headers.get("Content-Type") or ""):
+                                    rs.read()
+                                    return u
+                        except Exception:
+                            pass
+                        if _att < 2:
+                            time.sleep(3)
+                    return u
                 try:
                     if provider == "aihorde" and model:
                         try:
