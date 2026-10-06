@@ -68,50 +68,6 @@ def _save_access(d, master_pw=None):
         except Exception:
             pass
 
-def _github_push_users_enc(master_pw):
-    """Push users.enc to GitHub so friend changes survive redeploys.
-    Returns (ok, error_message)."""
-    import base64 as _b64
-    try:
-        keys = decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
-        gh_token = keys.get("_github_token", "")
-    except Exception:
-        return False, "cannot read keys"
-    if not gh_token:
-        return False, "no GitHub token configured"
-    if not USERS_PATH.exists():
-        return False, "no users file"
-    try:
-        content = _b64.b64encode(USERS_PATH.read_bytes()).decode()
-        repo = "xorudra/Nexus-Local"
-        path = "app/users.enc"
-        headers = {"Authorization": f"Bearer {gh_token}",
-                   "Accept": "application/vnd.github+json",
-                   "User-Agent": "Mozilla/5.0"}
-        # Get current sha
-        req = Request(f"https://api.github.com/repos/{repo}/contents/{path}",
-                      headers=headers)
-        sha = None
-        try:
-            with urlopen(req, timeout=20) as r:
-                sha = json.loads(r.read().decode()).get("sha")
-        except Exception:
-            pass  # file may not exist yet
-        body = json.dumps({
-            "message": "Update friend access list",
-            "content": content,
-            "branch": "main",
-            **({"sha": sha} if sha else {}),
-        }).encode()
-        req = Request(f"https://api.github.com/repos/{repo}/contents/{path}",
-                      data=body, headers=headers, method="PUT")
-        with urlopen(req, timeout=30) as r:
-            if r.status in (200, 201):
-                return True, ""
-        return False, "push failed"
-    except Exception as e:
-        return False, str(e)[:100]
-
 def _restore_access(master_pw):
     """Restore access.json from encrypted users.enc after a redeploy wiped the disk."""
     try:
@@ -856,6 +812,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._set_json_headers(200)
             self._send_body(json.dumps({"ok": True}).encode())
+            return
+        if parsed.path == "/api/friend_blob":
+            # Returns the encrypted friend blob (same bytes as users.enc).
+            # The sync job uses this to persist friend changes to GitHub.
+            # Data is AES-256-GCM encrypted; safe to expose like the public repo copy.
+            try:
+                import base64 as _b64
+                blob = _b64.b64encode(USERS_PATH.read_bytes()).decode() if USERS_PATH.exists() else None
+            except Exception:
+                blob = None
+            self._set_json_headers(200)
+            self._send_body(json.dumps({"blob": blob}).encode())
             return
         if parsed.path == "/api/2fa_qr":
             # QR code for the TOTP secret (admin only) — scan with authenticator app
@@ -1670,7 +1638,6 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 access[label] = hashlib.sha256(password.encode()).hexdigest()
                 _save_access(access, master_pw)
-                _github_push_users_enc(master_pw)
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
@@ -1692,46 +1659,11 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     del access[label]
                     _save_access(access, master_pw)
-                    _github_push_users_enc(master_pw)
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and s.get("label") == label]:
                         del SESSIONS[tok]
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
-                return
-            if action == "github_token_save":
-                master_pw = data.get("master_pw") or ""
-                gh_token = (data.get("token") or "").strip()
-                try:
-                    key_path = Path(__file__).parent / "keys.enc"
-                    keys = decrypt_keys(key_path, master_pw)
-                except Exception:
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
-                    return
-                if gh_token:
-                    keys["_github_token"] = gh_token
-                else:
-                    keys.pop("_github_token", None)
-                encrypt_keys(keys, master_pw, key_path)
-                os.chmod(key_path, 0o600)
-                if Handler.keys is not None:
-                    if gh_token:
-                        Handler.keys["_github_token"] = gh_token
-                    else:
-                        Handler.keys.pop("_github_token", None)
-                self._set_json_headers()
-                self.wfile.write(json.dumps({"ok": True}).encode())
-                return
-            if action == "github_token_status":
-                try:
-                    keys = decrypt_keys(Path(__file__).parent / "keys.enc",
-                                        (data.get("master_pw") or ""))
-                    configured = bool(keys.get("_github_token"))
-                except Exception:
-                    configured = False
-                self._set_json_headers()
-                self.wfile.write(json.dumps({"configured": configured}).encode())
                 return
             if action == "2fa_status":
                 try:
