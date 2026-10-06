@@ -451,12 +451,14 @@ class Handler(BaseHTTPRequestHandler):
         return ohost == host
 
     def _effective_keys(self):
-        """Keys for this request: friend's own vault if present, else shared keys."""
+        """Keys for this request: shared keys with friend's own vault overlaid.
+        A friend's key for a provider wins; other providers fall back to shared."""
+        base = dict(Handler.keys or {})
         info = self._session_info() or {}
         uk = info.get("userkeys")
         if isinstance(uk, dict) and uk:
-            return uk
-        return Handler.keys or {}
+            base.update(uk)
+        return base
 
     def _require_admin(self):
         info = self._session_info()
