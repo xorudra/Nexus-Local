@@ -1466,16 +1466,39 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # Mode-specific message preprocessing
             if mode == "auto":
-                # Auto-detect: code keywords -> code mode, question words -> search, else text
+                # Auto intent detection: route the message to the mode that fits —
+                # video / image / voice (media generation), agent (needs current
+                # or external facts, or a link to fetch), code, else plain text.
+                import re as _re_auto
                 ml = (message or "").lower()
+                has_url = "http://" in ml or "https://" in ml
+                video_kw = ["video of", "make a video", "create a video", "generate a video",
+                            "video clip", "text to video", "timelapse", "animate a", "animate this",
+                            "animation of", "short film"]
+                image_verb = _re_auto.search(r"\b(draw|paint|sketch|generate|create|make|design|render)\b[^.?!]{0,40}\b(image|picture|photo|drawing|painting|artwork|illustration|logo|wallpaper|poster|icon|portrait)\b", ml)
+                image_kw = ["image of", "picture of", "photo of", "drawing of", "painting of",
+                            "wallpaper of", "logo for", "draw me", "paint me", "sketch me"]
+                image_start = _re_auto.match(r"\s*(draw|paint|sketch|illustrate)\b", ml)
+                voice_kw = ["read aloud", "read it out", "read this out", "say it out loud",
+                            "say aloud", "text to speech", "text-to-speech", "voice note",
+                            "speak this", "speak the following"]
+                agent_kw = ["search for", "search the web", "look up", "look it up", "find out",
+                            "research", "latest news", "current price", "price of", "weather in",
+                            "who won", "score of", "news about", "fetch ", "open this link",
+                            "check online", "google "]
                 code_kw = ["code", "function", "class", "def ", "import ", "debug", "python",
-                           "javascript", "java ", " bug", "error", "script", "algorithm"]
-                search_kw = ["who is", "what is", "when did", "where is", "latest", "current",
-                             "news", "today", "2024", "2025", "2026", "price of", "who won"]
-                if any(k in ml for k in code_kw):
+                           "javascript", "java ", " bug", "error in", "script", "algorithm",
+                           "write a program", "fix this code"]
+                if any(k in ml for k in video_kw):
+                    mode = "video"
+                elif image_verb or image_start or any(k in ml for k in image_kw):
+                    mode = "image"
+                elif any(k in ml for k in voice_kw):
+                    mode = "voice"
+                elif has_url or any(k in ml for k in agent_kw):
+                    mode = "agent"
+                elif any(k in ml for k in code_kw):
                     mode = "code"
-                elif any(k in ml for k in search_kw):
-                    mode = "search"
                 else:
                     mode = "text"
             if mode == "code":
