@@ -46,7 +46,27 @@ SESSIONS = {}
 _login_attempts = {}
 
 SESSION_EXPIRY = 1800
-# Friend access: runtime copy at ACCESS_PATH, encrypted persistent store at USERS_PATH
+def _model_caps(provider, model):
+    """Capability tags for a model: chat, image, tts, stt, video, embedding, utility.
+    Every model is used for what it's good at — the UI filters per mode."""
+    m = (model or "").lower()
+    if provider == "aihorde":
+        return ["image"]  # AI Horde serves image models
+    if "whisper" in m:
+        return ["stt"]
+    if any(k in m for k in ("orpheus", "text-to-speech", "/tts", "-tts")):
+        return ["tts"]
+    if any(k in m for k in ("stable-diffusion", "sdxl", "flux", "dall-e", "imagen",
+                            "text-to-image", "image-gen", "dreamshaper", "juggernaut")) \
+            or "-image" in m or "_image" in m:
+        return ["image"]
+    if any(k in m for k in ("ltx", "cogvideo", "animatediff", "stable-video", "text-to-video")):
+        return ["video"]
+    if any(k in m for k in ("embed", "bge-", "bge_", "/e5-", "gte-")):
+        return ["embedding"]
+    if any(k in m for k in ("ocr", "moderation", "prompt-guard", "transcribe")):
+        return ["utility"]
+    return ["chat"]
 ACCESS_PATH = Path(__file__).parent / "access.json"
 USERS_PATH = Path(__file__).parent / "users.enc"
 # Per-user key vaults: app/userkeys/<label>.enc, encrypted with the user's own password
@@ -1144,12 +1164,17 @@ class Handler(BaseHTTPRequestHandler):
                     # so their full rosters stay.
                     elif provider in ("openrouter", "relay_openrouter"):
                         models = [m for m in models if m.endswith(":free")]
-                    # Exclude non-chat models (embedding, TTS, image gen,
-                    # transcription) — they fail on /chat/completions.
-                    _NON_CHAT = ("embed", "tts", "transcribe", "-image", "_image",
-                                 "text-to-image", "image-gen", "speech", "voxtral")
-                    models = [m for m in models
-                              if not any(k in m.lower() for k in _NON_CHAT)]
+                    # Capability filter: ?cap=chat (default) shows only chat models;
+                    # cap=image/tts/stt/video shows models for that mode instead.
+                    cap = parse_qs(parsed.query).get("cap", ["chat"])[0]
+                    if cap not in ("chat", "image", "tts", "stt", "video", "all"):
+                        cap = "chat"
+                    if cap == "all":
+                        pass
+                    elif cap == "chat":
+                        models = [m for m in models if "chat" in _model_caps(provider, m)]
+                    else:
+                        models = [m for m in models if cap in _model_caps(provider, m)]
             except Exception as e:
                 pass
             self.send_response(200)

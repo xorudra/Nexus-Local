@@ -561,7 +561,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
         <div class="picker-row">
             <select id="composer-provider" class="picker" onchange="loadModels(this.value)" title="Provider"></select>
             <select id="composer-model" class="picker" title="Model"><option value="">Select model...</option></select>
-            <select id="composer-mode" class="picker" title="Task mode">
+            <select id="composer-mode" class="picker" title="Task mode" onchange="var p=document.getElementById('composer-provider'); if(p&&p.value) loadModels(p.value);">
                 <option value="text">Text</option>
                 <option value="code">Code</option>
                 <option value="search">Web search</option>
@@ -713,7 +713,11 @@ async function loadModels(provider) {
     }
     modelSel.innerHTML = '<option value="">Loading models...</option>';
     try {
-        const r = await fetch('/api/models?provider=' + encodeURIComponent(provider));
+        // Capability follows the selected mode: Image mode shows image models,
+        // everything else shows chat models.
+        const modeEl = document.getElementById('composer-mode');
+        const cap = (modeEl && modeEl.value === 'image') ? 'image' : 'chat';
+        const r = await fetch('/api/models?provider=' + encodeURIComponent(provider) + '&cap=' + cap);
         const data = await r.json();
         const models = data.models || [];
         modelSel.innerHTML = '';
