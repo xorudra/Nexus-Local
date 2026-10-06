@@ -49,6 +49,32 @@ SESSION_EXPIRY = 1800
 # Friend access: runtime copy at ACCESS_PATH, encrypted persistent store at USERS_PATH
 ACCESS_PATH = Path(__file__).parent / "access.json"
 USERS_PATH = Path(__file__).parent / "users.enc"
+# Per-user key vaults: app/userkeys/<label>.enc, encrypted with the user's own password
+USERKEYS_DIR = Path(__file__).parent / "userkeys"
+USERKEYS_DIR.mkdir(exist_ok=True)
+
+import re as _re
+_LABEL_RE = _re.compile(r"^[a-z0-9_]{1,30}$")
+
+def _userkey_path(label):
+    # Label is validated against _LABEL_RE before this is called
+    return USERKEYS_DIR / f"{label}.enc"
+
+def _load_userkeys(label, password):
+    """Decrypt a friend's personal key vault. Returns dict or None."""
+    try:
+        p = _userkey_path(label)
+        if not p.exists():
+            return None
+        d = decrypt_keys(p, password)
+        return d if isinstance(d, dict) else None
+    except Exception:
+        return None
+
+def _save_userkeys(label, keys_dict, password):
+    p = _userkey_path(label)
+    encrypt_keys(keys_dict, password, p)
+    os.chmod(p, 0o600)
 
 def _load_access():
     try:
@@ -288,11 +314,15 @@ class RelayHandler(BaseHTTPRequestHandler):
         # block Python-urllib's default signature with 403 error 1010.
         req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
         for k, v in self.headers.items():
-            if k.lower() not in ("host", "content-length", "authorization", "user-agent"):
+            if k.lower() not in ("host", "content-length", "authorization", "user-agent", "x-vault-key"):
                 req.add_header(k, v)
         if name not in RELAY_KEYLESS:
-            # Check for custom relay key first, then standard key
-            key = (Handler.keys or {}).get(f"custom_relay_{name}")
+            # Prefer a per-request vault key (friend's own key) over shared keys.
+            # X-Vault-Key is only accepted on localhost and never forwarded upstream.
+            key = self.headers.get("X-Vault-Key")
+            if not key:
+                # Check for custom relay key first, then standard key
+                key = (Handler.keys or {}).get(f"custom_relay_{name}")
             if not key:
                 key = (Handler.keys or {}).get(name)
             if not key:
@@ -397,6 +427,14 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(sess, dict):
             return sess
         return None
+
+    def _effective_keys(self):
+        """Keys for this request: friend's own vault if present, else shared keys."""
+        info = self._session_info() or {}
+        uk = info.get("userkeys")
+        if isinstance(uk, dict) and uk:
+            return uk
+        return Handler.keys or {}
 
     def _require_admin(self):
         info = self._session_info()
@@ -845,16 +883,24 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(json.dumps({"ok": True}).encode())
             return
         if parsed.path == "/api/friend_blob":
-            # Returns the encrypted friend blob (same bytes as users.enc).
-            # The sync job uses this to persist friend changes to GitHub.
-            # Data is AES-256-GCM encrypted; safe to expose like the public repo copy.
+            # Returns the encrypted friend blob (same bytes as users.enc)
+            # plus all personal key vaults. The sync job uses this to persist
+            # friend changes to GitHub. Data is AES-256-GCM encrypted; safe to
+            # expose like the public repo copy.
             try:
                 import base64 as _b64
                 blob = _b64.b64encode(USERS_PATH.read_bytes()).decode() if USERS_PATH.exists() else None
+                vaults = {}
+                if USERKEYS_DIR.exists():
+                    for f in sorted(USERKEYS_DIR.glob("*.enc")):
+                        try:
+                            vaults[f.stem] = _b64.b64encode(f.read_bytes()).decode()
+                        except Exception:
+                            pass
             except Exception:
-                blob = None
+                blob, vaults = None, {}
             self._set_json_headers(200)
-            self._send_body(json.dumps({"blob": blob}).encode())
+            self._send_body(json.dumps({"blob": blob, "vaults": vaults}).encode())
             return
         if parsed.path == "/api/2fa_qr":
             # QR code for the TOTP secret (admin only) — scan with authenticator app
@@ -1079,6 +1125,52 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             return
+        if parsed.path == "/mykeys":
+            # Friend's personal key vault page (friends only; admins use Update Keys)
+            info = self._session_info()
+            if not info:
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            if info.get("admin"):
+                self.send_response(302)
+                self.send_header("Location", "/settings")
+                self.end_headers()
+                return
+            try:
+                content = (Path(__file__).parent / "mykeys.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
+        if parsed.path == "/connections":
+            info = self._session_info()
+            if not info:
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            if not info.get("admin"):
+                self.send_response(403)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>Admin only</h1>")
+                return
+            try:
+                content = (Path(__file__).parent / "connections.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
         self.send_error(404, "Not Found")
 
     def do_POST(self):
@@ -1195,6 +1287,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/chat":
             if not self._require_session():
                 return
+            # Effective keys: friend's own vault if they have one, else shared keys
+            _ekeys = self._effective_keys()
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
             try:
@@ -1320,7 +1414,7 @@ class Handler(BaseHTTPRequestHandler):
                                  "mistral",
                                  "relay_gemini", "google", "cohere"]
                 for cand in pref_list:
-                    if (Handler.keys or {}).get(cand) or cand in RELAY_KEYLESS:
+                    if (_ekeys or {}).get(cand) or cand in RELAY_KEYLESS:
                         cand_model = model or _DEFAULT_MODELS.get(cand, "")
                         if cand_model:
                             _auto_candidates.append((cand, cand_model))
@@ -1332,7 +1426,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "provider, model, message required"}).encode())
                 return
-            key = Handler.keys.get(provider) if Handler.keys else None
+            key = _ekeys.get(provider) if _ekeys else None
             if not key and provider not in RELAY_KEYLESS:
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"no key configured for {provider}"}).encode())
@@ -1374,7 +1468,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
             elif provider == "freellmapi":
                 # Unified gateway key; base URL comes from setup (not a fixed endpoint)
-                gw_url = ((Handler.keys or {}).get("freellmapi_url") or "").strip()
+                gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
                 if not gw_url:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
@@ -1382,7 +1476,7 @@ class Handler(BaseHTTPRequestHandler):
                 base = gw_url.rstrip("/")
             elif provider.startswith("custom_fl_"):
                 # Custom FreeLLMAPI provider - routes through the FreeLLMAPI gateway
-                gw_url = ((Handler.keys or {}).get("freellmapi_url") or "").strip()
+                gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
                 if not gw_url:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "Set your gateway URL in setup"}).encode())
@@ -1407,7 +1501,11 @@ class Handler(BaseHTTPRequestHandler):
             headers = {
                 "Content-Type": "application/json",
             }
-            # For relay providers, the integrated relay attaches the key
+            # For relay providers, the integrated relay attaches the key.
+            # Pass the effective (per-user) key via X-Vault-Key so friends use their own.
+            if (provider.startswith("relay_") or provider in RELAY_UPSTREAMS
+                    or provider.startswith("custom_relay_")) and key:
+                headers["X-Vault-Key"] = key
             # For freellmapi and custom_fl, attach the key here
             if provider == "freellmapi" or provider.startswith("custom_fl_"):
                 headers["Authorization"] = f"Bearer {key}"
@@ -1608,7 +1706,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": tmp}).encode())
                 return
             token = secrets.token_hex(32)
-            SESSIONS[token] = {"ts": time.time(), "label": label, "admin": is_admin}
+            sess = {"ts": time.time(), "label": label, "admin": is_admin}
+            if not is_admin:
+                # Load friend's personal key vault (if they added their own keys)
+                uk = _load_userkeys(label, password)
+                if uk:
+                    sess["userkeys"] = uk
+            SESSIONS[token] = sess
             if master_ok:
                 Handler.keys = dec_keys
                 register_custom_providers(dec_keys)
@@ -1676,12 +1780,16 @@ class Handler(BaseHTTPRequestHandler):
                 }).encode())
                 return
             if action == "add":
-                label = (data.get("label") or "").strip()
+                label = (data.get("label") or "").strip().lower()
                 password = data.get("password") or ""
                 master_pw = data.get("master_pw") or ""
                 if not label or not password or len(password) < 4:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "label and password (min 4 chars) required"}).encode())
+                    return
+                if not _LABEL_RE.match(label):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "label must be a-z, 0-9, _ (max 30 chars)"}).encode())
                     return
                 if not master_pw:
                     self._set_json_headers(400)
@@ -1705,7 +1813,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
             if action == "revoke":
-                label = (data.get("label") or "").strip()
+                label = (data.get("label") or "").strip().lower()
                 master_pw = data.get("master_pw") or ""
                 if not master_pw:
                     self._set_json_headers(400)
@@ -1722,6 +1830,13 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     del access[label]
                     _save_access(access, master_pw)
+                    # Delete their personal key vault too
+                    try:
+                        vp = _userkey_path(label)
+                        if _LABEL_RE.match(label) and vp.exists():
+                            vp.unlink()
+                    except Exception:
+                        pass
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and s.get("label") == label]:
                         del SESSIONS[tok]
@@ -1782,6 +1897,81 @@ class Handler(BaseHTTPRequestHandler):
                     Handler.keys.pop("_totp_secret", None)
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            self._set_json_headers(400)
+            self.wfile.write(json.dumps({"error": "unknown action"}).encode())
+            return
+        if parsed.path == "/api/mykeys":
+            # Friend's own key vault: view (names only) and save. Admins use /settings.
+            info = self._session_info()
+            if not info:
+                self._set_json_headers(401)
+                self.wfile.write(json.dumps({"error": "not logged in"}).encode())
+                return
+            if info.get("admin"):
+                self._set_json_headers(403)
+                self.wfile.write(json.dumps({"error": "admins use Update Keys"}).encode())
+                return
+            label = info.get("label", "")
+            if not _LABEL_RE.match(label):
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "invalid label"}).encode())
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b"{}"
+            try:
+                data = json.loads(raw_body)
+            except Exception:
+                data = {}
+            action = data.get("action", "view")
+            if action == "view":
+                uk = info.get("userkeys") or {}
+                # Also check disk in case session is stale
+                self._set_json_headers()
+                self.wfile.write(json.dumps({
+                    "configured": sorted([k for k in uk.keys() if not k.startswith("_")]),
+                    "has_vault": _userkey_path(label).exists(),
+                }).encode())
+                return
+            if action == "save":
+                password = data.get("password") or ""
+                if not password:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "password required to encrypt"}).encode())
+                    return
+                # Verify password against stored hash
+                access = _load_access()
+                stored = access.get(label, "")
+                ok, _ = _verify_password(password, stored)
+                if not ok:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                    return
+                keys_in = data.get("keys") or {}
+                if not isinstance(keys_in, dict):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "invalid keys"}).encode())
+                    return
+                # Load existing vault, merge (blank = keep, explicit empty = delete)
+                vault = _load_userkeys(label, password) or {}
+                for k, v in keys_in.items():
+                    if not isinstance(k, str) or not _re.match(r"^[a-z0-9_]+$", k):
+                        continue
+                    if k.startswith("_"):
+                        continue
+                    v = (v or "").strip() if isinstance(v, str) else ""
+                    if v:
+                        vault[k] = v
+                    elif k in vault:
+                        del vault[k]
+                _save_userkeys(label, vault, password)
+                # Refresh session copy
+                for tok, s in SESSIONS.items():
+                    if isinstance(s, dict) and s.get("label") == label and not s.get("admin"):
+                        s["userkeys"] = dict(vault)
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True,
+                    "configured": sorted([k for k in vault.keys() if not k.startswith("_")])}).encode())
                 return
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": "unknown action"}).encode())

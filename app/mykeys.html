@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Keys — Nexus Local</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0d;color:#e8e8ee;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:20px}
+h1{font-family:'Press Start 2P',monospace;color:#C084FC;font-size:20px;margin-bottom:8px;text-shadow:0 0 18px rgba(168,85,247,.6)}
+.sub{color:#9aa3b2;font-size:14px;margin-bottom:20px;max-width:640px;line-height:1.5}
+.card{background:#121216;border:1px solid #2a2a32;border-radius:12px;padding:20px;margin-bottom:16px;max-width:640px}
+.card h2{font-family:'Press Start 2P',monospace;font-size:13px;color:#C084FC;margin-bottom:14px}
+.row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+label{font-size:13px;color:#9aa3b2;display:block;margin-bottom:4px}
+input{flex:1;min-width:200px;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ee;padding:10px 12px;font-size:14px}
+input:focus{outline:none;border-color:#a855f7}
+button{background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:8px;color:#fff;padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+.badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px}
+.badge.on{background:rgba(125,255,154,.15);color:#7dff9a}
+.badge.off{background:rgba(154,163,178,.15);color:#9aa3b2}
+#msg{min-height:20px;font-size:13px;margin-top:8px}
+.prov{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.prov label{min-width:170px;margin:0}
+.nav{margin-top:20px;display:flex;gap:10px}
+.nav a{color:#C084FC;text-decoration:none;font-size:14px;padding:8px 16px;border:1px solid rgba(168,85,247,.35);border-radius:8px}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+<h1>MY KEYS</h1>
+<p class="sub">Your personal provider keys. When set, your chats use <b>your</b> keys instead of the shared ones — your usage burns your own quotas, not the admin's. Keys are encrypted with your login password. Leave a field blank to keep its current value.</p>
+
+<div class="card">
+<h2>PROVIDER KEYS</h2>
+<div id="providers"></div>
+</div>
+
+<div class="card">
+<h2>SAVE</h2>
+<div class="row">
+<input id="pw" type="password" placeholder="Your login password (to encrypt)">
+<button onclick="save()">Save keys</button>
+</div>
+<div id="msg"></div>
+</div>
+
+<div class="nav">
+<a href="/">← Dashboard</a>
+</div>
+
+<script>
+const PROVIDERS = ["groq","google","openrouter","nvidia","cohere","mistral","zhipu","cloudflare","huggingface","relay_groq","relay_openrouter","relay_gemini","relay_nvidia"];
+const LABELS = {groq:"Groq",google:"Google",openrouter:"OpenRouter",nvidia:"NVIDIA",cohere:"Cohere",mistral:"Mistral",zhipu:"Zhipu",cloudflare:"Cloudflare",huggingface:"Hugging Face",relay_groq:"Relay: Groq",relay_openrouter:"Relay: OpenRouter",relay_gemini:"Relay: Gemini",relay_nvidia:"Relay: NVIDIA"};
+
+async function api(action, body) {
+    const r = await fetch('/api/mykeys', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action, ...body})});
+    return r.json();
+}
+function msg(t, ok) {
+    const m = document.getElementById('msg');
+    m.textContent = t;
+    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
+}
+async function load() {
+    const j = await api('view', {});
+    const configured = (j && j.configured) || [];
+    const box = document.getElementById('providers');
+    box.innerHTML = PROVIDERS.map(p => `
+        <div class="prov">
+            <label>${LABELS[p]}${configured.includes(p) ? '<span class="badge on">set</span>' : '<span class="badge off">—</span>'}</label>
+            <input id="k_${p}" type="password" placeholder="${configured.includes(p) ? '•••••• (set — blank keeps it)' : 'Enter key'}">
+        </div>`).join('');
+}
+async function save() {
+    const password = document.getElementById('pw').value;
+    if (!password) { msg('Enter your login password', false); return; }
+    const keys = {};
+    PROVIDERS.forEach(p => {
+        const el = document.getElementById('k_' + p);
+        if (el) keys[p] = el.value.trim();
+    });
+    msg('Saving...', true);
+    const j = await api('save', {password, keys});
+    if (j && j.ok) {
+        msg('Saved! Your chats now use your own keys where set.', true);
+        document.getElementById('pw').value = '';
+        load();
+    } else {
+        msg((j && j.error) || 'Failed', false);
+    }
+}
+load();
+</script>
+</body>
+</html>
