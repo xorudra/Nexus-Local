@@ -1527,16 +1527,20 @@ class Handler(BaseHTTPRequestHandler):
                     u = ("https://image.pollinations.ai/prompt/" + _up2.quote(_prompt)
                          + f"?width=1024&height=1024&nologo=true&model={pm}&seed={secrets.randbelow(999999) + 1}")
                     # Pollinations is fast but flaky (queue spikes, per-IP rate
-                    # limits on shared datacenter IPs) — retry a few times. If it
-                    # still won't verify, return the URL anyway: the user's own
-                    # browser usually loads it fine.
+                    # limits on shared datacenter IPs) — retry a few times. On
+                    # success return the image INLINE as a data URI: a second
+                    # browser request to Pollinations often fails (broken image),
+                    # while an inlined image always displays. If it still won't
+                    # fetch, return the URL anyway as a last resort.
                     for _att in range(3):
                         try:
                             rq = Request(u, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://nexus-local.onrender.com/"})
                             with urlopen(rq, timeout=40) as rs:
-                                if rs.status == 200 and "image" in (rs.headers.get("Content-Type") or ""):
-                                    rs.read()
-                                    return u
+                                _ct = rs.headers.get("Content-Type") or ""
+                                if rs.status == 200 and "image" in _ct:
+                                    _bytes = rs.read()
+                                    if _bytes:
+                                        return "data:" + _ct.split(";")[0] + ";base64," + base64.b64encode(_bytes).decode()
                         except Exception:
                             pass
                         if _att < 2:
@@ -1572,6 +1576,17 @@ class Handler(BaseHTTPRequestHandler):
                                         gens = json.loads(rs.read().decode()).get("generations", [])
                                     if gens and gens[0].get("img"):
                                         _img = gens[0]["img"]
+                                        # Inline it like Pollinations — hotlinked
+                                        # images can fail to load in the browser.
+                                        try:
+                                            _irq = Request(_img, headers={"User-Agent": "Mozilla/5.0"})
+                                            with urlopen(_irq, timeout=30) as _irs:
+                                                _ict = _irs.headers.get("Content-Type") or "image/webp"
+                                                _ib = _irs.read()
+                                            if _ib:
+                                                _img = "data:" + _ict.split(";")[0] + ";base64," + base64.b64encode(_ib).decode()
+                                        except Exception:
+                                            pass
                                     break
                         except Exception:
                             _img = None
