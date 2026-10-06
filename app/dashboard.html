@@ -698,7 +698,7 @@ async function populateComposer() {
 
 async function setRouting(mode) {
     try {
-        await fetch('/api/routing?set=' + encodeURIComponent(mode));
+        await fetch('/api/routing', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({set: mode})});
     } catch (e) {
         console.error('Set routing', e);
     }

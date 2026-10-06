@@ -83,7 +83,8 @@ def _restore_access(master_pw):
 # ---- TOTP 2FA (admin only) ----
 import hmac as _hmac, struct as _struct, base64 as _base64
 
-_PENDING_2FA = {}  # tmp_token -> {label, ts}
+_PENDING_2FA = {}  # tmp_token -> {ts, keys}
+_2FA_ATTEMPTS = {}  # tmp_token -> [timestamps] (rate limit code guesses)
 
 def _totp_verify(secret_b32, code, window=1):
     try:
@@ -361,6 +362,14 @@ class Handler(BaseHTTPRequestHandler):
     keys: dict | None = None
     _head_only = False  # set True during do_HEAD so bodies are suppressed
 
+    def end_headers(self):
+        # Security headers on every response
+        self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        super().end_headers()
+
     # Session helpers
     def _get_session(self):
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
@@ -369,13 +378,12 @@ class Handler(BaseHTTPRequestHandler):
             token = token.value
             if token in SESSIONS:
                 sess = SESSIONS[token]
-                ts = sess["ts"] if isinstance(sess, dict) else sess
+                if not isinstance(sess, dict):
+                    del SESSIONS[token]
+                    return None
                 now = time.time()
-                if now - ts < SESSION_EXPIRY:
-                    if isinstance(sess, dict):
-                        sess["ts"] = now
-                    else:
-                        SESSIONS[token] = {"ts": now, "label": "Rudra", "admin": True}
+                if now - sess["ts"] < SESSION_EXPIRY:
+                    sess["ts"] = now  # sliding window
                     return token
                 else:
                     del SESSIONS[token]
@@ -388,7 +396,7 @@ class Handler(BaseHTTPRequestHandler):
         sess = SESSIONS.get(token)
         if isinstance(sess, dict):
             return sess
-        return {"label": "Rudra", "admin": True}
+        return None
 
     def _require_admin(self):
         info = self._session_info()
@@ -981,28 +989,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(json.dumps(usage_data).encode())
             return
         if parsed.path == "/api/routing":
-            if not self._get_session():
-                self.send_response(401)
-                self.end_headers()
+            # GET = read only. State changes go through POST /api/routing.
+            if not self._require_session():
                 return
-            qs = parse_qs(parsed.query)
-            if qs.get("set", [""])[0] in ("quality", "save", "auto"):
-                # Per-session routing mode (each user picks their own)
-                token = self._get_session()
-                if token and token in SESSIONS:
-                    sess = SESSIONS[token]
-                    if isinstance(sess, dict):
-                        sess["routing"] = qs["set"][0]
-                    else:
-                        SESSIONS[token] = {"ts": sess, "label": "Rudra", "admin": True, "routing": qs["set"][0]}
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
+            self._set_json_headers()
             sess = SESSIONS.get(self._get_session() or "", {})
             routing_val = sess.get("routing", "quality") if isinstance(sess, dict) else "quality"
-            self._send_body(json.dumps({
-                "routing": routing_val
-            }).encode())
+            self._send_body(json.dumps({"routing": routing_val}).encode())
             return
         if parsed.path == "/api/models":
             if not self._get_session():
@@ -1089,6 +1082,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404, "Not Found")
 
     def do_POST(self):
+        # DoS protection: reject bodies over 12 MB (covers image/file uploads)
+        try:
+            if int(self.headers.get("Content-Length", 0) or 0) > 12 * 1024 * 1024:
+                self.send_response(413)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "body too large"}).encode())
+                return
+        except (ValueError, TypeError):
+            pass
         parsed = urlparse(self.path)
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
@@ -1190,6 +1193,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if parsed.path == "/api/chat":
+            if not self._require_session():
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
             try:
@@ -1459,11 +1464,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": f"server error: {e}"}).encode())
             return
         if parsed.path == "/api/refresh":
-            if not self._require_session():
-                return
-            if not (self._session_info() or {}).get("admin"):
-                self._set_json_headers(403)
-                self.wfile.write(json.dumps({"error": "admin only"}).encode())
+            if not self._require_admin():
                 return
             # Live connectivity check: quick models ping for each configured provider
             import concurrent.futures
@@ -1515,9 +1516,18 @@ class Handler(BaseHTTPRequestHandler):
             # Step 2 of 2FA: verify TOTP code with pending token
             # NOTE: only consume the pending token on SUCCESS so wrong codes can be retried
             if data.get("tmp") and data.get("code"):
-                pend = _PENDING_2FA.get(data["tmp"])
-                if not pend or time.time() - pend["ts"] > 300:
-                    _PENDING_2FA.pop(data["tmp"], None)
+                tmp = data["tmp"]
+                # Rate limit: max 10 code attempts per 5 min per pending token
+                now = time.time()
+                attempts = [t for t in _2FA_ATTEMPTS.get(tmp, []) if now - t < 300]
+                if len(attempts) >= 10:
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": "too many attempts, start login again"}).encode())
+                    return
+                pend = _PENDING_2FA.get(tmp)
+                if not pend or now - pend["ts"] > 300:
+                    _PENDING_2FA.pop(tmp, None)
+                    _2FA_ATTEMPTS.pop(tmp, None)
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "2FA session expired, log in again"}).encode())
                     return
@@ -1525,10 +1535,17 @@ class Handler(BaseHTTPRequestHandler):
                 dec_keys = pend.get("keys")
                 secret = (dec_keys or {}).get("_totp_secret", "")
                 if not secret or not _totp_verify(secret, data["code"]):
+                    attempts.append(now)
+                    _2FA_ATTEMPTS[tmp] = attempts
+                    # Prune stale trackers
+                    for k in [k for k, v in _2FA_ATTEMPTS.items()
+                              if not v or now - v[-1] > 300]:
+                        _2FA_ATTEMPTS.pop(k, None)
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                     return
-                _PENDING_2FA.pop(data["tmp"], None)  # consume only on success
+                _PENDING_2FA.pop(tmp, None)  # consume only on success
+                _2FA_ATTEMPTS.pop(tmp, None)
                 _login_attempts.pop(ip, None)
                 token = secrets.token_hex(32)
                 SESSIONS[token] = {"ts": time.time(), "label": "Rudra", "admin": True}
@@ -1536,7 +1553,7 @@ class Handler(BaseHTTPRequestHandler):
                 register_custom_providers(dec_keys)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Set-Cookie", f"session={token}; HttpOnly; SameSite=Lax; Path=/")
+                self.send_header("Set-Cookie", f"session={token}; HttpOnly; Secure; SameSite=Lax; Path=/")
                 self.end_headers()
                 self.wfile.write(json.dumps({"ok": True, "admin": True, "label": "Rudra"}).encode())
                 return
@@ -1599,7 +1616,7 @@ class Handler(BaseHTTPRequestHandler):
                 _restore_access(password)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            cookie = f"session={token}; HttpOnly; SameSite=Lax; Path=/"
+            cookie = f"session={token}; HttpOnly; Secure; SameSite=Lax; Path=/"
             self.send_header("Set-Cookie", cookie)
             self.end_headers()
             self.wfile.write(json.dumps({"ok": True, "admin": is_admin, "label": label}).encode())
@@ -1611,10 +1628,29 @@ class Handler(BaseHTTPRequestHandler):
                 del SESSIONS[token]
             # Expire cookie
             self.send_response(200)
-            self.send_header("Set-Cookie", "session=; Max-Age=0; Path=/")
+            self.send_header("Set-Cookie", "session=; Max-Age=0; Secure; Path=/")
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"ok": True}).encode())
+            return
+        if parsed.path == "/api/routing":
+            if not self._require_session():
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(content_length) if content_length else b"{}"
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+            mode = data.get("set", "")
+            if mode in ("quality", "save", "auto"):
+                token = self._get_session()
+                if token and token in SESSIONS:
+                    sess = SESSIONS[token]
+                    if isinstance(sess, dict):
+                        sess["routing"] = mode
+            self._set_json_headers()
+            self.wfile.write(json.dumps({"ok": True, "routing": mode}).encode())
             return
         if parsed.path == "/api/access":
             if not self._require_admin():
