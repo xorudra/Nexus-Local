@@ -46,6 +46,19 @@ SESSIONS = {}
 _login_attempts = {}
 
 SESSION_EXPIRY = 1800
+# Friend access: {label: sha256(password)} — per-friend passwords, revocable
+ACCESS_PATH = Path(__file__).parent / "access.json"
+
+def _load_access():
+    try:
+        if ACCESS_PATH.exists():
+            return json.loads(ACCESS_PATH.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_access(d):
+    ACCESS_PATH.write_text(json.dumps(d, indent=2))
 
 def get_usage_history():
     """Last 7 days of per-provider usage from usage.jsonl.
@@ -288,14 +301,37 @@ class Handler(BaseHTTPRequestHandler):
         if token:
             token = token.value
             if token in SESSIONS:
-                ts = SESSIONS[token]
+                sess = SESSIONS[token]
+                ts = sess["ts"] if isinstance(sess, dict) else sess
                 now = time.time()
                 if now - ts < SESSION_EXPIRY:
-                    SESSIONS[token] = now
+                    if isinstance(sess, dict):
+                        sess["ts"] = now
+                    else:
+                        SESSIONS[token] = {"ts": now, "label": "Rudra", "admin": True}
                     return token
                 else:
                     del SESSIONS[token]
         return None
+
+    def _session_info(self):
+        token = self._get_session()
+        if not token:
+            return None
+        sess = SESSIONS.get(token)
+        if isinstance(sess, dict):
+            return sess
+        return {"label": "Rudra", "admin": True}
+
+    def _require_admin(self):
+        info = self._session_info()
+        if not info or not info.get("admin"):
+            self.send_response(403)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self._send_body(json.dumps({"error": "admin only"}).encode())
+            return False
+        return True
 
     def _require_session(self):
         if not self._get_session():
@@ -885,6 +921,22 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self._send_body(js.dumps({"models": models}).encode())
             return
+        if parsed.path == "/admin":
+            if not self._session_info() or not self._session_info().get("admin"):
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            try:
+                content = (Path(__file__).parent / "admin.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
         self.send_error(404, "Not Found")
 
     def do_POST(self):
@@ -1301,27 +1353,44 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "password required"}).encode())
                 return
             key_path = Path(__file__).parent / "keys.enc"
+            import hashlib
             try:
                 dec_keys = decrypt_keys(key_path, password)
+                master_ok = True
             except Exception:
-                recent.append(now)
-                _login_attempts[ip] = recent
-                time.sleep(1)
-                self._set_json_headers(401)
-                self.wfile.write(json.dumps({"error": "wrong password"}).encode())
-                return
+                master_ok = False
+                dec_keys = None
+            if master_ok:
+                label, is_admin = "Rudra", True
+            else:
+                access = _load_access()
+                pw_hash = hashlib.sha256(password.encode()).hexdigest()
+                label = next((l for l, h in access.items() if h == pw_hash), None)
+                if not label:
+                    recent.append(now)
+                    _login_attempts[ip] = recent
+                    time.sleep(1)
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                    return
+                is_admin = False
+                if Handler.keys is None:
+                    self._set_json_headers(503)
+                    self.wfile.write(json.dumps({"error": "admin needs to log in first after restart"}).encode())
+                    return
             # Successful
             _login_attempts.pop(ip, None)
             token = secrets.token_hex(32)
-            SESSIONS[token] = time.time()
-            Handler.keys = dec_keys
-            register_custom_providers(dec_keys)
+            SESSIONS[token] = {"ts": time.time(), "label": label, "admin": is_admin}
+            if master_ok:
+                Handler.keys = dec_keys
+                register_custom_providers(dec_keys)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             cookie = f"session={token}; HttpOnly; SameSite=Lax; Path=/"
             self.send_header("Set-Cookie", cookie)
             self.end_headers()
-            self.wfile.write(json.dumps({"ok": True}).encode())
+            self.wfile.write(json.dumps({"ok": True, "admin": is_admin, "label": label}).encode())
             return
         if parsed.path == "/api/logout":
             cookie = SimpleCookie(self.headers.get("Cookie", ""))
@@ -1334,6 +1403,61 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"ok": True}).encode())
+            return
+        if parsed.path == "/api/access":
+            if not self._require_admin():
+                return
+            import hashlib
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b"{}"
+            try:
+                data = json.loads(raw_body)
+            except Exception:
+                data = {}
+            action = data.get("action", "list")
+            if action == "list":
+                access = _load_access()
+                sessions = []
+                for tok, sess in SESSIONS.items():
+                    if isinstance(sess, dict):
+                        sessions.append({"label": sess.get("label", "?"), "admin": sess.get("admin", False)})
+                self._set_json_headers()
+                self.wfile.write(json.dumps({
+                    "access": [{"label": l} for l in sorted(access.keys())],
+                    "sessions": sessions,
+                }).encode())
+                return
+            if action == "add":
+                label = (data.get("label") or "").strip()
+                password = data.get("password") or ""
+                if not label or not password or len(password) < 4:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "label and password (min 4 chars) required"}).encode())
+                    return
+                access = _load_access()
+                if label in access or label.lower() == "rudra":
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "label already exists"}).encode())
+                    return
+                access[label] = hashlib.sha256(password.encode()).hexdigest()
+                _save_access(access)
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            if action == "revoke":
+                label = (data.get("label") or "").strip()
+                access = _load_access()
+                if label in access:
+                    del access[label]
+                    _save_access(access)
+                    for tok in [t for t, s in SESSIONS.items()
+                                if isinstance(s, dict) and s.get("label") == label]:
+                        del SESSIONS[tok]
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            self._set_json_headers(400)
+            self.wfile.write(json.dumps({"error": "unknown action"}).encode())
             return
         self.send_error(404, "Not Found")
 

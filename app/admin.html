@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus Local - Admin</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Press+Start+2P&family=Inter:wght@400;500;600&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0d;color:#e8e8ea;font-family:'Inter',sans-serif;min-height:100vh;padding:24px}
+body::before{content:"";position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:0;
+background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(168,85,247,.08),transparent)}
+.wrap{max-width:800px;margin:0 auto;position:relative;z-index:1}
+h1{font-family:'Press Start 2P',monospace;font-size:20px;color:#fff;margin-bottom:6px;
+text-shadow:0 0 16px rgba(168,85,247,.7);animation:titleGlow 3s ease-in-out infinite}
+@keyframes titleGlow{0%,100%{text-shadow:0 0 8px rgba(168,85,247,.5)}50%{text-shadow:0 0 24px rgba(168,85,247,.9)}}
+.sub{color:#9aa3b2;font-size:14px;margin-bottom:28px}
+.card{background:#141419;border:1px solid rgba(168,85,247,.16);border-radius:12px;padding:20px;margin-bottom:20px}
+.card h2{font-family:'Press Start 2P',monospace;font-size:12px;color:#A855F7;margin-bottom:16px;letter-spacing:.05em}
+.row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+input{background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ea;padding:12px 14px;font-size:14px;flex:1;min-width:140px}
+input:focus{border-color:#A855F7;box-shadow:0 0 12px rgba(168,85,247,.35);outline:none}
+button{background:linear-gradient(#C084FC,#7C3AED);border:none;border-radius:8px;color:#0a0a0a;
+padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
+button:hover{box-shadow:0 0 20px rgba(168,85,247,.6);transform:translateY(-1px)}
+button.danger{background:linear-gradient(#ff7a7a,#d33);color:#fff}
+button:disabled{opacity:.5;cursor:default;transform:none}
+.person{display:flex;align-items:center;justify-content:space-between;background:#0a0a0d;
+border:1px solid #2a2a32;border-radius:8px;padding:12px 16px;margin-bottom:8px;animation:slideIn .25s ease-out}
+@keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.person .name{font-weight:600}
+.person .tag{font-size:12px;color:#9aa3b2;margin-left:8px}
+.person button{padding:8px 16px;font-size:13px}
+.empty{color:#9aa3b2;font-size:14px;padding:12px 0}
+.navlinks{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+.navlinks a{display:block;padding:14px 20px;background:#141419;border:1px solid rgba(168,85,247,.16);
+border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight:500;transition:all .15s}
+.navlinks a:hover{border-color:#A855F7;box-shadow:0 0 16px rgba(168,85,247,.4);transform:translateY(-1px)}
+.back{display:inline-block;margin-bottom:20px;color:#9aa3b2;text-decoration:none;font-size:14px}
+.back:hover{color:#C084FC}
+#msg{text-align:center;min-height:22px;font-size:14px;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="/">&larr; Back to dashboard</a>
+<h1>ADMIN PANEL</h1>
+<p class="sub">Manage friend access, keys, and providers.</p>
+
+<div class="card">
+<h2>FRIEND ACCESS</h2>
+<div class="row">
+<input id="fname" placeholder="Friend's name (e.g. Kreetika)" maxlength="30">
+<input id="fpass" type="password" placeholder="Their password (min 4 chars)">
+<button id="addBtn" onclick="addFriend()">Add friend</button>
+</div>
+<div id="msg"></div>
+<div id="people"></div>
+</div>
+
+<div class="card">
+<h2>ACTIVE SESSIONS</h2>
+<div id="sessions"></div>
+</div>
+
+<div class="navlinks">
+<a href="/settings">Update Keys</a>
+<a href="/connections">Providers</a>
+<a href="/">Dashboard</a>
+</div>
+</div>
+
+<script>
+async function api(action, extra) {
+    const r = await fetch('/api/access', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(Object.assign({action}, extra || {}))
+    });
+    if (r.status === 403) { location.href = '/login'; return null; }
+    return r.json();
+}
+function showMsg(t, ok) {
+    const m = document.getElementById('msg');
+    m.textContent = t;
+    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
+    setTimeout(() => m.textContent = '', 4000);
+}
+async function load() {
+    const j = await api('list');
+    if (!j) return;
+    const ppl = document.getElementById('people');
+    if (!j.access.length) {
+        ppl.innerHTML = '<div class="empty">No friends added yet. Only you (admin) have access.</div>';
+    } else {
+        ppl.innerHTML = j.access.map(a =>
+            '<div class="person"><div><span class="name">' + esc(a.label) + '</span></div>' +
+            '<button class="danger" onclick="revoke(\'' + esc(a.label) + '\')">Revoke access</button></div>'
+        ).join('');
+    }
+    const sess = document.getElementById('sessions');
+    if (!j.sessions.length) {
+        sess.innerHTML = '<div class="empty">No active sessions.</div>';
+    } else {
+        sess.innerHTML = j.sessions.map(s =>
+            '<div class="person"><div><span class="name">' + esc(s.label) + '</span>' +
+            '<span class="tag">' + (s.admin ? 'admin' : 'friend') + '</span></div></div>'
+        ).join('');
+    }
+}
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+async function addFriend() {
+    const label = document.getElementById('fname').value.trim();
+    const password = document.getElementById('fpass').value;
+    if (!label || password.length < 4) { showMsg('Name and password (min 4 chars) required', false); return; }
+    const btn = document.getElementById('addBtn');
+    btn.disabled = true;
+    const j = await api('add', {label, password});
+    btn.disabled = false;
+    if (j && j.ok) {
+        showMsg('Friend added: ' + label, true);
+        document.getElementById('fname').value = '';
+        document.getElementById('fpass').value = '';
+        load();
+    } else {
+        showMsg((j && j.error) || 'Failed', false);
+    }
+}
+async function revoke(label) {
+    if (!confirm('Revoke access for ' + label + '? They will be logged out immediately.')) return;
+    const j = await api('revoke', {label});
+    if (j && j.ok) { showMsg('Access revoked: ' + label, true); load(); }
+}
+load();
+</script>
+</body>
+</html>

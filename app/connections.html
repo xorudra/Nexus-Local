@@ -472,6 +472,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 <a href="/" data-page="dashboard">Dashboard</a>
 <a href="/connections" data-page="connections">Connections</a>
 <a href="/settings" data-page="settings">Update Keys</a>
+<a href="/admin" data-page="admin" id="nav-admin" style="display:none">Admin</a>
 <a href="#" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login');return false">Logout</a>
 </nav>
 <script>
@@ -479,6 +480,8 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 var p=location.pathname;
 document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
 if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
+// Show Admin link only for admins
+fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})}).then(function(r){if(r.ok){var el=document.getElementById('nav-admin');if(el)el.style.display='';}}).catch(function(){});
 });
 })();
 </script>
