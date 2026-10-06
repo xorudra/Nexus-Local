@@ -633,10 +633,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Settings page - update keys after login
         if parsed.path == "/settings":
-            if not self._get_session():
+            info = self._session_info()
+            if not info:
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.end_headers()
+                return
+            if not info.get("admin"):
+                self.send_response(403)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>Admin only</h1>")
                 return
             # Show current keys (masked) with fields to update
             current = getattr(Handler, 'keys', {})
@@ -993,9 +1000,14 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if parsed.path == "/settings":
-            if not self._get_session():
+            info = self._session_info()
+            if not info:
                 self._set_json_headers(401)
                 self.wfile.write(json.dumps({"error": "not logged in"}).encode())
+                return
+            if not info.get("admin"):
+                self._set_json_headers(403)
+                self.wfile.write(json.dumps({"error": "admin only"}).encode())
                 return
             length = int(self.headers.get("Content-Length", 0))
             form = parse_qs(self.rfile.read(length).decode())

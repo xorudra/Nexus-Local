@@ -471,7 +471,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 <div class="nav-title"><svg viewBox="0 0 100 36" style="width:26px;height:10px;vertical-align:baseline;margin-right:8px"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#A855F7"/></svg>NEXUS LOCAL</div>
 <a href="/" data-page="dashboard">Dashboard</a>
 <a href="/connections" data-page="connections">Connections</a>
-<a href="/settings" data-page="settings">Update Keys</a>
+<a href="/settings" data-page="settings" id="nav-keys" style="display:none">Update Keys</a>
 <a href="/admin" data-page="admin" id="nav-admin" style="display:none">Admin</a>
 <a href="#" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login');return false">Logout</a>
 </nav>
@@ -481,7 +481,7 @@ var p=location.pathname;
 document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
 if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
 // Show Admin link only for admins
-fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})}).then(function(r){if(r.ok){var el=document.getElementById('nav-admin');if(el)el.style.display='';}}).catch(function(){});
+fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})}).then(function(r){if(r.ok){var el=document.getElementById('nav-admin');if(el)el.style.display='';var k=document.getElementById('nav-keys');if(k)k.style.display='';}}).catch(function(){});
 });
 })();
 </script>
