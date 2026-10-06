@@ -1812,7 +1812,7 @@ class Handler(BaseHTTPRequestHandler):
             # _attempt() runs ONE provider/model and returns (ok, reply_or_err...).
             # The loop below tries the chosen provider first, then fallbacks, so a
             # dead key / retired model / rate limit routes around automatically.
-            def _attempt(prov, mdl, timeout):
+            def _attempt(prov, mdl, timeout, msgs=None):
                 akey = _ekeys.get(prov) if _ekeys else None
                 if not akey and prov not in RELAY_KEYLESS:
                     return (False, 400, f"no key configured for {prov}")
@@ -1861,7 +1861,7 @@ class Handler(BaseHTTPRequestHandler):
                     headers["X-Title"] = "NexusLocal"
                 body = {
                     "model": mdl,
-                    "messages": [{"role": "user", "content": ([{"type": "text", "text": message}] + ([{"type": "image_url", "image_url": {"url": image}}] if image else [])) if image else message}],
+                    "messages": msgs if msgs else [{"role": "user", "content": ([{"type": "text", "text": message}] + ([{"type": "image_url", "image_url": {"url": image}}] if image else [])) if image else message}],
                     "max_tokens": 1024,
                 }
                 try:
@@ -1920,6 +1920,140 @@ class Handler(BaseHTTPRequestHandler):
                         _fb.append((cand, cm))
             healthy = [(p, m) for (p, m) in _fb if not _provider_down(p)]
             _attempts += (healthy if healthy else _fb)
+            if mode == "agent":
+                # Agentic mode: the model can call tools (web search via Bing,
+                # guarded page fetch, exact calculator) in a loop before answering.
+                import re as _re_a, html as _html_a, socket as _sock_a, ipaddress as _ip_a, ast as _ast_a, operator as _op_a
+                _BROWSER_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
+                def _clean(s):
+                    return _html_a.unescape(_re_a.sub(r"<[^>]+>", "", s or "")).strip()
+                def _tool_search(query):
+                    q = urllib.parse.quote_plus(str(query)[:200])
+                    req = Request(f"https://www.bing.com/search?q={q}&count=6", headers=_BROWSER_UA)
+                    with urlopen(req, timeout=25) as r:
+                        page = r.read().decode(errors="replace")
+                    out = []
+                    for block in page.split('<li class="b_algo"')[1:7]:
+                        m = _re_a.search(r'<h2><a href="([^"]+)"[^>]*>(.*?)</a></h2>', block, _re_a.S)
+                        if not m:
+                            continue
+                        url = _html_a.unescape(m.group(1))
+                        um = _re_a.search(r"[?&]u=a1([A-Za-z0-9_-]+)", url)
+                        if um:
+                            try:
+                                url = base64.b64decode(um.group(1) + "==").decode(errors="replace")
+                            except Exception:
+                                pass
+                        sn = _re_a.search(r"<p[^>]*>(.*?)</p>", block, _re_a.S)
+                        out.append(f"- {_clean(m.group(2))}\n  {url}\n  {_clean(sn.group(1))[:300] if sn else ''}")
+                    return "\n".join(out) if out else "No results found."
+                def _safe_url(u):
+                    p = urllib.parse.urlparse(str(u))
+                    if p.scheme not in ("http", "https") or not p.hostname:
+                        return False
+                    host = p.hostname.lower()
+                    if host == "localhost":
+                        return False
+                    try:
+                        infos = _sock_a.getaddrinfo(host, None)
+                    except Exception:
+                        return False
+                    for info in infos:
+                        ip = _ip_a.ip_address(info[4][0])
+                        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                            return False
+                    return True
+                class _GuardedRedirect(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, req, fp, code, msg, headers, newurl):
+                        if not _safe_url(newurl):
+                            return None
+                        return super().redirect_request(req, fp, code, msg, headers, newurl)
+                def _tool_fetch(url):
+                    if not _safe_url(url):
+                        return "Blocked: URL is not a public web address."
+                    opener = urllib.request.build_opener(_GuardedRedirect)
+                    req = Request(str(url)[:2000], headers=_BROWSER_UA)
+                    with opener.open(req, timeout=20) as r:
+                        raw = r.read(1500000)
+                    text = raw.decode(errors="replace")
+                    text = _re_a.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", text)
+                    text = _clean(text)
+                    text = _re_a.sub(r"\s+", " ", text)
+                    return text[:8000] if text else "Page had no readable text."
+                _OPS = {_ast_a.Add: _op_a.add, _ast_a.Sub: _op_a.sub, _ast_a.Mult: _op_a.mul, _ast_a.Div: _op_a.truediv, _ast_a.Mod: _op_a.mod, _ast_a.Pow: _op_a.pow, _ast_a.USub: _op_a.neg, _ast_a.FloorDiv: _op_a.floordiv}
+                def _calc(node):
+                    if isinstance(node, _ast_a.Expression):
+                        return _calc(node.body)
+                    if isinstance(node, _ast_a.Constant) and isinstance(node.value, (int, float)):
+                        return node.value
+                    if isinstance(node, _ast_a.BinOp) and type(node.op) in _OPS:
+                        return _OPS[type(node.op)](_calc(node.left), _calc(node.right))
+                    if isinstance(node, _ast_a.UnaryOp) and type(node.op) in _OPS:
+                        return _OPS[type(node.op)](_calc(node.operand))
+                    raise ValueError("unsupported expression")
+                def _tool_calc(expr):
+                    return str(_calc(_ast_a.parse(str(expr)[:200], mode="eval")))
+                _TOOLS = {"web_search": _tool_search, "fetch_url": _tool_fetch, "calculate": _tool_calc}
+                _sys = ("You are Nexus Agent, an assistant with tools. To use a tool, reply with ONLY a fenced block like:\n"
+                        "```tool\n{\"name\": \"web_search\", \"args\": {\"query\": \"...\"}}\n```\n"
+                        "Tools: web_search {query} - search the web; fetch_url {url} - read a web page; calculate {expression} - exact math.\n"
+                        "Use tools when facts may be current or external, or for exact math. One tool per reply. "
+                        "When you have enough information, answer normally with the final answer (no tool block).")
+                _msgs = [{"role": "system", "content": _sys}, {"role": "user", "content": message}]
+                _agent_list = [(p, m) for (p, m) in _attempts if p != "cohere"] or _attempts
+                _used_tools = []
+                _final = None
+                _ap2, _am2 = _agent_list[0]
+                for _round in range(5):
+                    _ok = False
+                    _reply = ""
+                    for (_cp, _cm) in _agent_list[:3]:
+                        _res = _attempt(_cp, _cm, 60, _msgs)
+                        if _res[0]:
+                            _ok = True
+                            _ap2, _am2 = _cp, _cm
+                            _reply = _res[1]
+                            break
+                        _note_failure(_cp)
+                    if not _ok:
+                        self._set_json_headers(502)
+                        self.wfile.write(json.dumps({"error": "agent could not reach a model, try again"}).encode())
+                        return
+                    _note_success(_ap2)
+                    _tm = _re_a.search(r"```tool\s*(\{.*?\})\s*```", _reply or "", _re_a.S)
+                    if not _tm:
+                        _final = _reply
+                        break
+                    try:
+                        _call = json.loads(_tm.group(1))
+                        _tname = _call.get("name", "")
+                        _targs = _call.get("args", {}) or {}
+                    except Exception:
+                        _tname, _targs = "", {}
+                    _fn = _TOOLS.get(_tname)
+                    if not _fn:
+                        _tres = "Unknown tool. Available: web_search, fetch_url, calculate."
+                        _used_tools.append(_tname or "?")
+                        _arg = ""
+                    else:
+                        try:
+                            _arg = _targs.get("query") or _targs.get("url") or _targs.get("expression") or ""
+                            _tres = _fn(_arg)
+                        except Exception as _te:
+                            _tres = f"Tool error: {type(_te).__name__}"
+                            _arg = ""
+                        _used_tools.append(f"{_tname}({str(_arg)[:60]})")
+                    _msgs.append({"role": "assistant", "content": _reply})
+                    _msgs.append({"role": "user", "content": f"Tool result ({_tname}):\n{str(_tres)[:7000]}\n\nContinue: use another tool if needed, else give the final answer."})
+                if _final is None:
+                    _msgs.append({"role": "user", "content": "Give your final answer now, without any tool block."})
+                    _res = _attempt(_ap2, _am2, 60, _msgs)
+                    _final = _res[1] if _res[0] else "I couldn't complete that. Try again."
+                if _used_tools:
+                    _final = (_final or "") + "\n\n---\n\U0001f527 Tools used: " + ", ".join(_used_tools)
+                self._set_json_headers(200)
+                self.wfile.write(json.dumps({"reply": _final, "used_provider": _ap2, "used_model": _am2}).encode())
+                return
             _last = (502, "Could not reach the provider.")
             _answered = None
             for _i, (_ap, _am) in enumerate(_attempts[:4]):
