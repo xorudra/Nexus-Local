@@ -1206,6 +1206,12 @@ class Handler(BaseHTTPRequestHandler):
                             models = models + [m for m in ("Lightricks/LTX-Video",) if m not in models]
             except Exception as e:
                 pass
+            # Injections must also apply when the upstream listing itself failed
+            _cap2 = parse_qs(parsed.query).get("cap", ["chat"])[0]
+            if provider in ("pollinations", "relay_pollinations") and _cap2 == "image" and not models:
+                models = ["flux", "turbo"]
+            if provider == "huggingface" and _cap2 == "video" and not models:
+                models = ["Lightricks/LTX-Video"]
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
