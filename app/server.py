@@ -1706,17 +1706,29 @@ class Handler(BaseHTTPRequestHandler):
                             headers={"Authorization": f"Bearer {_gk}", "Content-Type": "application/json", **_UA}, method="POST")
                         with urlopen(_rq, timeout=60) as _rs:
                             _wavs.append(_rs.read())
-                    # Merge WAV chunks into a single clip
-                    _out = _io.BytesIO()
-                    _wout = _wave.open(_out, "wb")
-                    _params = None
+                    # Merge WAV chunks into a single clip. Groq returns a
+                    # streaming header (RIFF size 0xFFFFFFFF, nframes claims
+                    # 2.1 billion), so neither getnframes() nor setparams()
+                    # can be trusted — read frames in bounded pulls until EOF
+                    # and set only channels/width/rate on the output.
+                    _frames = b""
+                    _fmt = None
                     for _wb in _wavs:
                         _wr = _wave.open(_io.BytesIO(_wb), "rb")
-                        if _params is None:
-                            _params = _wr.getparams()
-                            _wout.setparams(_params)
-                        _wout.writeframes(_wr.readframes(_wr.getnframes()))
+                        if _fmt is None:
+                            _fmt = (_wr.getnchannels(), _wr.getsampwidth(), _wr.getframerate())
+                        while True:
+                            _d = _wr.readframes(8192)
+                            if not _d:
+                                break
+                            _frames += _d
                         _wr.close()
+                    _out = _io.BytesIO()
+                    _wout = _wave.open(_out, "wb")
+                    _wout.setnchannels(_fmt[0])
+                    _wout.setsampwidth(_fmt[1])
+                    _wout.setframerate(_fmt[2])
+                    _wout.writeframes(_frames)
                     _wout.close()
                     _b64 = base64.b64encode(_out.getvalue()).decode()
                     self._set_json_headers(200)
