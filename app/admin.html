@@ -69,6 +69,17 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 
 
 <div class="card">
+<h2>MASTER PASSWORD</h2>
+<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Change the password that encrypts all your provider keys. At least 10 characters. You'll be signed out everywhere and must log in with the new password.</p>
+<div class="row">
+<input id="mpCur" type="password" placeholder="Current master password">
+<input id="mpNew" type="password" placeholder="New master password (10+ chars)">
+<button onclick="changeMaster()">Change password</button>
+</div>
+<div id="mpMsg" style="margin-top:10px;font-size:13px;color:#9aa3b2"></div>
+</div>
+
+<div class="card">
 <h2>TWO-FACTOR AUTH (ADMIN)</h2>
 <p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Protect your admin login with an authenticator app (Google Authenticator, Authy, etc.). Friends are not affected.</p>
 <div id="tfaStatus" style="margin-bottom:12px;font-size:14px;color:#9aa3b2">Enter your master password to check status</div>
@@ -166,6 +177,23 @@ async function revoke(label) {
     if (j && j.ok) { showMsg('Access revoked: ' + label, true); load(); }
     else { showMsg((j && j.error) || 'Failed', false); }
 }
+// Master password change
+async function changeMaster() {
+    const cur = document.getElementById('mpCur').value;
+    const nw = document.getElementById('mpNew').value;
+    const msg = document.getElementById('mpMsg');
+    if (!cur || !nw) { msg.textContent = 'Enter both passwords.'; return; }
+    if (nw.length < 10) { msg.textContent = 'New password must be at least 10 characters.'; return; }
+    msg.textContent = 'Changing…';
+    const r = await api('change_master', {master_pw: cur, new_master_pw: nw});
+    if (r && r.ok) {
+        msg.innerHTML = '<span style="color:#7dff9a">✓ Password changed. Signing you out — log in with the new password.</span>';
+        setTimeout(() => { location.href = '/login'; }, 1500);
+    } else {
+        msg.textContent = (r && r.error) ? r.error : 'Change failed.';
+    }
+}
+
 // 2FA management
 let _tfaEnabled = false;
 async function check2FA() {

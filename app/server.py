@@ -44,6 +44,23 @@ from key_security import encrypt_keys, decrypt_keys
 USAGE_PATH = Path(__file__).parent / "usage.jsonl"
 SESSIONS = {}
 _login_attempts = {}
+# Per-session API rate limits: (bucket, session token) -> [timestamps].
+# Stops a single session (friend or hijacked) from burning provider quota.
+_RL = {}
+
+def _rl_ok(bucket, token, limit, window=60):
+    now = time.time()
+    key = (bucket, token or "?")
+    hits = [t for t in _RL.get(key, []) if now - t < window]
+    if len(hits) >= limit:
+        _RL[key] = hits
+        return False
+    hits.append(now)
+    _RL[key] = hits
+    if len(_RL) > 5000:
+        _RL.clear()
+    return True
+
 # Provider health (circuit breaker): provider -> {"fails": int, "down_until": float}
 _PROVIDER_HEALTH = {}
 
@@ -170,6 +187,26 @@ def _totp_verify(secret_b32, code, window=1):
     except Exception:
         pass
     return False
+
+_TOTP_LAST_STEP = {"v": -1}  # highest TOTP step accepted at login (replay guard)
+
+def _totp_match_step(secret_b32, code, window=1):
+    """Return the timestep a code matches, or None. Lets the login flow
+    reject a code that was already used (replay within its validity window)."""
+    try:
+        secret = _base64.b32decode(secret_b32.upper())
+        code = str(code).strip()
+        t = int(time.time()) // 30
+        for offset in range(-window, window + 1):
+            msg = _struct.pack(">Q", t + offset)
+            h = _hmac.new(secret, msg, hashlib.sha1).digest()
+            o = h[-1] & 0x0F
+            c = _struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF
+            if _hmac.compare_digest(str(c % 1000000).zfill(6), code):
+                return t + offset
+    except Exception:
+        pass
+    return None
 
 def _totp_secret():
     return _base64.b32encode(secrets.token_bytes(20)).decode()
@@ -1408,6 +1445,10 @@ class Handler(BaseHTTPRequestHandler):
             # Speech-to-text for the composer mic button (Groq Whisper).
             if not self._require_session():
                 return
+            if not _rl_ok("transcribe", self._get_session(), 12, 60):
+                self._set_json_headers(429)
+                self.wfile.write(json.dumps({"error": "too many voice inputs, slow down a moment"}).encode())
+                return
             _ekeys_t = self._effective_keys()
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
@@ -1466,6 +1507,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/chat":
             if not self._require_session():
+                return
+            if not _rl_ok("chat", self._get_session(), 40, 60):
+                self._set_json_headers(429)
+                self.wfile.write(json.dumps({"error": "you're sending messages too fast — give it a few seconds"}).encode())
                 return
             # Effective keys: friend's own vault if they have one, else shared keys
             _ekeys = self._effective_keys()
@@ -2263,7 +2308,8 @@ class Handler(BaseHTTPRequestHandler):
                 # Pending session holds already-decrypted keys (no password stored)
                 dec_keys = pend.get("keys")
                 secret = (dec_keys or {}).get("_totp_secret", "")
-                if not secret or not _totp_verify(secret, data["code"]):
+                _step = _totp_match_step(secret, data["code"]) if secret else None
+                if _step is None or _step <= _TOTP_LAST_STEP["v"]:
                     attempts.append(now)
                     _2FA_ATTEMPTS[tmp] = attempts
                     # Prune stale trackers
@@ -2273,6 +2319,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                     return
+                _TOTP_LAST_STEP["v"] = _step  # this code can never be replayed
                 _PENDING_2FA.pop(tmp, None)  # consume only on success
                 _2FA_ATTEMPTS.pop(tmp, None)
                 _login_attempts.pop(ip, None)
@@ -2480,6 +2527,35 @@ class Handler(BaseHTTPRequestHandler):
                         del SESSIONS[tok]
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            if action == "change_master":
+                # Rotate the master password: re-encrypt BOTH vaults (provider
+                # keys incl. the TOTP secret, and the friend access blob) with
+                # the new password, then sign out every session so the old
+                # password is dead everywhere.
+                cur = data.get("master_pw") or ""
+                new = data.get("new_master_pw") or ""
+                if len(new) < 10:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "new password must be at least 10 characters"}).encode())
+                    return
+                if new == cur:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "new password must be different"}).encode())
+                    return
+                key_path = Path(__file__).parent / "keys.enc"
+                try:
+                    kd = decrypt_keys(key_path, cur)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+                encrypt_keys(kd, new, key_path)
+                _save_access(_load_access(), new)
+                Handler.keys = kd
+                SESSIONS.clear()
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out"}).encode())
                 return
             if action == "2fa_status":
                 try:
