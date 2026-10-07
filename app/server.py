@@ -1706,31 +1706,46 @@ class Handler(BaseHTTPRequestHandler):
                             headers={"Authorization": f"Bearer {_gk}", "Content-Type": "application/json", **_UA}, method="POST")
                         with urlopen(_rq, timeout=60) as _rs:
                             _wavs.append(_rs.read())
-                    # Merge WAV chunks into a single clip. Groq returns a
-                    # streaming header (RIFF size 0xFFFFFFFF, nframes claims
-                    # 2.1 billion), so neither getnframes() nor setparams()
-                    # can be trusted — read frames in bounded pulls until EOF
-                    # and set only channels/width/rate on the output.
-                    _frames = b""
-                    _fmt = None
-                    for _wb in _wavs:
-                        _wr = _wave.open(_io.BytesIO(_wb), "rb")
-                        if _fmt is None:
-                            _fmt = (_wr.getnchannels(), _wr.getsampwidth(), _wr.getframerate())
-                        while True:
-                            _d = _wr.readframes(8192)
-                            if not _d:
+                    # Merge WAV chunks at the byte level (no wave module:
+                    # Groq returns a streaming header — RIFF/data sizes are
+                    # 0xFFFFFFFF and nframes claims 2.1 billion — which the
+                    # stdlib wave reader/writer chokes on, differently across
+                    # Python versions). Parse the RIFF chunks manually,
+                    # concatenate the PCM, rebuild a clean 44-byte header.
+                    import struct as _struct
+                    def _parse_wav(_wb):
+                        _pos = 12
+                        _fmt = None
+                        _pcm = b""
+                        while _pos + 8 <= len(_wb):
+                            _cid = _wb[_pos:_pos + 4]
+                            _csz = int.from_bytes(_wb[_pos + 4:_pos + 8], "little")
+                            if _cid == b"fmt ":
+                                _fmt = _wb[_pos + 8:_pos + 8 + min(_csz, 16)]
+                            elif _cid == b"data":
+                                _pcm = _wb[_pos + 8:] if _csz >= len(_wb) else _wb[_pos + 8:_pos + 8 + _csz]
                                 break
-                            _frames += _d
-                        _wr.close()
-                    _out = _io.BytesIO()
-                    _wout = _wave.open(_out, "wb")
-                    _wout.setnchannels(_fmt[0])
-                    _wout.setsampwidth(_fmt[1])
-                    _wout.setframerate(_fmt[2])
-                    _wout.writeframes(_frames)
-                    _wout.close()
-                    _b64 = base64.b64encode(_out.getvalue()).decode()
+                            _pos += 8 + _csz + (_csz % 2)
+                        return _fmt, _pcm
+                    _fmt = None
+                    _pcm_all = b""
+                    for _wb in _wavs:
+                        _f, _p = _parse_wav(_wb)
+                        if _fmt is None:
+                            _fmt = _f
+                        _pcm_all += _p
+                    if _fmt is None or not _pcm_all:
+                        raise ValueError("unparseable wav")
+                    _afmt = int.from_bytes(_fmt[0:2], "little")
+                    _nch = int.from_bytes(_fmt[2:4], "little")
+                    _rate = int.from_bytes(_fmt[4:8], "little")
+                    _brate = int.from_bytes(_fmt[8:12], "little")
+                    _balign = int.from_bytes(_fmt[12:14], "little")
+                    _bits = int.from_bytes(_fmt[14:16], "little")
+                    _hdr = (b"RIFF" + _struct.pack("<I", 36 + len(_pcm_all)) + b"WAVEfmt "
+                            + _struct.pack("<IHHIIHH", 16, _afmt, _nch, _rate, _brate, _balign, _bits)
+                            + b"data" + _struct.pack("<I", len(_pcm_all)))
+                    _b64 = base64.b64encode(_hdr + _pcm_all).decode()
                     self._set_json_headers(200)
                     self.wfile.write(json.dumps({"audio": "data:audio/wav;base64," + _b64,
                         "reply": "\U0001f50a " + _text[:120], "used_provider": _prov, "used_model": _mdl}).encode())
