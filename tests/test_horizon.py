@@ -133,6 +133,13 @@ class HorizonTests(unittest.TestCase):
         status, body, headers = self._get("/vendor/gsap.min.js")
         self.assertEqual(status, 200)
         self.assertGreater(len(body), 10000)
+        # three.module.js is a thin wrapper: it imports ./three.core.js.
+        # That file MUST be vendored too (its 404 killed the whole module
+        # graph on the first live deploy — pinned here so it cannot
+        # regress silently).
+        status, body, headers = self._get("/vendor/three.core.js")
+        self.assertEqual(status, 200)
+        self.assertGreater(len(body), 1000000)
 
     def test_03_vendor_route_is_confined(self):
         # Traversal out of the vendor dir must not serve app files...
