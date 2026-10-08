@@ -102,6 +102,13 @@ def _model_caps(provider, model):
     return ["chat"]
 ACCESS_PATH = Path(__file__).parent / "access.json"
 USERS_PATH = Path(__file__).parent / "users.enc"
+ACCESS_ENC_PATH = Path(__file__).parent / "access.enc"
+# Server-held restore key (env var on the host, NEVER in the repo). It can
+# decrypt ONLY the friend access list (password hashes) so the list — and
+# friend logins — survive restarts without waiting for an admin login.
+# Provider keys still require the master password; this key unlocks nothing
+# else on its own.
+RESTORE_KEY = os.environ.get("NEXUS_RESTORE_KEY", "")
 # Per-user key vaults: app/userkeys/<label>.enc, encrypted with the user's own password
 USERKEYS_DIR = Path(__file__).parent / "userkeys"
 USERKEYS_DIR.mkdir(exist_ok=True)
@@ -169,6 +176,7 @@ def _load_access():
 
 def _save_access(d, master_pw=None):
     ACCESS_PATH.write_text(json.dumps(d, indent=2))
+    _write_access_enc(d)
     # Persist encrypted backup so it survives redeploys (users.enc is tracked in git)
     if master_pw:
         try:
@@ -190,6 +198,37 @@ def _restore_access(master_pw):
         if needs and USERS_PATH.exists():
             d = decrypt_keys(USERS_PATH, master_pw)
             if isinstance(d, dict):
+                ACCESS_PATH.write_text(json.dumps(d, indent=2))
+                _write_access_enc(d)
+    except Exception:
+        pass
+
+
+def _write_access_enc(d):
+    """Mirror the access list into access.enc under the server restore key,
+    so a fresh instance can rebuild access.json at boot (no admin login
+    needed). No-op when the host has no restore key configured."""
+    if not RESTORE_KEY or not isinstance(d, dict):
+        return
+    try:
+        encrypt_keys(d, RESTORE_KEY, ACCESS_ENC_PATH)
+        os.chmod(ACCESS_ENC_PATH, 0o600)
+    except Exception:
+        pass
+
+
+def _boot_restore_access():
+    """At startup: rebuild access.json from access.enc (restore key) when
+    the disk was wiped by a redeploy. Falls back silently to the classic
+    restore-at-admin-login when no restore key/file exists."""
+    try:
+        if ACCESS_PATH.exists():
+            existing = json.loads(ACCESS_PATH.read_text())
+            if isinstance(existing, dict) and existing:
+                return
+        if RESTORE_KEY and ACCESS_ENC_PATH.exists():
+            d = decrypt_keys(ACCESS_ENC_PATH, RESTORE_KEY)
+            if isinstance(d, dict) and d:
                 ACCESS_PATH.write_text(json.dumps(d, indent=2))
     except Exception:
         pass
@@ -1075,10 +1114,13 @@ class Handler(BaseHTTPRequestHandler):
                 _kp = Path(__file__).parent / "keys.enc"
                 if _kp.exists():
                     keys_b64 = _b64.b64encode(_kp.read_bytes()).decode()
+                access_b64 = None
+                if ACCESS_ENC_PATH.exists():
+                    access_b64 = _b64.b64encode(ACCESS_ENC_PATH.read_bytes()).decode()
             except Exception:
-                blob, vaults, chats, keys_b64 = None, {}, {}, None
+                blob, vaults, chats, keys_b64, access_b64 = None, {}, {}, None, None
             self._set_json_headers(200)
-            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64}).encode())
+            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64, "access": access_b64}).encode())
             return
         if parsed.path == "/api/2fa_qr":
             # QR code for the TOTP secret (admin only) — scan with authenticator app
@@ -1500,6 +1542,10 @@ class Handler(BaseHTTPRequestHandler):
             # Speech-to-text for the composer mic button (Groq Whisper).
             if not self._require_session():
                 return
+            if Handler.keys is None:
+                self._set_json_headers(503)
+                self.wfile.write(json.dumps({"error": "server is locked — the admin needs to log in once after a restart"}).encode())
+                return
             if not _rl_ok("transcribe", self._get_session(), 12, 60):
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "too many voice inputs, slow down a moment"}).encode())
@@ -1562,6 +1608,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/chat":
             if not self._require_session():
+                return
+            if Handler.keys is None:
+                self._set_json_headers(503)
+                self.wfile.write(json.dumps({"error": "server is locked — the admin needs to log in once after a restart"}).encode())
                 return
             if not _rl_ok("chat", self._get_session(), 40, 60):
                 self._set_json_headers(429)
@@ -2425,10 +2475,9 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                     return
                 is_admin = False
-                if Handler.keys is None:
-                    self._set_json_headers(503)
-                    self.wfile.write(json.dumps({"error": "admin needs to log in first after restart"}).encode())
-                    return
+                # Friends may log in even before the admin unlock: their
+                # session simply can't use provider keys until then (the
+                # chat/transcribe/models endpoints say so clearly).
             # Successful
             _login_attempts.pop(ip, None)
             if master_ok and dec_keys.get("_totp_secret"):
@@ -2637,6 +2686,15 @@ class Handler(BaseHTTPRequestHandler):
                 SESSIONS.clear()
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out"}).encode())
+                return
+            if action == "2fa_state":
+                # Session-based status for the admin panel: Handler.keys was
+                # decrypted at this admin's own login, so it mirrors the live
+                # keys file — the panel can show the truth on load without
+                # asking for the master password again.
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"enabled": bool(Handler.keys and Handler.keys.get("_totp_secret")),
+                               "pending": bool(Handler.keys and Handler.keys.get("_totp_pending"))}).encode())
                 return
             if action == "2fa_status":
                 try:
@@ -2933,6 +2991,7 @@ def main():
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8080"))
     addr = (host, port)
+    _boot_restore_access()
     httpd = ThreadingHTTPServer(addr, Handler)
     print(f"Serving on {addr[0]}:{addr[1]} – press Ctrl-C to stop")
     try:

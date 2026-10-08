@@ -160,6 +160,21 @@ async function load() {
             '<span class="tag">' + (s.admin ? 'admin' : 'friend') + '</span></div></div>'
         ).join('');
     }
+    // Truthful 2FA status straight from the session (no password re-entry).
+    const s = await api('2fa_state');
+    if (s && !s.error) {
+        _tfaEnabled = !!s.enabled;
+        const st = document.getElementById('tfaStatus');
+        if (st) {
+            st.innerHTML = s.enabled
+                ? '<span style="color:#7dff9a">✓ 2FA is ON</span>'
+                : (s.pending
+                    ? '<span style="color:#ffd97d">2FA setup pending — confirm with a code below</span>'
+                    : '<span style="color:#9aa3b2">2FA is OFF</span>');
+        }
+        const btn = document.getElementById('tfaBtn');
+        if (btn) btn.textContent = s.enabled ? 'Disable 2FA' : 'Enable 2FA';
+    }
 }
 function esc(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
