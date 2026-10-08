@@ -23,6 +23,13 @@ button:hover{filter:brightness(1.1)}
 #msg{min-height:20px;font-size:13px;margin-top:8px}
 .prov{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .prov label{min-width:170px;margin:0}
+details.exp{background:#0c0c0f;border:1px solid rgba(168,85,247,.25);border-radius:10px;padding:14px 16px;margin-bottom:12px}
+details.exp summary{color:#C084FC;cursor:pointer;font-size:15px;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.exp summary::-webkit-details-marker{display:none}
+details.exp summary::after{content:'▸';color:#a855f7;transition:transform .15s}
+details.exp[open ] summary::after{transform:rotate(90deg)}
+details.exp .lane-sub{color:#9aa3b2;font-size:12px;margin:8px 0 12px;line-height:1.5}
+details.exp .cnt{font-size:11px;color:#9aa3b2;font-weight:400;margin-left:8px}
 .nav{margin-top:20px;display:flex;gap:10px}
 .nav a{color:#C084FC;text-decoration:none;font-size:14px;padding:8px 16px;border:1px solid rgba(168,85,247,.35);border-radius:8px}
 </style>
@@ -34,7 +41,17 @@ button:hover{filter:brightness(1.1)}
 
 <div class="card">
 <h2>PROVIDER KEYS</h2>
-<div id="providers"></div>
+<p style="color:#9aa3b2;font-size:13px;margin-bottom:14px;line-height:1.5">Choose your lane — expand <b style="color:#C084FC">FreeLLMAPI</b> or <b style="color:#C084FC">Relay</b> and add your keys there. In the chat, each lane's providers appear separately, and your key works in the lane you saved it under.</p>
+<details class="exp" id="exp_fl">
+<summary>FreeLLMAPI Providers <span class="cnt" id="cnt_fl"></span></summary>
+<p class="lane-sub">The normal direct lane — keys for Groq, Google, OpenRouter, NVIDIA and the freemium providers.</p>
+<div id="providers_fl"></div>
+</details>
+<details class="exp" id="exp_rl">
+<summary>Relay Providers <span class="cnt" id="cnt_rl"></span></summary>
+<p class="lane-sub">The relay lane — the same big providers reached through the relay (different accounts/quotas than the FreeLLMAPI lane).</p>
+<div id="providers_rl"></div>
+</details>
 </div>
 
 <div class="card">
@@ -51,8 +68,10 @@ button:hover{filter:brightness(1.1)}
 </div>
 
 <script>
-const PROVIDERS = ["groq","google","openrouter","nvidia","cohere","mistral","zhipu","cloudflare","huggingface","relay_groq","relay_openrouter","relay_gemini","relay_nvidia"];
-const LABELS = {groq:"Groq",google:"Google",openrouter:"OpenRouter",nvidia:"NVIDIA",cohere:"Cohere",mistral:"Mistral",zhipu:"Zhipu",cloudflare:"Cloudflare",huggingface:"Hugging Face",relay_groq:"Relay: Groq",relay_openrouter:"Relay: OpenRouter",relay_gemini:"Relay: Gemini",relay_nvidia:"Relay: NVIDIA"};
+const FL = ["groq","google","openrouter","nvidia","cohere","mistral","zhipu","cloudflare","huggingface"];
+const RL = ["relay_groq","relay_openrouter","relay_gemini","relay_nvidia"];
+const PROVIDERS = FL.concat(RL);
+const LABELS = {groq:"Groq",google:"Google",openrouter:"OpenRouter",nvidia:"NVIDIA",cohere:"Cohere",mistral:"Mistral",zhipu:"Zhipu",cloudflare:"Cloudflare",huggingface:"Hugging Face",relay_groq:"Groq",relay_openrouter:"OpenRouter",relay_gemini:"Gemini",relay_nvidia:"NVIDIA"};
 
 async function api(action, body) {
     const r = await fetch('/api/mykeys', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action, ...body})});
@@ -63,15 +82,24 @@ function msg(t, ok) {
     m.textContent = t;
     m.style.color = ok ? '#7dff9a' : '#ff9a9a';
 }
-async function load() {
-    const j = await api('view', {});
-    const configured = (j && j.configured) || [];
-    const box = document.getElementById('providers');
-    box.innerHTML = PROVIDERS.map(p => `
+function renderInto(boxId, list, configured) {
+    const box = document.getElementById(boxId);
+    box.innerHTML = list.map(p => `
         <div class="prov">
             <label>${LABELS[p]}${configured.includes(p) ? '<span class="badge on">set</span>' : '<span class="badge off">—</span>'}</label>
             <input id="k_${p}" type="password" placeholder="${configured.includes(p) ? '•••••• (set — blank keeps it)' : 'Enter key'}">
         </div>`).join('');
+    return list.filter(p => configured.includes(p)).length;
+}
+async function load() {
+    const j = await api('view', {});
+    const configured = (j && j.configured) || [];
+    const nFl = renderInto('providers_fl', FL, configured);
+    const nRl = renderInto('providers_rl', RL, configured);
+    document.getElementById('cnt_fl').textContent = nFl ? `(${nFl} set)` : '';
+    document.getElementById('cnt_rl').textContent = nRl ? `(${nRl} set)` : '';
+    if (nFl) document.getElementById('exp_fl').open = true;
+    if (nRl) document.getElementById('exp_rl').open = true;
 }
 async function save() {
     const password = document.getElementById('pw').value;
