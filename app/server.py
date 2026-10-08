@@ -131,6 +131,34 @@ def _save_userkeys(label, keys_dict, password):
     encrypt_keys(keys_dict, password, p)
     os.chmod(p, 0o600)
 
+# Per-user saved chats: app/chats/<label>.enc, encrypted with the user's own
+# login password (master password for the admin). Synced to GitHub through
+# /api/friend_blob like users.enc and the key vaults, so chats survive
+# redeploys. Format: {"chats": [{id, title, ts, updated, messages:[{r,t,m?}]}]}
+CHATS_DIR = Path(__file__).parent / "chats"
+CHATS_DIR.mkdir(exist_ok=True)
+
+def _chat_path(label):
+    safe = _re.sub(r"[^a-z0-9_]", "", (label or "").lower())[:30]
+    return CHATS_DIR / f"{safe}.enc"
+
+def _load_chats(label, password):
+    try:
+        p = _chat_path(label)
+        if not p.exists():
+            return {"chats": []}
+        d = decrypt_keys(p, password)
+        if isinstance(d, dict) and isinstance(d.get("chats"), list):
+            return d
+    except Exception:
+        pass
+    return {"chats": []}
+
+def _save_chats(label, data, password):
+    p = _chat_path(label)
+    encrypt_keys(data, password, p)
+    os.chmod(p, 0o600)
+
 def _load_access():
     try:
         if ACCESS_PATH.exists():
@@ -1033,10 +1061,17 @@ class Handler(BaseHTTPRequestHandler):
                             vaults[f.stem] = _b64.b64encode(f.read_bytes()).decode()
                         except Exception:
                             pass
+                chats = {}
+                if CHATS_DIR.exists():
+                    for f in sorted(CHATS_DIR.glob("*.enc")):
+                        try:
+                            chats[f.stem] = _b64.b64encode(f.read_bytes()).decode()
+                        except Exception:
+                            pass
             except Exception:
-                blob, vaults = None, {}
+                blob, vaults, chats = None, {}, {}
             self._set_json_headers(200)
-            self._send_body(json.dumps({"blob": blob, "vaults": vaults}).encode())
+            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats}).encode())
             return
         if parsed.path == "/api/2fa_qr":
             # QR code for the TOTP secret (admin only) — scan with authenticator app
@@ -2384,7 +2419,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": tmp}).encode())
                 return
             token = secrets.token_hex(32)
-            sess = {"ts": time.time(), "label": label, "admin": is_admin}
+            sess = {"ts": time.time(), "label": label, "admin": is_admin, "chat_pw": password}
             if not is_admin:
                 # Load friend's personal key vault (if they added their own keys)
                 uk = _load_userkeys(label, password)
@@ -2552,6 +2587,14 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 encrypt_keys(kd, new, key_path)
                 _save_access(_load_access(), new)
+                # Admin's saved chats are encrypted with the master password
+                # too — re-encrypt them so they survive the rotation.
+                try:
+                    _admin_chats = _load_chats("Rudra", cur)
+                    if _admin_chats.get("chats"):
+                        _save_chats("Rudra", _admin_chats, new)
+                except Exception:
+                    pass
                 Handler.keys = kd
                 SESSIONS.clear()
                 self._set_json_headers()
@@ -2644,6 +2687,113 @@ class Handler(BaseHTTPRequestHandler):
                 if Handler.keys is not None:
                     Handler.keys.pop("_totp_secret", None)
                     Handler.keys.pop("_totp_pending", None)
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            self._set_json_headers(400)
+            self.wfile.write(json.dumps({"error": "unknown action"}).encode())
+            return
+        if parsed.path == "/api/chats":
+            # Saved conversations, per user, encrypted with their login
+            # password. Actions: list / get / save / delete.
+            info = self._session_info()
+            if not info:
+                self._set_json_headers(401)
+                self.wfile.write(json.dumps({"error": "not logged in"}).encode())
+                return
+            label = info.get("label", "")
+            chat_pw = info.get("chat_pw")
+            if not chat_pw:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "chat storage unavailable in this session — log in again"}).encode())
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b"{}"
+            try:
+                data = json.loads(raw_body)
+            except Exception:
+                data = {}
+            action = data.get("action", "list")
+            store = _load_chats(label, chat_pw)
+            chats = store.get("chats", [])
+            if action == "list":
+                out = [{"id": c.get("id"), "title": c.get("title", "Chat"),
+                        "ts": c.get("ts", 0), "updated": c.get("updated", 0),
+                        "count": len(c.get("messages", []))}
+                       for c in sorted(chats, key=lambda c: -c.get("updated", 0))]
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"chats": out}).encode())
+                return
+            if action == "get":
+                cid = str(data.get("id") or "")
+                found = next((c for c in chats if c.get("id") == cid), None)
+                if not found:
+                    self._set_json_headers(404)
+                    self.wfile.write(json.dumps({"error": "chat not found"}).encode())
+                    return
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"chat": found}).encode())
+                return
+            if action == "save":
+                import re as _re2
+                msgs_in = data.get("messages")
+                if not isinstance(msgs_in, list) or not msgs_in:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "no messages"}).encode())
+                    return
+                msgs = []
+                for m in msgs_in[:200]:
+                    if not isinstance(m, dict):
+                        continue
+                    t = m.get("t")
+                    if not isinstance(t, str) or not t:
+                        continue
+                    # Media data URIs are far too large to persist; note them.
+                    t = _re2.sub(r"data:[A-Za-z0-9/;,=+_-]{40000,}", "[media too large to store]", t)
+                    item = {"r": "user" if m.get("r") == "user" else "ai",
+                            "t": t[:120000]}
+                    if isinstance(m.get("m"), str) and m.get("m"):
+                        item["m"] = m["m"][:200]
+                    msgs.append(item)
+                if not msgs:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "no messages"}).encode())
+                    return
+                title = str(data.get("title") or "").strip()
+                if not title:
+                    first = next((m["t"] for m in msgs if m["r"] == "user"), "Chat")
+                    title = first[:48]
+                now = int(time.time())
+                cid = str(data.get("id") or "")
+                existing = next((c for c in chats if c.get("id") == cid), None) if cid else None
+                if existing:
+                    existing["messages"] = msgs
+                    existing["updated"] = now
+                    if title:
+                        existing["title"] = title
+                    cid = existing["id"]
+                else:
+                    cid = f"{now}-{secrets.token_hex(3)}"
+                    chats.append({"id": cid, "title": title, "ts": now,
+                                  "updated": now, "messages": msgs})
+                chats = sorted(chats, key=lambda c: -c.get("updated", 0))[:50]
+                store["chats"] = chats
+                try:
+                    _save_chats(label, store, chat_pw)
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "could not save chat"}).encode())
+                    return
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "id": cid}).encode())
+                return
+            if action == "delete":
+                cid = str(data.get("id") or "")
+                store["chats"] = [c for c in chats if c.get("id") != cid]
+                try:
+                    _save_chats(label, store, chat_pw)
+                except Exception:
+                    pass
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return

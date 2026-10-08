@@ -476,6 +476,29 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 .composer-box{padding:2px 10px 10px}
 }
 
+/* ===== Saved chats: bar + slide-in panel ===== */
+.chat-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.chat-bar button{width:auto;flex:none;background:#141419;border:1px solid rgba(168,85,247,.25);color:#e8e8ea;border-radius:9px;padding:7px 12px;font-size:13px;cursor:pointer;font-family:inherit}
+.chat-bar button:hover{border-color:#A855F7}
+#chat-title{flex:1;text-align:center;color:#9aa3b2;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#chats-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .2s;z-index:1500}
+#chats-backdrop.open{opacity:1;pointer-events:auto}
+#chats-panel{position:fixed;top:0;left:0;bottom:0;width:min(320px,86vw);background:#0c0c10;border-right:1px solid #232329;z-index:1501;transform:translateX(-105%);transition:transform .22s ease;display:flex;flex-direction:column;padding:16px;gap:10px}
+#chats-panel.open{transform:translateX(0)}
+.chats-head{display:flex;justify-content:space-between;align-items:center;color:#fff;font-weight:600;font-size:16px}
+#chats-close{background:none;border:none;color:#9aa3b2;font-size:16px;cursor:pointer;width:auto}
+.chats-new{background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.4);color:#C084FC;border-radius:9px;padding:10px;font-size:14px;cursor:pointer;font-family:inherit;width:100%}
+#chats-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+.chat-item{display:flex;align-items:center;gap:8px;background:#121216;border:1px solid #232329;border-radius:9px;padding:9px 11px;cursor:pointer}
+.chat-item.active{border-color:#A855F7}
+.chat-item-main{flex:1;min-width:0}
+.chat-item-title{color:#e8e8ea;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item-sub{color:#8a8a92;font-size:11px;margin-top:2px}
+.chat-del{background:none;border:none;color:#8a8a92;cursor:pointer;font-size:13px;padding:4px;width:auto}
+.chat-del:hover{color:#ff9a9a}
+.chats-none{color:#8a8a92;font-size:13px;line-height:1.6;padding:10px 2px}
+.chats-foot{color:#5a5a64;font-size:11px;line-height:1.5}
+
 /* ===== CINEMATIC LAYER ===== */
 body::before{content:"";position:fixed;inset:0;z-index:2000;pointer-events:none;
 background:radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.62) 100%)}
@@ -555,6 +578,11 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
 <div class="composer" id="composer-card">
     <div class="eyebrow">TASK COMPOSER</div>
     <h2>Chat with <span class="accent">any</span> provider</h2>
+    <div class="chat-bar">
+        <button id="chats-open" title="Saved chats">☰ Chats <span id="chats-count"></span></button>
+        <span id="chat-title">New chat</span>
+        <button id="chat-new" title="Start a new chat">＋ New</button>
+    </div>
     <div class="thread" id="composer-thread">
         <div class="thread-empty" id="thread-empty">
             <svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#A855F7"/></svg>
@@ -605,6 +633,14 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
     </div>
 </div>
 
+<div id="chats-backdrop"></div>
+<aside id="chats-panel">
+    <div class="chats-head"><span>Your chats</span><button id="chats-close" title="Close">✕</button></div>
+    <button id="chats-new" class="chats-new">＋ New chat</button>
+    <div id="chats-list"></div>
+    <div class="chats-foot">Chats save automatically — encrypted with your login password and backed up like your account, so they survive updates.</div>
+</aside>
+
 <button class="refresh" id="refresh-quotas" style="display:none">Refresh</button>
 
 <script>
@@ -615,6 +651,109 @@ const composerProviders = document.getElementById('composer-provider');
 const composerSend = document.getElementById('composer-send');
 const thread = document.getElementById('composer-thread');
 function hideEmpty(){const e=document.getElementById('thread-empty');if(e)e.style.display='none';}
+
+// ===== Saved chats (per user, encrypted server-side, auto-saved) =====
+let chatLog = [];
+let currentChatId = null;
+let currentChatTitle = 'New chat';
+let chatSaveTimer = null;
+async function chatsApi(action, body){
+    try {
+        const r = await fetch('/api/chats', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action, ...(body||{})})});
+        return await r.json();
+    } catch (e) { return null; }
+}
+function setChatTitle(t){
+    currentChatTitle = t;
+    const el = document.getElementById('chat-title');
+    if (el) el.textContent = t;
+}
+function scheduleSave(){
+    if (!chatLog.length) return;
+    clearTimeout(chatSaveTimer);
+    chatSaveTimer = setTimeout(saveCurrentChat, 600);
+}
+async function saveCurrentChat(){
+    const body = {messages: chatLog};
+    if (currentChatId) body.id = currentChatId;
+    if (currentChatTitle && currentChatTitle !== 'New chat') body.title = currentChatTitle;
+    const j = await chatsApi('save', body);
+    if (j && j.id) {
+        currentChatId = j.id;
+        if (currentChatTitle === 'New chat') {
+            const firstUser = chatLog.find(m => m.r === 'user');
+            if (firstUser) setChatTitle(firstUser.t.slice(0, 48));
+        }
+        refreshChatList();
+    }
+}
+async function refreshChatList(){
+    const box = document.getElementById('chats-list');
+    if (!box) return;
+    const j = await chatsApi('list', {});
+    const chats = (j && j.chats) || [];
+    const cnt = document.getElementById('chats-count');
+    if (cnt) cnt.textContent = chats.length ? '(' + chats.length + ')' : '';
+    box.innerHTML = '';
+    if (!chats.length) {
+        box.innerHTML = '<div class="chats-none">No saved chats yet.<br>Your conversations save automatically as you talk.</div>';
+        return;
+    }
+    chats.forEach(c => {
+        const d = document.createElement('div');
+        d.className = 'chat-item' + (c.id === currentChatId ? ' active' : '');
+        const when = new Date((c.updated || c.ts || 0) * 1000).toLocaleDateString(undefined, {month:'short', day:'numeric'});
+        d.innerHTML = '<div class="chat-item-main"><div class="chat-item-title">' + esc(c.title || 'Chat') + '</div><div class="chat-item-sub">' + when + ' · ' + (c.count || 0) + ' messages</div></div><button class="chat-del" title="Delete this chat">✕</button>';
+        d.querySelector('.chat-item-main').addEventListener('click', () => openChat(c.id));
+        d.querySelector('.chat-del').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await chatsApi('delete', {id: c.id});
+            if (c.id === currentChatId) newChat(true);
+            refreshChatList();
+        });
+        box.appendChild(d);
+    });
+}
+async function openChat(id){
+    const j = await chatsApi('get', {id});
+    if (!j || !j.chat) return;
+    currentChatId = j.chat.id;
+    chatLog = (j.chat.messages || []).map(m => ({r: m.r, t: m.t, ...(m.m ? {m: m.m} : {})}));
+    setChatTitle(j.chat.title || 'Chat');
+    thread.querySelectorAll('.msg').forEach(n => n.remove());
+    const e = document.getElementById('thread-empty');
+    if (chatLog.length) {
+        hideEmpty();
+        chatLog.forEach(m => addMsg(m.r === 'user' ? 'user' : 'ai', m.t, m.m));
+    } else if (e) { e.style.display = ''; }
+    closeChats();
+    refreshChatList();
+}
+function newChat(fromDelete){
+    currentChatId = null;
+    chatLog = [];
+    setChatTitle('New chat');
+    thread.querySelectorAll('.msg').forEach(n => n.remove());
+    const e = document.getElementById('thread-empty');
+    if (e) e.style.display = '';
+    if (!fromDelete) closeChats();
+    refreshChatList();
+}
+function openChats(){
+    document.getElementById('chats-panel').classList.add('open');
+    document.getElementById('chats-backdrop').classList.add('open');
+    refreshChatList();
+}
+function closeChats(){
+    document.getElementById('chats-panel').classList.remove('open');
+    document.getElementById('chats-backdrop').classList.remove('open');
+}
+document.getElementById('chats-open').addEventListener('click', openChats);
+document.getElementById('chats-close').addEventListener('click', closeChats);
+document.getElementById('chats-backdrop').addEventListener('click', closeChats);
+document.getElementById('chat-new').addEventListener('click', () => newChat());
+document.getElementById('chats-new').addEventListener('click', () => newChat());
+refreshChatList();
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function md(text){
   // Simple markdown to HTML: escape first, then apply formatting
@@ -1009,6 +1148,7 @@ composerSend.addEventListener('click', async () => {
     }
     hideEmpty();
     addMsg('user', msg);
+    chatLog.push({r:'user', t: msg}); scheduleSave();
     composerMsg.value = ''; composerMsg.style.height = 'auto';
     const typingEl = addTyping();
     composerSend.disabled = true;
@@ -1030,9 +1170,11 @@ composerSend.addEventListener('click', async () => {
             // Use actual provider/model if auto-selected
             const dispProvider = j.used_provider || provider;
             const dispModel = j.used_model || model;
-            if (j.audio) addAudioMsg(j.audio, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
-            else if (j.video) addVideoMsg(j.video, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
-            else addMsg('ai', j.reply, friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode);
+            const metaStr = friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode;
+            if (j.audio) { addAudioMsg(j.audio, metaStr); chatLog.push({r:'ai', t:'🔊 Voice reply — audio itself is not stored in saved chats', m: metaStr}); }
+            else if (j.video) { addVideoMsg(j.video, metaStr); chatLog.push({r:'ai', t:'🎬 Video reply — video itself is not stored in saved chats', m: metaStr}); }
+            else { addMsg('ai', j.reply, metaStr); chatLog.push({r:'ai', t: j.reply, m: metaStr}); }
+            scheduleSave();
         }
     } catch (e) {
         typingEl.remove();
