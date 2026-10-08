@@ -23,6 +23,7 @@ Features
 from __future__ import annotations
 
 import os
+import sys
 import json
 import datetime
 import base64
@@ -77,7 +78,7 @@ def _note_failure(p):
 def _note_success(p):
     _PROVIDER_HEALTH.pop(p, None)
 
-SESSION_EXPIRY = 1800
+SESSION_EXPIRY = int(os.environ.get("NEXUS_SESSION_EXPIRY", "1800"))
 def _model_caps(provider, model):
     """Capability tags for a model: chat, image, tts, stt, video, embedding, utility.
     Every model is used for what it's good at — the UI filters per mode."""
@@ -433,6 +434,73 @@ def _verify_password(password, stored):
     except Exception:
         return False, False
 
+# ---------------------------------------------------------------------------
+# Structured server-side logging with secret redaction + usage-log rotation.
+# Log lines go to stderr (Render captures them). Request bodies, passwords,
+# API keys, session tokens and 2FA codes are NEVER logged: events carry only
+# whitelisted metadata, and every value passes through _redact first.
+
+_SECRET_FIELD_RE = _re.compile(
+    r"(password|passwd|_pw|pw_|secret|token|api[_-]?key|cookie|authorization|otp|code)",
+    _re.IGNORECASE)
+_SECRET_VALUE_RE = _re.compile(
+    r"(Bearer\s+)[A-Za-z0-9._\-+/=]+|"
+    r"\b(?:sk|gsk|ghp|hf|xai)-[A-Za-z0-9_\-]{8,}\b|"
+    r"\b[A-Fa-f0-9]{64}\b")
+
+
+def _redact(value, field=""):
+    """Return a log-safe copy of `value`: fields whose name suggests a
+    secret are replaced wholesale; secret-shaped substrings inside other
+    strings are masked."""
+    if _SECRET_FIELD_RE.search(field or ""):
+        return "[redacted]"
+    if isinstance(value, str):
+        return _SECRET_VALUE_RE.sub(
+            lambda m: (m.group(1) + "[redacted]") if m.group(1) else "[redacted]",
+            value)[:300]
+    if isinstance(value, dict):
+        return {k: _redact(v, k) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact(v) for v in value[:20]]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return str(type(value).__name__)
+
+
+def _log_event(level, event, **fields):
+    try:
+        record = {"ts": time.time(), "level": level, "event": event}
+        for k, v in fields.items():
+            record[k] = _redact(v, k)
+        print(json.dumps(record), file=sys.stderr, flush=True)
+    except Exception:
+        pass  # logging must never break a request
+
+
+_USAGE_MAX_BYTES = 2_000_000   # rotate the usage log past ~2 MB
+_USAGE_KEEP_LINES = 20_000     # ...keeping the newest 20k entries
+
+
+def _append_usage(entry):
+    """Append one usage record, trimming the log when it grows past the
+    cap so it stays bounded forever (usage stats read the newest data;
+    the trim keeps far more than the 7-day history window). Never raises:
+    a logging failure must not fail the chat that produced the record."""
+    try:
+        with open(USAGE_PATH, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+        if os.path.getsize(USAGE_PATH) > _USAGE_MAX_BYTES:
+            with open(USAGE_PATH) as f:
+                lines = f.readlines()
+            tmp = str(USAGE_PATH) + ".tmp"
+            with open(tmp, "w") as f:
+                f.writelines(lines[-_USAGE_KEEP_LINES:])
+            os.replace(tmp, USAGE_PATH)
+    except Exception:
+        pass
+
+
 def get_usage_history():
     """Last 7 days of per-provider usage from usage.jsonl.
 
@@ -491,9 +559,15 @@ PROVIDER_NAMES = [
     "relay_nvidia",
     "relay_pollinations",
 ]
-# Load quotas.json at startup (script-relative so it works from any cwd)
-with open(Path(__file__).parent / "quotas.json", "r") as f:
-    QUOTAS_DATA = json.load(f)
+# Load quotas.json at startup (script-relative so it works from any cwd).
+# A corrupt quotas file must never stop the server from booting — the
+# /api/quotas handler re-reads the file per request and reports a clean
+# JSON 500 while it is broken; display data is not worth an outage.
+try:
+    with open(Path(__file__).parent / "quotas.json", "r") as f:
+        QUOTAS_DATA = json.load(f)
+except Exception:
+    QUOTAS_DATA = {}
 
 
 # ---------------------------------------------------------------------------
@@ -550,10 +624,31 @@ class RelayHandler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        self._proxy()
+        self._proxy_safe()
 
     def do_POST(self):
-        self._proxy()
+        self._proxy_safe()
+
+    def _proxy_safe(self):
+        # An unexpected relay error must answer JSON 500, never drop the
+        # connection, and must be logged (redacted) server-side.
+        self._resp_started = False
+        try:
+            self._proxy()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
+            _log_event("error", "relay_unhandled_exception",
+                       path=self.path, error=f"{type(exc).__name__}: {exc}")
+            if not self._resp_started:
+                try:
+                    self._send_json(500, {"error": "relay error"})
+                except Exception:
+                    pass
+
+    def send_response(self, code, message=None):
+        self._resp_started = True
+        return super().send_response(code, message)
 
     def _send_json(self, obj, code=200):
         data = json.dumps(obj).encode()
@@ -809,17 +904,47 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
 
+    def send_response(self, code, message=None):
+        self._resp_started = True
+        return super().send_response(code, message)
+
+    def _handle_uncaught(self, exc):
+        """Last-resort handler wrapper: log (redacted) and, when nothing
+        has been sent yet, answer a clean JSON 500 instead of dropping
+        the connection. If a response already started, the stream cannot
+        be repaired — the log line is the record."""
+        _log_event("error", "unhandled_exception", path=self.path,
+                   method=self.command,
+                   error=f"{type(exc).__name__}: {exc}")
+        if not getattr(self, "_resp_started", False):
+            try:
+                self._set_json_headers(500)
+                self.wfile.write(json.dumps({"error": "internal error"}).encode())
+            except Exception:
+                pass
+
     def do_GET(self):
         self._head_only = False
-        self._do_get_head()
+        self._resp_started = False
+        try:
+            self._do_get_head()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
+            self._handle_uncaught(exc)
 
     def do_HEAD(self):
         # HEAD mirrors GET routing/status codes but sends no body
         # (uptime monitors use HEAD; without this BaseHTTPRequestHandler
         # answers 501 Not Implemented).
         self._head_only = True
+        self._resp_started = False
         try:
             self._do_get_head()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
+            self._handle_uncaught(exc)
         finally:
             self._head_only = False
 
@@ -838,6 +963,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _do_get_head(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/health":
+            # Public readiness probe (Render health check / monitors).
+            # Deliberately minimal: proves the process serves, leaks nothing.
+            self._set_json_headers()
+            self._send_body(json.dumps({"ok": True}).encode())
+            return
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
             keys_exist = key_path.exists()
@@ -1305,7 +1436,9 @@ class Handler(BaseHTTPRequestHandler):
             # caller's own vault keys. A friend's BYOK keys must show as
             # configured even before — and without — the owner's unlock.
             _ekeys_q = self._effective_keys()
-            self._set_json_headers()
+            # Build the whole payload BEFORE sending headers: if anything
+            # below fails (e.g. a corrupt quotas.json), the request wrapper
+            # can still answer a clean JSON 500 instead of a truncated 200.
             history = get_usage_history()
             combined_history = {
                 "requests": [0] * 7,
@@ -1385,6 +1518,7 @@ class Handler(BaseHTTPRequestHandler):
                         quotas["daily_usage"]["tokens"] += pt + ct
                         quotas["monthly_usage"]["requests"] += 1
                         quotas["monthly_usage"]["tokens"] += pt + ct
+            self._set_json_headers()
             self._send_body(json.dumps(quotas).encode())
             return
         if parsed.path == "/api/usage":
@@ -1570,6 +1704,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404, "Not Found")
 
     def do_POST(self):
+        self._resp_started = False
+        try:
+            self._do_post()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
+            self._handle_uncaught(exc)
+
+    def _do_post(self):
         # DoS protection: reject bodies over 12 MB (covers image/file uploads)
         try:
             if int(self.headers.get("Content-Length", 0) or 0) > 12 * 1024 * 1024:
@@ -2294,19 +2437,12 @@ class Handler(BaseHTTPRequestHandler):
                         resp_data = json.loads(resp.read().decode())
                         reply = resp_data["choices"][0]["message"]["content"]
                         usage = resp_data.get("usage", {})
-                        try:
-                            with open(USAGE_PATH, "a") as f2:
-                                try:
-                                    f2.write(json.dumps({
-                                        "ts": datetime.datetime.now().isoformat(),
-                                        "provider": prov, "model": mdl,
-                                        "prompt_tokens": usage.get("prompt_tokens", 0),
-                                        "completion_tokens": usage.get("completion_tokens", 0),
-                                    }) + "\n")
-                                except OSError:
-                                    pass
-                        except Exception:
-                            pass
+                        _append_usage({
+                            "ts": datetime.datetime.now().isoformat(),
+                            "provider": prov, "model": mdl,
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                        })
                         return (True, reply)
                 except HTTPError as e:
                     if e.code == 503:

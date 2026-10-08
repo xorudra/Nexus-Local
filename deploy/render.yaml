@@ -2,6 +2,7 @@ services:
   - type: web
     name: nexus-local
     env: python
+    healthCheckPath: /health
     buildCommand: pip install --upgrade pip && pip install -r app/requirements.txt
     startCommand: python3 app/server.py
     envVars:
