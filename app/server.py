@@ -967,19 +967,16 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self._send_body(page.encode())
             return
-        # Connections page - flow chart
+        # Connections page - provider status for every signed-in user.
+        # Friends get the same page read-only plus a bring-your-own-key
+        # section (rendered client-side for non-admins, backed by
+        # /api/mykeys); admins keep full management via Update Keys/Admin.
         if parsed.path == "/connections":
             info = self._session_info()
             if not info:
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.end_headers()
-                return
-            if not info.get("admin"):
-                self.send_response(403)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self._send_body(b"<h1>Admin only</h1>")
                 return
             try:
                 content = (Path(__file__).parent / "connections.html").read_text(encoding="utf-8")
@@ -1110,6 +1107,7 @@ class Handler(BaseHTTPRequestHandler):
                             "monthly_tokens": provider_data.get("monthly_tokens", {"limit": None, "notes": "", "source": ""}),
                         },
                         "key_configured": bool((Handler.keys or {}).get(name)) or name in ("aihorde", "kilo", "ovh", "pollinations", "relay_pollinations"),
+                        "down": _provider_down(name),
                         "daily_usage": {"requests": 0, "tokens": 0},
                         "monthly_usage": {"requests": 0, "tokens": 0},
                     })
@@ -1124,6 +1122,7 @@ class Handler(BaseHTTPRequestHandler):
                             "history": {"requests": [0] * 7, "tokens": [0] * 7},
                             "limits": {},
                             "key_configured": True,
+                            "down": _provider_down(k),
                             "daily_usage": {"requests": 0, "tokens": 0},
                             "monthly_usage": {"requests": 0, "tokens": 0},
                         })
@@ -1136,6 +1135,7 @@ class Handler(BaseHTTPRequestHandler):
                             "history": {"requests": [0] * 7, "tokens": [0] * 7},
                             "limits": {},
                             "key_configured": True,
+                            "down": _provider_down(k),
                             "daily_usage": {"requests": 0, "tokens": 0},
                             "monthly_usage": {"requests": 0, "tokens": 0},
                         })

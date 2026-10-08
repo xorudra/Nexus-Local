@@ -181,6 +181,162 @@ body {
     color: #111;
 }
 
+.pill.keyless {
+    background: #3a4356;
+    color: #c7cede;
+}
+
+.pill.down {
+    background: #ffb020;
+    color: #111;
+}
+
+.pill.own {
+    background: rgba(168,85,247,.18);
+    color: #C084FC;
+    border: 1px solid rgba(168,85,247,.5);
+}
+
+a.byok-link {
+    color: #C084FC;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+a.byok-link:hover {
+    text-decoration: underline;
+}
+
+/* Bring-your-own-key section (friends only; shown by JS for non-admins) */
+#byok .byok-intro {
+    color: #9aa3b2;
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0 0 16px;
+}
+
+#byok details.exp {
+    background: #0c0c0f;
+    border: 1px solid rgba(168,85,247,.25);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+}
+
+#byok details.exp summary {
+    color: #C084FC;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#byok details.exp summary::-webkit-details-marker { display: none; }
+
+#byok details.exp summary::after {
+    content: '▸';
+    color: #a855f7;
+    transition: transform .15s;
+}
+
+#byok details.exp[open ] summary::after { transform: rotate(90deg); }
+
+#byok details.exp .cnt {
+    font-size: 11px;
+    color: #9aa3b2;
+    font-weight: 400;
+    margin-left: 8px;
+}
+
+#byok .prov { margin: 12px 0; }
+
+#byok .prov label {
+    display: block;
+    color: #9aa3b2;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+#byok .prov input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #0a0a0d;
+    border: 1px solid #26262c;
+    border-radius: 8px;
+    color: #e8e8ea;
+    padding: 10px 12px;
+    font-size: 14px;
+}
+
+#byok .prov input:focus {
+    outline: none;
+    border-color: #A855F7;
+    box-shadow: 0 0 0 3px rgba(168,85,247,.15);
+}
+
+#byok .badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 6px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+#byok .badge.on { background: rgba(12,255,106,.15); color: #7dff9a; }
+#byok .badge.off { background: #1b1b20; color: #6b7280; }
+
+#byok .byok-save {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+
+#byok .byok-save input {
+    flex: 2 1 220px;
+    background: #0a0a0d;
+    border: 1px solid #26262c;
+    border-radius: 8px;
+    color: #e8e8ea;
+    padding: 11px 13px;
+    font-size: 14px;
+}
+
+#byok .byok-save input:focus {
+    outline: none;
+    border-color: #A855F7;
+    box-shadow: 0 0 0 3px rgba(168,85,247,.15);
+}
+
+#byok .byok-save button {
+    flex: 1 1 140px;
+    font-family: 'Oswald', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    background: linear-gradient(#C084FC,#7C3AED);
+    color: #0a0a0a;
+    border: 1px solid #0a0a0a;
+    border-radius: 8px;
+    padding: 13px;
+    cursor: pointer;
+}
+
+#byok .byok-save button:hover { filter: brightness(1.12); }
+
+#byok #bk_msg {
+    margin-top: 10px;
+    font-size: 13px;
+    min-height: 18px;
+}
+
 /* Usage rows */
 .usage {
     font-size: 0.875rem;
@@ -501,6 +657,30 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
     <div class="group-content"><div class="provider-grid" id="relay-grid"></div></div>
 </details>
 
+<section id="byok" style="display:none">
+<details class="provider-group" open>
+    <summary>Bring your own key <span class="count">if a provider is not working</span></summary>
+    <div class="group-content">
+        <p class="byok-intro">If a provider above shows a missing key or "having problems", the shared key may be absent or failing. Add <b>your own</b> key for that provider and your chats will use yours instead — your usage, your quota. Keys are encrypted with your login password and are never shown to anyone, including the admin.</p>
+        <details class="exp" id="bk_exp_fl">
+            <summary>FreeLLMAPI Providers <span class="cnt" id="bk_cnt_fl"></span></summary>
+            <p style="color:#9aa3b2;font-size:12px;margin:8px 0 12px;line-height:1.5">The normal direct lane — keys for Groq, Google, OpenRouter, NVIDIA and the freemium providers.</p>
+            <div id="bk_providers_fl"></div>
+        </details>
+        <details class="exp" id="bk_exp_rl">
+            <summary>Relay Providers <span class="cnt" id="bk_cnt_rl"></span></summary>
+            <p style="color:#9aa3b2;font-size:12px;margin:8px 0 12px;line-height:1.5">The relay lane — the same big providers reached through the relay (different accounts/quotas than the FreeLLMAPI lane).</p>
+            <div id="bk_providers_rl"></div>
+        </details>
+        <div class="byok-save">
+            <input id="bk_pw" type="password" placeholder="Your login password (to encrypt)" autocomplete="off">
+            <button id="bk_save" type="button">Save keys</button>
+        </div>
+        <div id="bk_msg"></div>
+    </div>
+</details>
+</section>
+
 
 
 <script>
@@ -591,6 +771,9 @@ function renderUsage(data) {
             + '<h3 class="provider-name">' + escapeHtml(p.display_name || p.provider) + '</h3>'
             + '<div class="usage">Key: <span class="pill' + (p.key_configured ? '' : (KEYLESS.includes(p.provider) ? ' keyless' : ' missing')) + '">'
             + (p.key_configured ? '✓' : (KEYLESS.includes(p.provider) ? '○ keyless' : '✗')) + '</span></div>'
+            + (p.down ? '<div class="usage">Status: <span class="pill down">⚠ having problems</span></div>' : '')
+            + ((typeof IS_FRIEND !== 'undefined' && IS_FRIEND && MYKEYS.has(p.provider)) ? '<div class="usage">Your key: <span class="pill own">✓ set — your chats use yours</span></div>' : '')
+            + ((typeof IS_FRIEND !== 'undefined' && IS_FRIEND && !MYKEYS.has(p.provider) && (p.down || (!p.key_configured && !KEYLESS.includes(p.provider)))) ? '<div class="usage"><a class="byok-link" href="#byok">Not working? Add your own key ↓</a></div>' : '')
             + '<div class="usage">Reset: ' + escapeHtml(p.reset || '') + '</div>'
             + sparkline(h.requests, (p.display_name || p.provider) + ' 7-day requests')
             + '<div class="trend-today">' + reqToday + ' requests · ' + tokToday.toLocaleString() + ' tokens today</div>'
@@ -619,6 +802,94 @@ function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// ---- Friends: bring-your-own-key (admins manage the shared keys elsewhere) ----
+let IS_FRIEND = false;
+let MYKEYS = new Set();
+const BK_FL = ["groq","google","openrouter","nvidia","cohere","mistral","zhipu","cloudflare","huggingface"];
+const BK_RL = ["relay_groq","relay_openrouter","relay_gemini","relay_nvidia"];
+const BK_LABELS = {groq:"Groq",google:"Google",openrouter:"OpenRouter",nvidia:"NVIDIA",cohere:"Cohere",mistral:"Mistral",zhipu:"Zhipu",cloudflare:"Cloudflare",huggingface:"Hugging Face",relay_groq:"Groq",relay_openrouter:"OpenRouter",relay_gemini:"Gemini",relay_nvidia:"NVIDIA"};
+
+async function bkApi(action, body) {
+    const r = await fetch('/api/mykeys', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action: action}, body || {}))});
+    return r.json();
+}
+
+function bkMsg(t, ok) {
+    const m = document.getElementById('bk_msg');
+    if (!m) return;
+    m.textContent = t;
+    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
+}
+
+function bkRenderInto(boxId, list) {
+    const box = document.getElementById(boxId);
+    if (!box) return 0;
+    box.innerHTML = list.map(function(p) {
+        const set = MYKEYS.has(p);
+        return '<div class="prov"><label>' + BK_LABELS[p]
+            + (set ? '<span class="badge on">set</span>' : '<span class="badge off">—</span>') + '</label>'
+            + '<input id="bk_' + p + '" type="password" autocomplete="off" placeholder="'
+            + (set ? '•••••• (set — blank keeps it)' : 'Enter your key') + '"></div>';
+    }).join('');
+    return list.filter(function(p) { return MYKEYS.has(p); }).length;
+}
+
+function bkRender() {
+    const nFl = bkRenderInto('bk_providers_fl', BK_FL);
+    const nRl = bkRenderInto('bk_providers_rl', BK_RL);
+    const cFl = document.getElementById('bk_cnt_fl');
+    const cRl = document.getElementById('bk_cnt_rl');
+    if (cFl) cFl.textContent = nFl ? '(' + nFl + ' set)' : '';
+    if (cRl) cRl.textContent = nRl ? '(' + nRl + ' set)' : '';
+    if (nFl) document.getElementById('bk_exp_fl').open = true;
+    if (nRl) document.getElementById('bk_exp_rl').open = true;
+}
+
+async function bkLoad() {
+    try {
+        const j = await bkApi('view', {});
+        MYKEYS = new Set((j && j.configured) || []);
+    } catch (e) { MYKEYS = new Set(); }
+    bkRender();
+}
+
+async function bkSave() {
+    const pwEl = document.getElementById('bk_pw');
+    const password = pwEl ? pwEl.value : '';
+    if (!password) { bkMsg('Enter your login password', false); return; }
+    const keys = {};
+    BK_FL.concat(BK_RL).forEach(function(p) {
+        const el = document.getElementById('bk_' + p);
+        if (el) keys[p] = el.value.trim();
+    });
+    bkMsg('Saving...', true);
+    try {
+        const j = await bkApi('save', {password: password, keys: keys});
+        if (j && j.ok) {
+            bkMsg('Saved! Your chats now use your own keys where set.', true);
+            pwEl.value = '';
+            await bkLoad();
+            fetchQuotas();
+        } else {
+            bkMsg((j && j.error) || 'Failed', false);
+        }
+    } catch (e) { bkMsg('Failed', false); }
+}
+
+(function initFriend() {
+    fetch('/api/access', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})})
+        .then(function(r) {
+            if (r.ok) return; // admin: the section stays hidden
+            IS_FRIEND = true;
+            const sec = document.getElementById('byok');
+            if (sec) sec.style.display = '';
+            const btn = document.getElementById('bk_save');
+            if (btn) btn.addEventListener('click', bkSave);
+            bkLoad().then(fetchQuotas);
+        })
+        .catch(function() {});
+})();
 
 fetchQuotas();
 setInterval(fetchQuotas, 10000);
