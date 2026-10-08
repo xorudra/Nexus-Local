@@ -1068,10 +1068,17 @@ class Handler(BaseHTTPRequestHandler):
                             chats[f.stem] = _b64.b64encode(f.read_bytes()).decode()
                         except Exception:
                             pass
+                # keys.enc too: it holds provider keys AND the 2FA secret.
+                # Without syncing it, every redeploy reset live key/2FA
+                # changes back to the repo copy (2FA kept "disabling itself").
+                keys_b64 = None
+                _kp = Path(__file__).parent / "keys.enc"
+                if _kp.exists():
+                    keys_b64 = _b64.b64encode(_kp.read_bytes()).decode()
             except Exception:
-                blob, vaults, chats = None, {}, {}
+                blob, vaults, chats, keys_b64 = None, {}, {}, None
             self._set_json_headers(200)
-            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats}).encode())
+            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64}).encode())
             return
         if parsed.path == "/api/2fa_qr":
             # QR code for the TOTP secret (admin only) — scan with authenticator app

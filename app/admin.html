@@ -126,7 +126,7 @@ async function api(action, extra) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(Object.assign({action}, extra || {}))
     });
-    if (r.status === 403) { location.href = '/login'; return null; }
+    if (r.status === 403 || r.status === 401) { location.href = '/login'; return null; }
     return r.json();
 }
 function showMsg(t, ok) {
@@ -138,6 +138,10 @@ function showMsg(t, ok) {
 async function load() {
     const j = await api('list');
     if (!j) return;
+    if (!j.access || !j.sessions) {
+        document.getElementById('people').innerHTML = '<div class="empty">Could not load — please refresh. If this keeps happening, log out and back in.</div>';
+        return;
+    }
     const ppl = document.getElementById('people');
     if (!j.access.length) {
         ppl.innerHTML = '<div class="empty">No friends added yet. Only you (admin) have access.</div>';
