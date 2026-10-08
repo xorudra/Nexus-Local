@@ -3,7 +3,9 @@
 import urllib.request, json, concurrent.futures, sys, os, time
 
 BASE = "https://nexus-local.onrender.com"
-PASSWORD = os.environ.get("NEXUS_PW", "Letmejerk.com1")
+PASSWORD = os.environ.get("NEXUS_TEST_PASSWORD", "")
+if not PASSWORD:
+    raise SystemExit("Set NEXUS_TEST_PASSWORD to the site master password to run this test.")
 
 # Login
 req = urllib.request.Request(f"{BASE}/api/login", 
