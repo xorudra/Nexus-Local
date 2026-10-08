@@ -39,7 +39,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from getpass import getpass
-from key_security import encrypt_keys, decrypt_keys
+from key_security import encrypt_keys, decrypt_keys, encrypt_raw, decrypt_raw
 
 USAGE_PATH = Path(__file__).parent / "usage.jsonl"
 SESSIONS = {}
@@ -171,6 +171,127 @@ def _save_chats(label, data, password):
     p = _chat_path(label)
     encrypt_keys(data, password, p)
     os.chmod(p, 0o600)
+
+# ---- Admin saved chats: wrapped-DEK envelope (v2) ----
+# The admin's chats are NOT encrypted directly with the master password.
+# A random 256-bit data-encryption key (DEK) encrypts the chat data
+# (AES-256-GCM, fresh nonce per save); the DEK is stored in the file only
+# wrapped under a key-encryption key (KEK) derived from the master password
+# (PBKDF2-HMAC-SHA256, 600k, dedicated salt + domain separation). At the
+# login password step — the only moment the password exists server-side —
+# the DEK is unwrapped into _CHAT_UNLOCKS (memory only). Sessions hold
+# only an opaque unlock handle bound to their token; the master password,
+# KEK and DEK are never stored in a session, transmitted, or logged.
+_CHAT_V2_AAD_WRAP = b"nexus-admin-chats-v2:wrap"
+_CHAT_V2_AAD_DATA = b"nexus-admin-chats-v2:data"
+_CHAT_KEK_CONTEXT = "NexusLocal-admin-chats-v2\x00"
+_CHAT_UNLOCKS = {}  # unlock_id -> {dek, wrap_*, label, admin, expires, bound_token}
+
+def _chat_kek(password, wrap_salt):
+    return hashlib.pbkdf2_hmac("sha256", (_CHAT_KEK_CONTEXT + password).encode(),
+                               wrap_salt, 600_000, dklen=32)
+
+def _b64e(raw):
+    return base64.b64encode(raw).decode()
+
+def _b64d(text):
+    return base64.b64decode(text)
+
+def _write_chat_file_atomic(path, envelope):
+    tmp = path.parent / (path.name + ".tmp")
+    tmp.write_text(json.dumps(envelope), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+def _new_chat_unlock(dek, wrap_fields, ttl=300):
+    unlock_id = secrets.token_hex(32)
+    _CHAT_UNLOCKS[unlock_id] = {
+        "dek": dek,
+        "wrap_salt": wrap_fields["wrap_salt"],
+        "wrap_nonce": wrap_fields["wrap_nonce"],
+        "wrapped_dek": wrap_fields["wrapped_dek"],
+        "label": "Rudra", "admin": True,
+        "expires": time.time() + ttl, "bound_token": None,
+    }
+    return unlock_id
+
+def _drop_chat_unlock(unlock_id):
+    if unlock_id:
+        _CHAT_UNLOCKS.pop(unlock_id, None)
+
+def _bind_chat_unlock(unlock_id, token):
+    rec = _CHAT_UNLOCKS.get(unlock_id) if unlock_id else None
+    if rec:
+        rec["bound_token"] = token
+        rec["expires"] = time.time() + SESSION_EXPIRY
+
+def _save_admin_chats(rec, data):
+    nonce, ct = encrypt_raw(rec["dek"], json.dumps(data).encode(), _CHAT_V2_AAD_DATA)
+    _write_chat_file_atomic(_chat_path("Rudra"), {
+        "v": 2,
+        "wrap_salt": rec["wrap_salt"], "wrap_nonce": rec["wrap_nonce"],
+        "wrapped_dek": rec["wrapped_dek"],
+        "nonce": _b64e(nonce), "ciphertext": _b64e(ct),
+    })
+
+def _load_admin_chats_strict(dek):
+    """Decrypt the v2 admin chat store. RAISES on any problem — an
+    undecryptable store must never be mistaken for an empty one, or a
+    later save would silently destroy the history."""
+    p = _chat_path("Rudra")
+    if not p.exists():
+        return {"chats": []}
+    env = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(env, dict) or env.get("v") != 2:
+        raise ValueError("admin chat store is not v2")
+    raw = decrypt_raw(dek, _b64d(env["nonce"]), _b64d(env["ciphertext"]),
+                      _CHAT_V2_AAD_DATA)
+    d = json.loads(raw)
+    if not isinstance(d, dict) or not isinstance(d.get("chats"), list):
+        raise ValueError("admin chat store has unexpected shape")
+    return d
+
+def _wrap_new_dek(password):
+    """Generate a DEK and its wrap fields under a KEK from `password`."""
+    dek = secrets.token_bytes(32)
+    wrap_salt = os.urandom(16)
+    wnonce, wct = encrypt_raw(_chat_kek(password, wrap_salt), dek, _CHAT_V2_AAD_WRAP)
+    return dek, {"wrap_salt": _b64e(wrap_salt), "wrap_nonce": _b64e(wnonce),
+                 "wrapped_dek": _b64e(wct)}
+
+def _create_admin_chat_unlock(password):
+    """Mint an in-memory chat unlock at the login password step, after the
+    caller has PROVEN the master password (keys.enc decrypted). Returns an
+    unlock_id, or None when the chat store cannot be opened with this
+    password (corrupt or legacy dead-password store) — fail closed, the
+    file is left byte-identical. Migrates legacy password-direct stores
+    and first-run stores to the v2 wrapped-DEK format."""
+    p = _chat_path("Rudra")
+    try:
+        if p.exists():
+            env = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(env, dict) and env.get("v") == 2:
+                dek = decrypt_raw(_chat_kek(password, _b64d(env["wrap_salt"])),
+                                  _b64d(env["wrap_nonce"]), _b64d(env["wrapped_dek"]),
+                                  _CHAT_V2_AAD_WRAP)
+                if len(dek) != 32:
+                    return None
+                _load_admin_chats_strict(dek)  # sanity: data must open too
+                return _new_chat_unlock(dek, env)
+            # Legacy v1: chats encrypted directly with the master password.
+            data = decrypt_keys(p, password)
+            if not isinstance(data, dict) or not isinstance(data.get("chats"), list):
+                return None
+            dek, fields = _wrap_new_dek(password)
+            unlock_id = _new_chat_unlock(dek, fields)
+            _save_admin_chats(_CHAT_UNLOCKS[unlock_id], data)
+            return unlock_id
+        dek, fields = _wrap_new_dek(password)
+        unlock_id = _new_chat_unlock(dek, fields)
+        _save_admin_chats(_CHAT_UNLOCKS[unlock_id], {"chats": []})
+        return unlock_id
+    except Exception:
+        return None
 
 def _load_access():
     try:
@@ -614,8 +735,12 @@ class Handler(BaseHTTPRequestHandler):
                 now = time.time()
                 if now - sess["ts"] < SESSION_EXPIRY:
                     sess["ts"] = now  # sliding window
+                    _rec = _CHAT_UNLOCKS.get(sess.get("chat_unlock") or "")
+                    if _rec and _rec.get("bound_token") == token:
+                        _rec["expires"] = now + SESSION_EXPIRY
                     return token
                 else:
+                    _drop_chat_unlock(sess.get("chat_unlock"))
                     del SESSIONS[token]
         return None
 
@@ -2447,11 +2572,16 @@ class Handler(BaseHTTPRequestHandler):
                 now = time.time()
                 attempts = [t for t in _2FA_ATTEMPTS.get(tmp, []) if now - t < 300]
                 if len(attempts) >= 10:
+                    _pend0 = _PENDING_2FA.pop(tmp, None)
+                    if _pend0:
+                        _drop_chat_unlock(_pend0.get("chat_unlock"))
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": "too many attempts, start login again"}).encode())
                     return
                 pend = _PENDING_2FA.get(tmp)
                 if not pend or now - pend["ts"] > 300:
+                    if pend:
+                        _drop_chat_unlock(pend.get("chat_unlock"))
                     _PENDING_2FA.pop(tmp, None)
                     _2FA_ATTEMPTS.pop(tmp, None)
                     self._set_json_headers(401)
@@ -2476,7 +2606,14 @@ class Handler(BaseHTTPRequestHandler):
                 _2FA_ATTEMPTS.pop(tmp, None)
                 _login_attempts.pop(ip, None)
                 token = secrets.token_hex(32)
-                SESSIONS[token] = {"ts": time.time(), "label": "Rudra", "admin": True}
+                sess = {"ts": time.time(), "label": "Rudra", "admin": True}
+                # Chat authorization travels as the opaque unlock handle
+                # minted at the password step — never the password itself.
+                _uid = pend.get("chat_unlock")
+                if _uid and _uid in _CHAT_UNLOCKS:
+                    sess["chat_unlock"] = _uid
+                    _bind_chat_unlock(_uid, token)
+                SESSIONS[token] = sess
                 Handler.keys = dec_keys
                 register_custom_providers(dec_keys)
                 self.send_response(200)
@@ -2533,8 +2670,13 @@ class Handler(BaseHTTPRequestHandler):
                 # decrypted keys only, never the plaintext password.
                 _restore_access(password)
                 tmp = secrets.token_hex(16)
-                _PENDING_2FA[tmp] = {"ts": time.time(), "keys": dec_keys}
+                # Mint the admin chat unlock NOW, while the proven master
+                # password is in scope; only its opaque handle is kept in
+                # the pending record (the DEK stays in _CHAT_UNLOCKS).
+                _uid = _create_admin_chat_unlock(password)
+                _PENDING_2FA[tmp] = {"ts": time.time(), "keys": dec_keys, "chat_unlock": _uid}
                 for k in [k for k, v in _PENDING_2FA.items() if time.time() - v["ts"] > 300]:
+                    _drop_chat_unlock(_PENDING_2FA[k].get("chat_unlock"))
                     del _PENDING_2FA[k]
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -2542,8 +2684,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": tmp}).encode())
                 return
             token = secrets.token_hex(32)
-            sess = {"ts": time.time(), "label": label, "admin": is_admin, "chat_pw": password}
-            if not is_admin:
+            sess = {"ts": time.time(), "label": label, "admin": is_admin}
+            if is_admin:
+                # Same wrapped-DEK chat unlock as the 2FA path: the master
+                # password itself is never stored in an admin session.
+                _uid = _create_admin_chat_unlock(password)
+                if _uid:
+                    sess["chat_unlock"] = _uid
+                    _bind_chat_unlock(_uid, token)
+            else:
+                sess["chat_pw"] = password
                 # Load friend's personal key vault (if they added their own keys)
                 uk = _load_userkeys(label, password)
                 if uk:
@@ -2565,6 +2715,8 @@ class Handler(BaseHTTPRequestHandler):
             cookie = SimpleCookie(self.headers.get("Cookie", ""))
             token = cookie.get("session").value if cookie.get("session") else None
             if token and token in SESSIONS:
+                _old = SESSIONS[token]
+                _drop_chat_unlock(_old.get("chat_unlock") if isinstance(_old, dict) else None)
                 del SESSIONS[token]
             # Expire cookie
             self.send_response(200)
@@ -2721,18 +2873,41 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 encrypt_keys(kd, new, key_path)
                 _save_access(_load_access(), new)
-                # Admin's saved chats are encrypted with the master password
-                # too — re-encrypt them so they survive the rotation.
+                # Admin saved chats: re-wrap their DEK under the NEW
+                # password (chat data stays encrypted under the same DEK).
+                # A legacy password-direct store is migrated to v2 under
+                # the new password. A store that cannot be opened with the
+                # current password is left byte-identical — never
+                # overwritten with an empty one.
+                _chats_note = ""
                 try:
-                    _admin_chats = _load_chats("Rudra", cur)
-                    if _admin_chats.get("chats"):
-                        _save_chats("Rudra", _admin_chats, new)
+                    _cp = _chat_path("Rudra")
+                    if _cp.exists():
+                        _env = json.loads(_cp.read_text(encoding="utf-8"))
+                        if isinstance(_env, dict) and _env.get("v") == 2:
+                            _dek = decrypt_raw(_chat_kek(cur, _b64d(_env["wrap_salt"])),
+                                               _b64d(_env["wrap_nonce"]),
+                                               _b64d(_env["wrapped_dek"]),
+                                               _CHAT_V2_AAD_WRAP)
+                            _ws = os.urandom(16)
+                            _wn, _wc = encrypt_raw(_chat_kek(new, _ws), _dek,
+                                                   _CHAT_V2_AAD_WRAP)
+                            _env["wrap_salt"] = _b64e(_ws)
+                            _env["wrap_nonce"] = _b64e(_wn)
+                            _env["wrapped_dek"] = _b64e(_wc)
+                            _write_chat_file_atomic(_cp, _env)
+                        else:
+                            _legacy = decrypt_keys(_cp, cur)
+                            if isinstance(_legacy, dict) and isinstance(_legacy.get("chats"), list):
+                                _dek, _fields = _wrap_new_dek(new)
+                                _save_admin_chats({"dek": _dek, **_fields}, _legacy)
                 except Exception:
-                    pass
+                    _chats_note = "; saved chats could not be carried over and were left unchanged"
                 Handler.keys = kd
                 SESSIONS.clear()
+                _CHAT_UNLOCKS.clear()
                 self._set_json_headers()
-                self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out"}).encode())
+                self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out" + _chats_note}).encode())
                 return
             if action == "2fa_state":
                 # Session-based status for the admin panel: Handler.keys was
@@ -2845,11 +3020,32 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "not logged in"}).encode())
                 return
             label = info.get("label", "")
-            chat_pw = info.get("chat_pw")
-            if not chat_pw:
-                self._set_json_headers(400)
-                self.wfile.write(json.dumps({"error": "chat storage unavailable in this session — log in again"}).encode())
-                return
+            _admin_rec = None
+            chat_pw = None
+            if info.get("admin"):
+                # Admin chats authorize via the wrapped-DEK unlock minted
+                # at login: the session holds only an opaque handle, bound
+                # to this exact session token. No master password is (or
+                # can be) reconstructed here.
+                _uid = info.get("chat_unlock")
+                _rec = _CHAT_UNLOCKS.get(_uid) if _uid else None
+                _tok = self._get_session()
+                if (label != "Rudra" or not _rec or not _rec.get("admin")
+                        or _rec.get("label") != "Rudra"
+                        or _rec.get("bound_token") != _tok
+                        or _rec.get("expires", 0) <= time.time()):
+                    if _rec and _rec.get("expires", 0) <= time.time():
+                        _drop_chat_unlock(_uid)
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "chat storage unavailable in this session — log in again"}).encode())
+                    return
+                _admin_rec = _rec
+            else:
+                chat_pw = info.get("chat_pw")
+                if not chat_pw:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "chat storage unavailable in this session — log in again"}).encode())
+                    return
             content_length = int(self.headers.get("Content-Length", 0))
             raw_body = self.rfile.read(content_length) if content_length else b"{}"
             try:
@@ -2857,8 +3053,24 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 data = {}
             action = data.get("action", "list")
-            store = _load_chats(label, chat_pw)
+            if _admin_rec is not None:
+                try:
+                    store = _load_admin_chats_strict(_admin_rec["dek"])
+                except Exception:
+                    # Fail closed: an undecryptable admin store is NOT an
+                    # empty store — a save here would destroy the history.
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "saved chats could not be decrypted"}).encode())
+                    return
+            else:
+                store = _load_chats(label, chat_pw)
             chats = store.get("chats", [])
+
+            def _persist():
+                if _admin_rec is not None:
+                    _save_admin_chats(_admin_rec, store)
+                else:
+                    _save_chats(label, store, chat_pw)
             if action == "list":
                 out = [{"id": c.get("id"), "title": c.get("title", "Chat"),
                         "ts": c.get("ts", 0), "updated": c.get("updated", 0),
@@ -2922,7 +3134,7 @@ class Handler(BaseHTTPRequestHandler):
                 chats = sorted(chats, key=lambda c: -c.get("updated", 0))[:50]
                 store["chats"] = chats
                 try:
-                    _save_chats(label, store, chat_pw)
+                    _persist()
                 except Exception:
                     self._set_json_headers(500)
                     self.wfile.write(json.dumps({"error": "could not save chat"}).encode())
@@ -2934,7 +3146,7 @@ class Handler(BaseHTTPRequestHandler):
                 cid = str(data.get("id") or "")
                 store["chats"] = [c for c in chats if c.get("id") != cid]
                 try:
-                    _save_chats(label, store, chat_pw)
+                    _persist()
                 except Exception:
                     pass
                 self._set_json_headers()

@@ -28,6 +28,18 @@ def encrypt_keys(keys: dict, password: str, out_path: Path):
     # Note: on Windows, chmod 0600 is advisory only — the setup guide must tell the user to keep the folder private (NTFS permissions).
     os.chmod(out_path, 0o600)
 
+# Raw-key AES-256-GCM helpers (for envelope schemes that manage their own
+# keys, e.g. a random data-encryption key wrapped by a password-derived KEK).
+# Same cipher as encrypt_keys/decrypt_keys; fresh random nonce per call.
+
+def encrypt_raw(key: bytes, plaintext: bytes, aad: bytes = b""):
+    nonce = os.urandom(12)
+    ct = AESGCM(key).encrypt(nonce, plaintext, aad)
+    return nonce, ct
+
+def decrypt_raw(key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes = b"") -> bytes:
+    return AESGCM(key).decrypt(nonce, ciphertext, aad)
+
 # Decrypt
 
 def decrypt_keys(enc_path: Path, password: str)->dict:
