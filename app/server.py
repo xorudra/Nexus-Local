@@ -109,6 +109,12 @@ ACCESS_ENC_PATH = Path(__file__).parent / "access.enc"
 # Provider keys still require the master password; this key unlocks nothing
 # else on its own.
 RESTORE_KEY = os.environ.get("NEXUS_RESTORE_KEY", "")
+# The one locked-state message: returned ONLY for operations that genuinely
+# need the owner's decrypted provider keys while no admin has logged in yet
+# since the last restart. Authentication, sessions, saved chats, personal
+# key vaults, keyless providers and a friend's own (BYOK) keys must NEVER
+# produce this — they do not depend on the owner's key.
+LOCKED_ERROR = "server is locked — the admin needs to log in once after a restart"
 # Per-user key vaults: app/userkeys/<label>.enc, encrypted with the user's own password
 USERKEYS_DIR = Path(__file__).parent / "userkeys"
 USERKEYS_DIR.mkdir(exist_ok=True)
@@ -223,9 +229,14 @@ def _boot_restore_access():
     restore-at-admin-login when no restore key/file exists."""
     try:
         if ACCESS_PATH.exists():
-            existing = json.loads(ACCESS_PATH.read_text())
-            if isinstance(existing, dict) and existing:
-                return
+            try:
+                existing = json.loads(ACCESS_PATH.read_text())
+                if isinstance(existing, dict) and existing:
+                    return
+            except Exception:
+                # Corrupt/unreadable access.json must not abort the boot
+                # restore — fall through and rebuild from access.enc.
+                pass
         if RESTORE_KEY and ACCESS_ENC_PATH.exists():
             d = decrypt_keys(ACCESS_ENC_PATH, RESTORE_KEY)
             if isinstance(d, dict) and d:
@@ -372,7 +383,7 @@ with open(Path(__file__).parent / "quotas.json", "r") as f:
 # the same relay - user provides their own keys via setup.
 # Keys come from Handler.keys (decrypted in-memory, never on disk).
 # ---------------------------------------------------------------------------
-RELAY_PORT = 8099
+RELAY_PORT = int(os.environ.get("NEXUS_RELAY_PORT", "8099"))
 # Random per-process token: only the main server may call the relay.
 # Prevents any other local process from using the decrypted keys via the relay.
 RELAY_TOKEN = secrets.token_hex(32)
@@ -660,6 +671,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(json.dumps({"error": "not logged in"}).encode())
             return False
         return True
+
+    def _send_locked(self):
+        """503 for an operation that genuinely needs the owner's decrypted
+        provider keys while the server is still locked (no admin login yet
+        since the last restart). Never use this for auth/session failures."""
+        self._set_json_headers(503)
+        self.wfile.write(json.dumps({"error": LOCKED_ERROR}).encode())
 
     def _set_json_headers(self, status: int = 200):
         self.send_response(status)
@@ -1158,6 +1176,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/quotas":
             if not self._require_session():
                 return
+            # Key status is per-caller: shared keys (once unlocked) plus the
+            # caller's own vault keys. A friend's BYOK keys must show as
+            # configured even before — and without — the owner's unlock.
+            _ekeys_q = self._effective_keys()
             self._set_json_headers()
             history = get_usage_history()
             combined_history = {
@@ -1190,13 +1212,13 @@ class Handler(BaseHTTPRequestHandler):
                             "daily_tokens": provider_data.get("daily_tokens", {"limit": None, "notes": "", "source": ""}),
                             "monthly_tokens": provider_data.get("monthly_tokens", {"limit": None, "notes": "", "source": ""}),
                         },
-                        "key_configured": bool((Handler.keys or {}).get(name)) or name in ("aihorde", "kilo", "ovh", "pollinations", "relay_pollinations"),
+                        "key_configured": bool(_ekeys_q.get(name)) or name in ("aihorde", "kilo", "ovh", "pollinations", "relay_pollinations"),
                         "down": _provider_down(name),
                         "daily_usage": {"requests": 0, "tokens": 0},
                         "monthly_usage": {"requests": 0, "tokens": 0},
                     })
                 # Add custom providers
-                for k in (Handler.keys or {}).keys():
+                for k in _ekeys_q.keys():
                     if k.startswith("custom_relay_") and not k.endswith("_url"):
                         cname = k[len("custom_relay_"):]
                         quotas["providers"].append({
@@ -1299,7 +1321,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif provider in RELAY_UPSTREAMS:
                     # Route through the integrated relay; it attaches the
                     # user's key and proxies to the upstream.
-                    url = f"http://127.0.0.1:8099/{provider}/v1/models"
+                    url = f"http://127.0.0.1:{RELAY_PORT}/{provider}/v1/models"
                 elif provider == "freellmapi":
                     gw_url = (keys.get("freellmapi_url") or "").strip()
                     url = (gw_url.rstrip("/") if gw_url else "http://127.0.0.1:3001") + "/v1/models"
@@ -1542,15 +1564,17 @@ class Handler(BaseHTTPRequestHandler):
             # Speech-to-text for the composer mic button (Groq Whisper).
             if not self._require_session():
                 return
-            if Handler.keys is None:
-                self._set_json_headers(503)
-                self.wfile.write(json.dumps({"error": "server is locked — the admin needs to log in once after a restart"}).encode())
+            _ekeys_t = self._effective_keys()
+            if Handler.keys is None and not (_ekeys_t or {}).get("groq"):
+                # Transcription needs a Groq key — the owner's (still locked)
+                # or the caller's own vault key. With neither available this
+                # operation genuinely requires the owner's unlock.
+                self._send_locked()
                 return
             if not _rl_ok("transcribe", self._get_session(), 12, 60):
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "too many voice inputs, slow down a moment"}).encode())
                 return
-            _ekeys_t = self._effective_keys()
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
             try:
@@ -1609,10 +1633,11 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/chat":
             if not self._require_session():
                 return
-            if Handler.keys is None:
-                self._set_json_headers(503)
-                self.wfile.write(json.dumps({"error": "server is locked — the admin needs to log in once after a restart"}).encode())
-                return
+            # NO blanket lock here. While the owner keys are locked, the
+            # effective keys below are exactly the caller's own vault keys,
+            # so keyless providers and BYOK lanes keep working; a per-lane
+            # gate at dispatch returns the locked 503 only when NO attempt
+            # lane can run without the owner's key.
             if not _rl_ok("chat", self._get_session(), 40, 60):
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "you're sending messages too fast — give it a few seconds"}).encode())
@@ -1826,6 +1851,11 @@ class Handler(BaseHTTPRequestHandler):
                 _mdl = model if (model and "orpheus" in model) else "canopylabs/orpheus-v1-english"
                 _voice = "sami" if "arabic" in _mdl else "troy"
                 if not _gk:
+                    if Handler.keys is None:
+                        # Voice needs a Groq key and none is available
+                        # without the owner's unlock (no vault key either).
+                        self._send_locked()
+                        return
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "no Groq key configured for voice"}).encode())
                     return
@@ -2189,6 +2219,23 @@ class Handler(BaseHTTPRequestHandler):
                         _fb.append((cand, cm))
             healthy = [(p, m) for (p, m) in _fb if not _provider_down(p)]
             _attempts += (healthy if healthy else _fb)
+            if Handler.keys is None:
+                # Locked server: _ekeys holds ONLY the caller's own vault
+                # keys, so an attempt lane can run iff it is keyless or
+                # vault-keyed (gateway lanes also need the gateway URL,
+                # which lives in the owner's key store). If no lane can
+                # run, this request genuinely requires the owner's unlock.
+                def _lane_open(p):
+                    if p in RELAY_KEYLESS:
+                        return True
+                    if not (_ekeys or {}).get(p):
+                        return False
+                    if p == "freellmapi" or p.startswith("custom_fl_"):
+                        return bool((_ekeys or {}).get("freellmapi_url"))
+                    return True
+                if not any(_lane_open(p) for p, _m in _attempts):
+                    self._send_locked()
+                    return
             if mode == "agent":
                 # Agentic mode: the model can call tools (web search via Bing,
                 # guarded page fetch, exact calculator) in a loop before answering.
