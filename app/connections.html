@@ -673,7 +673,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
             <div id="bk_providers_rl"></div>
         </details>
         <div class="byok-save">
-            <input id="bk_pw" type="password" placeholder="Your login password (to encrypt)" autocomplete="off">
+            <input id="bk_pw" type="password" aria-label="Your login password" placeholder="Your login password (to encrypt)" autocomplete="off">
             <button id="bk_save" type="button">Save keys</button>
         </div>
         <div id="bk_msg"></div>
@@ -829,7 +829,7 @@ function bkRenderInto(boxId, list) {
         const set = MYKEYS.has(p);
         return '<div class="prov"><label>' + BK_LABELS[p]
             + (set ? '<span class="badge on">set</span>' : '<span class="badge off">—</span>') + '</label>'
-            + '<input id="bk_' + p + '" type="password" autocomplete="off" placeholder="'
+            + '<input id="bk_' + p + '" type="password" aria-label="' + p + ' API key" autocomplete="off" placeholder="'
             + (set ? '•••••• (set — blank keeps it)' : 'Enter your key') + '"></div>';
     }).join('');
     return list.filter(function(p) { return MYKEYS.has(p); }).length;

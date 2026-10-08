@@ -43,13 +43,13 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 #ask-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:1600;padding:18px}
 #ask-backdrop.open{display:flex}
 #ask-card{background:#121216;border:1px solid rgba(168,85,247,.35);border-radius:14px;padding:20px;width:min(400px,94vw);box-shadow:0 18px 50px rgba(0,0,0,.7)}
-#ask-title{color:#fff;font-size:16px;font-weight:600;margin-bottom:6px;font-family:'Segoe UI',system-ui,sans-serif}
-#ask-label{color:#9aa3b2;font-size:13px;line-height:1.5;margin-bottom:12px;font-family:'Segoe UI',system-ui,sans-serif}
-#ask-input{width:100%;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ee;padding:11px 12px;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif;box-sizing:border-box}
+#ask-title{color:#fff;font-size:16px;font-weight:600;margin-bottom:6px;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+#ask-label{color:#9aa3b2;font-size:13px;line-height:1.5;margin-bottom:12px;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+#ask-input{width:100%;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ee;padding:11px 12px;font-size:14px;font-family:'Inter','Segoe UI',system-ui,sans-serif;box-sizing:border-box}
 #ask-input:focus{outline:none;border-color:#a855f7}
 .ask-row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
-#ask-cancel{background:none;border:1px solid #2a2a32;color:#9aa3b2;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif}
-#ask-ok{background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:8px;color:#fff;padding:9px 22px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif}
+#ask-cancel{background:none;border:1px solid #2a2a32;color:#9aa3b2;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+#ask-ok{background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:8px;color:#fff;padding:9px 22px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Inter','Segoe UI',system-ui,sans-serif}
 </style>
 </head>
 <body>
@@ -61,11 +61,11 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div class="card">
 <h2>FRIEND ACCESS</h2>
 <div class="row">
-<input id="fname" placeholder="Friend's name (e.g. Rudra)" maxlength="30">
-<input id="fpass" type="password" placeholder="Their password (min 4 chars)">
+<input id="fname" aria-label="Friend's name" placeholder="Friend's name (e.g. Rudra)" maxlength="30">
+<input id="fpass" type="password" aria-label="Friend's password" placeholder="Their password (min 4 chars)">
 </div>
 <div class="row">
-<input id="mPW" type="password" placeholder="Your master password (to save)">
+<input id="mPW" type="password" aria-label="Your master password" placeholder="Your master password (to save)">
 <button id="addBtn" onclick="addFriend()">Add friend</button>
 </div>
 <div id="msg"></div>
@@ -83,8 +83,8 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <h2>MASTER PASSWORD</h2>
 <p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Change the password that encrypts all your provider keys. At least 10 characters. You'll be signed out everywhere and must log in with the new password.</p>
 <div class="row">
-<input id="mpCur" type="password" placeholder="Current master password">
-<input id="mpNew" type="password" placeholder="New master password (10+ chars)">
+<input id="mpCur" type="password" aria-label="Current master password" placeholder="Current master password">
+<input id="mpNew" type="password" aria-label="New master password" placeholder="New master password (10+ chars)">
 <button onclick="changeMaster()">Change password</button>
 </div>
 <div id="mpMsg" style="margin-top:10px;font-size:13px;color:#9aa3b2"></div>
@@ -95,7 +95,7 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Protect your admin login with an authenticator app (Google Authenticator, Authy, etc.). Friends are not affected.</p>
 <div id="tfaStatus" style="margin-bottom:12px;font-size:14px;color:#9aa3b2">Enter your master password to check status</div>
 <div class="row">
-<input id="tfaMaster" type="password" placeholder="Your master password">
+<input id="tfaMaster" type="password" aria-label="Your master password" placeholder="Your master password">
 <button id="tfaBtn" onclick="toggle2FA()">Enable 2FA</button>
 </div>
 <div id="tfaSecret" style="display:none;margin-top:12px;padding:14px;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px">
@@ -105,7 +105,7 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <p id="tfaKey" style="font-family:monospace;font-size:16px;color:#C084FC;letter-spacing:.1em;word-break:break-all"></p>
 <p style="font-size:12px;color:#9aa3b2;margin-top:8px">Then enter a code from the app to confirm:</p>
 <div class="row" style="margin-top:8px">
-<input id="tfaConfirm" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="text-align:center;letter-spacing:.3em">
+<input id="tfaConfirm" aria-label="Two-factor code" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="text-align:center;letter-spacing:.3em">
 <button onclick="confirm2FA()">Confirm</button>
 </div>
 </div>
@@ -122,7 +122,7 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div id="ask-backdrop"><div id="ask-card">
     <div id="ask-title">Confirm</div>
     <div id="ask-label"></div>
-    <input id="ask-input" type="password" autocomplete="off">
+    <input id="ask-input" type="password" autocomplete="off" aria-labelledby="ask-title">
     <div class="ask-row"><button id="ask-cancel">Cancel</button><button id="ask-ok">OK</button></div>
 </div></div>
 

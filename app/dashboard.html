@@ -365,7 +365,7 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
 /* ===== Task Composer: chat UI ===== */
 .thread{background:#0a0a0d;border:1px solid #232329;border-bottom:none;border-radius:12px 12px 0 0;min-height:440px;max-height:72vh;
 overflow-y:auto;padding:16px 16px 8px;margin-bottom:0;display:flex;flex-direction:column;gap:12px}
-.thread-empty{text-align:center;color:#5a5a64;margin:auto;padding:28px 20px}
+.thread-empty{text-align:center;color:#9a9aa6;margin:auto;padding:28px 20px}
 .thread-empty svg{width:44px;opacity:.35;margin-bottom:8px}
 .thread-empty p{font-size:13px;line-height:1.6;margin:0}
 .msg{max-width:88%;animation:fadeUp .3s both}
@@ -434,7 +434,7 @@ color:#e8e8ea;padding:9px 12px;font-size:13px;font-family:inherit;appearance:non
 select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23A855F7' fill='none' stroke-width='1.6'/%3E%3C/svg%3E");
 background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;cursor:pointer}
 .picker:focus{outline:none;border-color:#A855F7;box-shadow:0 0 0 3px rgba(168,85,247,.12)}
-.picker::placeholder{color:#5a5a64}
+.picker::placeholder{color:#9a9aa6}
 .input-pill{display:flex;flex-direction:column;background:#141419;border:1px solid #2a2a32;border-radius:24px;padding:8px;transition:border-color .2s,box-shadow .2s}
 .input-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:6px;align-items:center;width:100%;min-height:50px}
 .pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;width:100%;border-top:1px solid #232329;margin-top:6px;padding-top:8px}
@@ -482,7 +482,7 @@ padding:10px 14px;cursor:pointer;border-radius:8px;text-align:left;font-size:14p
 .attach-opt .opt-sub{font-size:12px;color:#8a8a92}
 #composer-message{background:transparent;border:none;outline:none;color:#e8e8ea;font-size:15px;
 font-family:inherit;line-height:1.45;resize:none;min-height:26px;max-height:140px;padding:6px 4px;width:100%}
-#composer-message::placeholder{color:#5a5a64}
+#composer-message::placeholder{color:#9a9aa6}
 #composer-send{width:44px;height:44px;border-radius:50%;background:linear-gradient(#C084FC,#7C3AED);
 border:1px solid #0a0a0a;box-shadow:0 0 22px rgba(168,85,247,.32),inset 0 1px 0 rgba(255,255,255,.5);
 cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .15s;flex:none}
@@ -525,7 +525,7 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 .chat-del{background:none;border:none;color:#8a8a92;cursor:pointer;font-size:13px;padding:4px;width:auto}
 .chat-del:hover{color:#ff9a9a}
 .chats-none{color:#8a8a92;font-size:13px;line-height:1.6;padding:10px 2px}
-.chats-foot{color:#5a5a64;font-size:11px;line-height:1.5}
+.chats-foot{color:#9a9aa6;font-size:11px;line-height:1.5}
 
 /* ===== CINEMATIC LAYER ===== */
 body::before{content:"";position:fixed;inset:0;z-index:2000;pointer-events:none;
@@ -630,14 +630,14 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
                     <button class="attach-opt" data-type="link"><span class="dot" style="background:#C084FC"></span><span><div>Link</div><div class="opt-sub">Paste any photo or video link</div></span></button>
                 </div>
             </div>
-            <textarea id="composer-message" rows="1" placeholder="Type a message..."></textarea>
+            <textarea id="composer-message" rows="1" aria-label="Message" placeholder="Type a message..."></textarea>
             <button id="composer-mic" title="Voice input" style="width:40px;height:40px;border-radius:50%;background:#26262c;border:1px solid #33333c;cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center;padding:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#c6c6cf" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg></button>
             <button id="composer-send" title="Send"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 19V5M5 12l7-7 7 7" stroke="#0a0a0a" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
             <div class="pill-pickers">
-                <select id="composer-provider" class="picker" onchange="loadModels(this.value)" title="Provider"></select>
-                <select id="composer-model" class="picker" title="Model"><option value="">Select model...</option></select>
-                <select id="composer-mode" class="picker" title="Task mode" onchange="var p=document.getElementById('composer-provider'); if(p&&p.value) loadModels(p.value);">
+                <select id="composer-provider" class="picker" aria-label="Provider" onchange="loadModels(this.value)" title="Provider"></select>
+                <select id="composer-model" class="picker" aria-label="Model" title="Model"><option value="">Select model...</option></select>
+                <select id="composer-mode" class="picker" aria-label="Task mode" title="Task mode" onchange="var p=document.getElementById('composer-provider'); if(p&&p.value) loadModels(p.value);">
                 <option value="text">Text</option>
                 <option value="code">Code</option>
                 <option value="search">Web search</option>
@@ -647,15 +647,15 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
                 <option value="agent">Agentic</option>
                 <option value="auto">Auto</option>
             </select>
-                <select id="routing-mode" class="picker" title="Routing mode" onchange="setRouting(this.value)">
+                <select id="routing-mode" class="picker" aria-label="Routing mode" title="Routing mode" onchange="setRouting(this.value)">
                 <option value="quality">Quality first</option>
                 <option value="save">Save tokens</option>
                 <option value="auto">Auto routing</option>
             </select>
             </div>
         </div>
-        <input type="file" id="attach-input" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
-        <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
+        <input type="file" id="attach-input" aria-label="Attach a file" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
+        <input type="file" id="camera-input" aria-label="Take a photo" accept="image/*" capture="environment" style="display:none">
         <div id="attach-preview"></div>
     </div>
 </div>
@@ -663,7 +663,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
 <div id="ask-backdrop"><div id="ask-card">
     <div id="ask-title">Confirm</div>
     <div id="ask-label"></div>
-    <input id="ask-input" type="text" autocomplete="off">
+    <input id="ask-input" type="text" autocomplete="off" aria-labelledby="ask-title">
     <div class="ask-row"><button id="ask-cancel">Cancel</button><button id="ask-ok">OK</button></div>
 </div></div>
 

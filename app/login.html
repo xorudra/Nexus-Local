@@ -103,7 +103,7 @@ display:flex;align-items:center;justify-content:center;border-radius:8px}
 <p>Your password unlocks the dashboard</p>
 <div id="pwBox">
 <div class="pw-wrap">
-<input type="password" id="pw" placeholder="Password" autocomplete="current-password" autofocus>
+<input type="password" id="pw" aria-label="Password" placeholder="Password" autocomplete="current-password" autofocus>
 <button type="button" id="pwToggle" title="Show password" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
 </div>
 <div id="error">Wrong password. Try again.</div>
@@ -112,7 +112,7 @@ display:flex;align-items:center;justify-content:center;border-radius:8px}
 <div id="tfaBox" style="display:none">
 <p style="margin-bottom:12px">Enter the 6-digit code from your authenticator app</p>
 <div class="pw-wrap">
-<input type="text" id="tfaCode" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="text-align:center;font-size:20px;letter-spacing:.3em">
+<input type="text" id="tfaCode" aria-label="Two-factor authentication code" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="text-align:center;font-size:20px;letter-spacing:.3em">
 </div>
 <div id="error2" style="display:none;color:#ff9a9a;font-size:13px;margin:8px 0">Wrong code. Try again.</div>
 <button id="loginBtn2" onclick="submit2FA()">Verify</button>
