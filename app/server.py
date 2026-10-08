@@ -1293,6 +1293,36 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, "internal error")
             return
+        if parsed.path == "/horizon":
+            # Public fullscreen hero page (owner request, 2026-10-09) —
+            # the Three.js/GSAP "Horizon" experience, vanilla port of the
+            # React component integrated into the DSRclone web app. No
+            # session, no data: a visual page only.
+            try:
+                content = (Path(__file__).parent / "horizon.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception:
+                self.send_error(500, "internal error")
+            return
+        if parsed.path.startswith("/vendor/"):
+            # Vendored JS libraries for /horizon (three.js + gsap, copied
+            # from the same npm versions the React build uses). Strictly
+            # confined to app/vendor, .js files only.
+            base = (Path(__file__).parent / "vendor").resolve()
+            target = (base / parsed.path[len("/vendor/"):]).resolve()
+            if target.suffix == ".js" and base in target.parents and target.is_file():
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript")
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self._send_body(target.read_bytes())
+            else:
+                self.send_error(404)
+            return
         # Settings page - update keys after login
         if parsed.path == "/settings":
             info = self._session_info()
