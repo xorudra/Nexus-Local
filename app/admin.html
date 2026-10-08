@@ -119,6 +119,13 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 </div>
 </div>
 
+<div id="ask-backdrop"><div id="ask-card">
+    <div id="ask-title">Confirm</div>
+    <div id="ask-label"></div>
+    <input id="ask-input" type="password" autocomplete="off">
+    <div class="ask-row"><button id="ask-cancel">Cancel</button><button id="ask-ok">OK</button></div>
+</div></div>
+
 <script>
 async function api(action, extra) {
     const r = await fetch('/api/access', {
@@ -322,11 +329,5 @@ document.getElementById('ask-backdrop').addEventListener('click', (e) => { if (e
 document.getElementById('tfaMaster').addEventListener('change', check2FA);
 load();
 </script>
-<div id="ask-backdrop"><div id="ask-card">
-    <div id="ask-title">Confirm</div>
-    <div id="ask-label"></div>
-    <input id="ask-input" type="password" autocomplete="off">
-    <div class="ask-row"><button id="ask-cancel">Cancel</button><button id="ask-ok">OK</button></div>
-</div></div>
 </body>
 </html>
