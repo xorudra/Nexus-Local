@@ -5,60 +5,110 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nexus Local - Admin</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Press+Start+2P&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0a0a0d;color:#e8e8ea;font-family:'Inter',sans-serif;min-height:100vh;padding:24px}
-body::before{content:"";position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:0;
-background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(168,85,247,.08),transparent)}
-.wrap{max-width:800px;margin:0 auto;position:relative;z-index:1}
-h1{font-family:'Press Start 2P',monospace;font-size:20px;color:#fff;margin-bottom:6px;
-text-shadow:0 0 16px rgba(168,85,247,.7);animation:titleGlow 3s ease-in-out infinite}
-@keyframes titleGlow{0%,100%{text-shadow:0 0 8px rgba(168,85,247,.5)}50%{text-shadow:0 0 24px rgba(168,85,247,.9)}}
-.sub{color:#9aa3b2;font-size:14px;margin-bottom:28px}
-.card{background:#141419;border:1px solid rgba(168,85,247,.16);border-radius:12px;padding:20px;margin-bottom:20px}
-.card h2{font-family:'Press Start 2P',monospace;font-size:12px;color:#A855F7;margin-bottom:16px;letter-spacing:.05em}
+:root{
+  --bg:#0B0E1A; --panel:#151936; --panel2:#0D1122; --border:#262C4F;
+  --text:#F4F6FF; --muted:#9AA3B2; --violet:#7C6CFF; --violet2:#5B8CFF;
+  --cyan:#38C6D9; --pink:#FF5C8A; --rose:#F43F5E;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+background:radial-gradient(ellipse 70% 45% at 85% -10%,rgba(124,108,255,.14),transparent),
+radial-gradient(ellipse 55% 40% at -10% 110%,rgba(56,198,217,.08),transparent)}
+.layout{display:flex;align-items:flex-start;max-width:1180px;margin:0 auto;position:relative;z-index:1}
+/* ===== Sidebar (Dashdark-style) ===== */
+.side{width:248px;flex:0 0 248px;position:sticky;top:0;height:100vh;padding:26px 18px;
+display:flex;flex-direction:column;gap:22px;border-right:1px solid var(--border);background:rgba(13,17,34,.65)}
+.brand{font-size:19px;font-weight:800;letter-spacing:.04em;color:#fff;padding:2px 10px}
+.brand span{color:var(--violet)}
+.brand small{display:block;font-size:10px;font-weight:600;letter-spacing:.28em;color:var(--muted);margin-top:3px}
+.snav{display:flex;flex-direction:column;gap:4px}
+.snav a,.side-links a{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:10px;
+color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;transition:all .15s}
+.snav a i,.side-links a i{width:8px;height:8px;border-radius:3px;background:var(--border);flex:0 0 8px}
+.snav a:hover,.side-links a:hover{color:#fff;background:var(--panel)}
+.snav a:hover i{background:var(--violet)}
+.side-links{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--border);padding-top:16px}
+.side-links a i{background:var(--cyan)}
+.side-foot{margin-top:auto;font-size:11px;line-height:1.55;color:var(--muted);padding:0 10px}
+.side-foot a{color:var(--muted)}
+/* ===== Main column ===== */
+.main{flex:1;min-width:0;padding:30px 30px 40px}
+h1{font-size:27px;font-weight:800;letter-spacing:-.01em;color:#fff;margin-bottom:6px}
+.sub{color:var(--muted);font-size:14px;margin-bottom:26px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:16px;
+padding:22px;margin-bottom:20px;scroll-margin-top:18px;box-shadow:0 10px 30px rgba(2,4,12,.35)}
+.card h2{font-size:12px;font-weight:700;color:#C9CEFF;margin-bottom:18px;letter-spacing:.14em;
+display:flex;align-items:center;gap:10px}
+.card h2::before{content:"";width:4px;height:14px;border-radius:2px;
+background:linear-gradient(180deg,var(--violet),var(--cyan))}
 .row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
-input{background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ea;padding:12px 14px;font-size:14px;flex:1;min-width:140px}
-input:focus{border-color:#A855F7;box-shadow:0 0 12px rgba(168,85,247,.35);outline:none}
-button{background:linear-gradient(#C084FC,#7C3AED);border:none;border-radius:8px;color:#0a0a0a;
-padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
-button:hover{box-shadow:0 0 20px rgba(168,85,247,.6);transform:translateY(-1px)}
-button.danger{background:linear-gradient(#ff7a7a,#d33);color:#fff}
+input{background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);
+padding:12px 14px;font-size:14px;flex:1;min-width:140px;font-family:inherit}
+input::placeholder{color:#6E7794}
+input:focus{border-color:var(--violet);box-shadow:0 0 0 3px rgba(124,108,255,.22);outline:none}
+button{background:linear-gradient(135deg,#8B7CFF,#6D5DF6);border:none;border-radius:10px;color:#fff;
+padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit}
+button:hover{box-shadow:0 6px 20px rgba(124,108,255,.45);transform:translateY(-1px)}
+button.danger{background:linear-gradient(135deg,#FB7185,#E11D48)}
+button.danger:hover{box-shadow:0 6px 20px rgba(244,63,94,.4)}
 button:disabled{opacity:.5;cursor:default;transform:none}
-.person{display:flex;align-items:center;justify-content:space-between;background:#0a0a0d;
-border:1px solid #2a2a32;border-radius:8px;padding:12px 16px;margin-bottom:8px;animation:slideIn .25s ease-out}
+.person{display:flex;align-items:center;justify-content:space-between;background:var(--panel2);
+border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:8px;animation:slideIn .25s ease-out}
 @keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .person .name{font-weight:600}
-.person .tag{font-size:12px;color:#9aa3b2;margin-left:8px}
+.person .tag{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--cyan);
+border:1px solid rgba(56,198,217,.4);border-radius:999px;padding:2px 9px;margin-left:10px;text-transform:uppercase}
 .person button{padding:8px 16px;font-size:13px}
-.empty{color:#9aa3b2;font-size:14px;padding:12px 0}
-.navlinks{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
-.navlinks a{display:block;padding:14px 20px;background:#141419;border:1px solid rgba(168,85,247,.16);
-border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight:500;transition:all .15s}
-.navlinks a:hover{border-color:#A855F7;box-shadow:0 0 16px rgba(168,85,247,.4);transform:translateY(-1px)}
-.back{display:inline-block;margin-bottom:20px;color:#9aa3b2;text-decoration:none;font-size:14px}
-.back:hover{color:#C084FC}
+.empty{color:var(--muted);font-size:14px;padding:12px 0}
 #msg{text-align:center;min-height:22px;font-size:14px;margin-top:12px}
 /* ===== In-theme modal (replaces prompt/confirm) ===== */
-#ask-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:1600;padding:18px}
+#ask-backdrop{position:fixed;inset:0;background:rgba(3,5,12,.7);display:none;align-items:center;justify-content:center;z-index:1600;padding:18px}
 #ask-backdrop.open{display:flex}
-#ask-card{background:#121216;border:1px solid rgba(168,85,247,.35);border-radius:14px;padding:20px;width:min(400px,94vw);box-shadow:0 18px 50px rgba(0,0,0,.7)}
+#ask-card{background:var(--panel);border:1px solid rgba(124,108,255,.4);border-radius:16px;padding:20px;width:min(400px,94vw);box-shadow:0 18px 50px rgba(0,0,0,.7)}
 #ask-title{color:#fff;font-size:16px;font-weight:600;margin-bottom:6px;font-family:'Inter','Segoe UI',system-ui,sans-serif}
-#ask-label{color:#9aa3b2;font-size:13px;line-height:1.5;margin-bottom:12px;font-family:'Inter','Segoe UI',system-ui,sans-serif}
-#ask-input{width:100%;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ee;padding:11px 12px;font-size:14px;font-family:'Inter','Segoe UI',system-ui,sans-serif;box-sizing:border-box}
-#ask-input:focus{outline:none;border-color:#a855f7}
+#ask-label{color:var(--muted);font-size:13px;line-height:1.5;margin-bottom:12px;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+#ask-input{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:11px 12px;font-size:14px;font-family:'Inter','Segoe UI',system-ui,sans-serif;box-sizing:border-box}
+#ask-input:focus{outline:none;border-color:var(--violet)}
 .ask-row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
-#ask-cancel{background:none;border:1px solid #2a2a32;color:#9aa3b2;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer;font-family:'Inter','Segoe UI',system-ui,sans-serif}
-#ask-ok{background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:8px;color:#fff;padding:9px 22px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+#ask-cancel{background:none;border:1px solid var(--border);color:var(--muted);border-radius:10px;padding:9px 18px;font-size:14px;cursor:pointer;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+#ask-ok{background:linear-gradient(135deg,#8B7CFF,#6D5DF6);border:none;border-radius:10px;color:#fff;padding:9px 22px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+@media (max-width:860px){
+  .layout{flex-direction:column}
+  .side{width:100%;flex:none;height:auto;position:static;padding:18px 16px 12px;gap:12px;
+  border-right:none;border-bottom:1px solid var(--border)}
+  .snav,.side-links{flex-direction:row;overflow-x:auto;padding-bottom:4px}
+  .side-links{border-top:none;padding-top:0}
+  .snav a,.side-links a{white-space:nowrap;padding:9px 12px;background:var(--panel)}
+  .side-foot{display:none}
+  .main{padding:22px 16px 34px;width:100%}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-<a class="back" href="/">&larr; Back to dashboard</a>
-<h1>ADMIN PANEL</h1>
+<div class="layout">
+<aside class="side">
+<div class="brand">NEXUS <span>LOCAL</span><small>ADMIN CONSOLE</small></div>
+<nav class="snav">
+<a href="#friends"><i></i>Friend Access</a>
+<a href="#sessions-card"><i></i>Active Sessions</a>
+<a href="#master-card"><i></i>Master Password</a>
+<a href="#tfa-card"><i></i>Two-Factor Auth</a>
+</nav>
+<div class="side-links">
+<a href="/settings"><i></i>Update Keys</a>
+<a href="/connections"><i></i>Providers</a>
+<a href="/"><i></i>Dashboard</a>
+</div>
+<div class="side-foot">Admin UI styled after Dashdark X by Malik Ali — <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></div>
+</aside>
+<main class="main">
+<h1>Admin Panel</h1>
 <p class="sub">Manage friend access, keys, and providers.</p>
 
-<div class="card">
+<div class="card" id="friends">
 <h2>FRIEND ACCESS</h2>
 <div class="row">
 <input id="fname" aria-label="Friend's name" placeholder="Friend's name (e.g. Rudra)" maxlength="30">
@@ -72,14 +122,14 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div id="people"></div>
 </div>
 
-<div class="card">
+<div class="card" id="sessions-card">
 <h2>ACTIVE SESSIONS</h2>
 <div id="sessions"></div>
 </div>
 
 
 
-<div class="card">
+<div class="card" id="master-card">
 <h2>MASTER PASSWORD</h2>
 <p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Change the password that encrypts all your provider keys. At least 10 characters. You'll be signed out everywhere and must log in with the new password.</p>
 <div class="row">
@@ -90,7 +140,7 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div id="mpMsg" style="margin-top:10px;font-size:13px;color:#9aa3b2"></div>
 </div>
 
-<div class="card">
+<div class="card" id="tfa-card">
 <h2>TWO-FACTOR AUTH (ADMIN)</h2>
 <p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Protect your admin login with an authenticator app (Google Authenticator, Authy, etc.). Friends are not affected.</p>
 <div id="tfaStatus" style="margin-bottom:12px;font-size:14px;color:#9aa3b2">Enter your master password to check status</div>
@@ -98,11 +148,11 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <input id="tfaMaster" type="password" aria-label="Your master password" placeholder="Your master password">
 <button id="tfaBtn" onclick="toggle2FA()">Enable 2FA</button>
 </div>
-<div id="tfaSecret" style="display:none;margin-top:12px;padding:14px;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px">
+<div id="tfaSecret" style="display:none;margin-top:12px;padding:14px;background:#0D1122;border:1px solid #262C4F;border-radius:10px">
 <p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Scan this QR with your authenticator app:</p>
 <img id="tfaQR" src="" alt="2FA QR code" style="display:block;width:200px;height:200px;margin:0 auto 12px;background:#fff;border-radius:8px;padding:8px">
 <p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Or enter the key manually:</p>
-<p id="tfaKey" style="font-family:monospace;font-size:16px;color:#C084FC;letter-spacing:.1em;word-break:break-all"></p>
+<p id="tfaKey" style="font-family:monospace;font-size:16px;color:#A99CFF;letter-spacing:.1em;word-break:break-all"></p>
 <p style="font-size:12px;color:#9aa3b2;margin-top:8px">Then enter a code from the app to confirm:</p>
 <div class="row" style="margin-top:8px">
 <input id="tfaConfirm" aria-label="Two-factor code" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="text-align:center;letter-spacing:.3em">
@@ -112,11 +162,7 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 <div id="tfaMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
 </div>
 
-<div class="navlinks">
-<a href="/settings">Update Keys</a>
-<a href="/connections">Providers</a>
-<a href="/">Dashboard</a>
-</div>
+</main>
 </div>
 
 <div id="ask-backdrop"><div id="ask-card">
