@@ -2557,6 +2557,13 @@ class Handler(BaseHTTPRequestHandler):
                             vp.unlink()
                     except Exception:
                         pass
+                    # And their saved chats
+                    try:
+                        cp = _chat_path(label)
+                        if cp.exists():
+                            cp.unlink()
+                    except Exception:
+                        pass
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and s.get("label") == label]:
                         del SESSIONS[tok]

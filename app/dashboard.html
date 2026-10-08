@@ -439,6 +439,34 @@ background-repeat:no-repeat;background-position:right 12px center;padding-right:
 .input-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:6px;align-items:center;width:100%;min-height:50px}
 .pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;width:100%;border-top:1px solid #232329;margin-top:6px;padding-top:8px}
 .pill-pickers .picker{padding:7px 24px 7px 10px;font-size:12px;border-radius:9px;background-position:right 8px center}
+
+/* ===== Custom dropdowns (replace the native select look) ===== */
+.cs{position:relative;min-width:0}
+.cs-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#141419;border:1px solid rgba(168,85,247,.16);border-radius:9px;color:#e8e8ea;padding:7px 10px;font-size:12px;font-family:inherit;cursor:pointer;min-height:33px}
+.cs-btn:hover{border-color:rgba(168,85,247,.45)}
+.cs-btn .cs-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.cs-btn .cs-chev{flex:none;color:#A855F7;font-size:10px;transition:transform .15s}
+.cs.open .cs-chev{transform:rotate(180deg)}
+.cs-menu{position:absolute;left:0;bottom:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(80vw,340px);max-height:46vh;overflow:auto;background:#101014;border:1px solid rgba(168,85,247,.35);border-radius:12px;padding:6px;z-index:90;box-shadow:0 14px 44px rgba(0,0,0,.65);display:none}
+.pill-pickers .cs:nth-child(even) .cs-menu{left:auto;right:0}
+.cs.open .cs-menu{display:block}
+.cs-opt{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;color:#e8e8ea;font-size:13px;cursor:pointer;white-space:nowrap}
+.cs-opt:hover{background:rgba(168,85,247,.1)}
+.cs-opt.sel{background:rgba(168,85,247,.14);color:#fff}
+.cs-opt .cs-check{margin-left:auto;color:#A855F7;flex:none;visibility:hidden;padding-left:14px}
+.cs-opt.sel .cs-check{visibility:visible}
+
+/* ===== In-theme modal (replaces prompt/alert) ===== */
+#ask-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:1600;padding:18px}
+#ask-backdrop.open{display:flex}
+#ask-card{background:#121216;border:1px solid rgba(168,85,247,.35);border-radius:14px;padding:20px;width:min(400px,94vw);box-shadow:0 18px 50px rgba(0,0,0,.7)}
+#ask-title{color:#fff;font-size:16px;font-weight:600;margin-bottom:6px}
+#ask-label{color:#9aa3b2;font-size:13px;line-height:1.5;margin-bottom:12px}
+#ask-input{width:100%;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ee;padding:11px 12px;font-size:14px;font-family:inherit}
+#ask-input:focus{outline:none;border-color:#a855f7}
+.ask-row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+#ask-cancel{background:none;border:1px solid #2a2a32;color:#9aa3b2;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer;font-family:inherit;width:auto}
+#ask-ok{background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:8px;color:#fff;padding:9px 22px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;width:auto}
 .input-pill:focus-within{border-color:#A855F7;box-shadow:0 0 0 3px rgba(168,85,247,.12),0 0 28px rgba(168,85,247,.08)}
 .attach-wrap{position:relative}
 #attach-plus{width:40px;height:40px;border-radius:50%;background:transparent;border:none;color:#8a8a92;
@@ -632,6 +660,13 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
     </div>
 </div>
 
+<div id="ask-backdrop"><div id="ask-card">
+    <div id="ask-title">Confirm</div>
+    <div id="ask-label"></div>
+    <input id="ask-input" type="text" autocomplete="off">
+    <div class="ask-row"><button id="ask-cancel">Cancel</button><button id="ask-ok">OK</button></div>
+</div></div>
+
 <div id="chats-backdrop"></div>
 <aside id="chats-panel">
     <div class="chats-head"><span>Your chats</span><button id="chats-close" title="Close">✕</button></div>
@@ -753,6 +788,91 @@ document.getElementById('chats-backdrop').addEventListener('click', closeChats);
 document.getElementById('chat-new').addEventListener('click', () => newChat());
 document.getElementById('chats-new').addEventListener('click', () => newChat());
 refreshChatList();
+
+// ===== In-theme modal (replaces the browser's basic prompt/alert) =====
+let _askResolve = null;
+function askModal(opts){
+    return new Promise(res => {
+        _askResolve = res;
+        document.getElementById('ask-title').textContent = opts.title || 'Confirm';
+        document.getElementById('ask-label').textContent = opts.label || '';
+        const inp = document.getElementById('ask-input');
+        inp.type = opts.type || 'text';
+        inp.placeholder = opts.placeholder || '';
+        inp.value = '';
+        inp.style.display = opts.notice ? 'none' : '';
+        document.getElementById('ask-cancel').style.display = opts.notice ? 'none' : '';
+        document.getElementById('ask-ok').textContent = opts.okText || 'OK';
+        document.getElementById('ask-backdrop').classList.add('open');
+        if (!opts.notice) setTimeout(() => inp.focus(), 30);
+    });
+}
+function _askDone(val){
+    document.getElementById('ask-backdrop').classList.remove('open');
+    if (_askResolve) { const r = _askResolve; _askResolve = null; r(val); }
+}
+document.getElementById('ask-cancel').addEventListener('click', () => _askDone(null));
+document.getElementById('ask-ok').addEventListener('click', () => {
+    const inp = document.getElementById('ask-input');
+    _askDone(inp.style.display === 'none' ? true : (inp.value.trim() || null));
+});
+document.getElementById('ask-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('ask-ok').click();
+    if (e.key === 'Escape') _askDone(null);
+});
+document.getElementById('ask-backdrop').addEventListener('click', (e) => { if (e.target.id === 'ask-backdrop') _askDone(null); });
+
+// ===== Custom dropdowns (styled layer over the native selects) =====
+function makeCustomSelect(sel){
+    if (!sel || sel.dataset.csDone) return;
+    sel.dataset.csDone = '1';
+    const wrap = document.createElement('div');
+    wrap.className = 'cs';
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+    sel.style.display = 'none';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cs-btn';
+    btn.innerHTML = '<span class="cs-label"></span><span class="cs-chev">▾</span>';
+    const menu = document.createElement('div');
+    menu.className = 'cs-menu';
+    wrap.appendChild(btn);
+    wrap.appendChild(menu);
+    const labelEl = btn.querySelector('.cs-label');
+    function syncLabel(){
+        const o = sel.options[sel.selectedIndex];
+        labelEl.textContent = o ? o.text : '';
+        btn.title = o ? o.text : '';
+    }
+    function buildMenu(){
+        menu.innerHTML = '';
+        Array.from(sel.options).forEach((o, idx) => {
+            const d = document.createElement('div');
+            d.className = 'cs-opt' + (idx === sel.selectedIndex ? ' sel' : '');
+            d.innerHTML = '<span>' + esc(o.text) + '</span><span class="cs-check">✓</span>';
+            d.addEventListener('click', () => {
+                sel.value = o.value;
+                sel.dispatchEvent(new Event('change', {bubbles: true}));
+                syncLabel();
+                wrap.classList.remove('open');
+            });
+            menu.appendChild(d);
+        });
+    }
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willOpen = !wrap.classList.contains('open');
+        document.querySelectorAll('.cs.open').forEach(w => w.classList.remove('open'));
+        if (willOpen) { buildMenu(); wrap.classList.add('open'); }
+    });
+    menu.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', () => wrap.classList.remove('open'));
+    sel.addEventListener('change', syncLabel);
+    new MutationObserver(syncLabel).observe(sel, {childList: true});
+    syncLabel();
+}
+['composer-provider', 'composer-model', 'composer-mode', 'routing-mode'].forEach(id => { try { makeCustomSelect(document.getElementById(id)); } catch (e) { console.error('custom select', id, e); } });
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function md(text){
   // Simple markdown to HTML: escape first, then apply formatting
@@ -1036,12 +1156,12 @@ if (attachPlus && attachMenu) {
     document.querySelectorAll('.attach-opt').forEach(btn => {
         btn.addEventListener('mouseenter', () => btn.style.background = 'rgba(168,85,247,.07)');
         btn.addEventListener('mouseleave', () => btn.style.background = 'none');
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             attachMenu.style.display = 'none';
             const type = btn.dataset.type;
             if (type === 'camera') cameraInput.click();
             else if (type === 'link') {
-                const url = prompt('Paste image or video URL:');
+                const url = await askModal({title: 'Add from link', label: 'Paste an image or video URL:', placeholder: 'https://…', okText: 'Add'});
                 if (url) {
                     attachedLink = url;
                     showPreview('link', url);
@@ -1075,7 +1195,7 @@ function handleFile(file, type) {
     const maxSizes = { camera: 8, photos: 8, videos: 20, files: 10 };
     const maxMB = maxSizes[type] || 8;
     if (file.size > maxMB * 1024 * 1024) {
-        alert('File too large (max ' + maxMB + 'MB)');
+        askModal({title: 'File too large', label: 'That file is over the ' + maxMB + ' MB limit.', notice: true, okText: 'OK'});
         return;
     }
     const reader = new FileReader();

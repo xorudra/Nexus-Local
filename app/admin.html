@@ -39,6 +39,17 @@ border-radius:10px;color:#C084FC;text-decoration:none;font-size:14px;font-weight
 .back{display:inline-block;margin-bottom:20px;color:#9aa3b2;text-decoration:none;font-size:14px}
 .back:hover{color:#C084FC}
 #msg{text-align:center;min-height:22px;font-size:14px;margin-top:12px}
+/* ===== In-theme modal (replaces prompt/confirm) ===== */
+#ask-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:1600;padding:18px}
+#ask-backdrop.open{display:flex}
+#ask-card{background:#121216;border:1px solid rgba(168,85,247,.35);border-radius:14px;padding:20px;width:min(400px,94vw);box-shadow:0 18px 50px rgba(0,0,0,.7)}
+#ask-title{color:#fff;font-size:16px;font-weight:600;margin-bottom:6px;font-family:'Segoe UI',system-ui,sans-serif}
+#ask-label{color:#9aa3b2;font-size:13px;line-height:1.5;margin-bottom:12px;font-family:'Segoe UI',system-ui,sans-serif}
+#ask-input{width:100%;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ee;padding:11px 12px;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif;box-sizing:border-box}
+#ask-input:focus{outline:none;border-color:#a855f7}
+.ask-row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+#ask-cancel{background:none;border:1px solid #2a2a32;color:#9aa3b2;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif}
+#ask-ok{background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:8px;color:#fff;padding:9px 22px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif}
 </style>
 </head>
 <body>
@@ -170,8 +181,7 @@ async function addFriend() {
     }
 }
 async function revoke(label) {
-    if (!confirm('Revoke access for ' + label + '? They will be logged out immediately.')) return;
-    const master_pw = prompt('Enter your master password to confirm:');
+    const master_pw = await askModal({title: 'Revoke ' + label + '?', label: 'They will be logged out immediately and their saved chats and keys removed. Enter your master password to confirm:', type: 'password', okText: 'Revoke'});
     if (!master_pw) return;
     const j = await api('revoke', {label, master_pw});
     if (j && j.ok) { showMsg('Access revoked: ' + label, true); load(); }
@@ -221,7 +231,7 @@ async function toggle2FA() {
     const master_pw = document.getElementById('tfaMaster').value;
     if (!master_pw) { tfaMsg('Enter your master password first', false); return; }
     if (_tfaEnabled) {
-        const code = prompt('Enter your current 2FA code to disable:');
+        const code = await askModal({title: 'Disable 2FA', label: 'Enter your current 2FA code to disable:', type: 'text', placeholder: '6-digit code', okText: 'Disable'});
         if (!code) return;
         const j = await api('2fa_disable', {master_pw, code});
         if (j && j.ok) { tfaMsg('2FA disabled', true); check2FA(); }
@@ -259,8 +269,45 @@ function tfaMsg(t, ok) {
     m.textContent = t;
     m.style.color = ok ? '#7dff9a' : '#ff9a9a';
 }
+// ===== In-theme modal (replaces the browser's basic prompt/confirm) =====
+let _askResolve = null;
+function askModal(opts){
+    return new Promise(res => {
+        _askResolve = res;
+        document.getElementById('ask-title').textContent = opts.title || 'Confirm';
+        document.getElementById('ask-label').textContent = opts.label || '';
+        const inp = document.getElementById('ask-input');
+        inp.type = opts.type || 'text';
+        inp.placeholder = opts.placeholder || '';
+        inp.value = '';
+        document.getElementById('ask-ok').textContent = opts.okText || 'OK';
+        document.getElementById('ask-backdrop').classList.add('open');
+        setTimeout(() => inp.focus(), 30);
+    });
+}
+function _askDone(val){
+    document.getElementById('ask-backdrop').classList.remove('open');
+    if (_askResolve) { const r = _askResolve; _askResolve = null; r(val); }
+}
+document.getElementById('ask-cancel').addEventListener('click', () => _askDone(null));
+document.getElementById('ask-ok').addEventListener('click', () => {
+    const v = document.getElementById('ask-input').value.trim();
+    _askDone(v || null);
+});
+document.getElementById('ask-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('ask-ok').click();
+    if (e.key === 'Escape') _askDone(null);
+});
+document.getElementById('ask-backdrop').addEventListener('click', (e) => { if (e.target.id === 'ask-backdrop') _askDone(null); });
+
 document.getElementById('tfaMaster').addEventListener('change', check2FA);
 load();
 </script>
+<div id="ask-backdrop"><div id="ask-card">
+    <div id="ask-title">Confirm</div>
+    <div id="ask-label"></div>
+    <input id="ask-input" type="password" autocomplete="off">
+    <div class="ask-row"><button id="ask-cancel">Cancel</button><button id="ask-ok">OK</button></div>
+</div></div>
 </body>
 </html>
