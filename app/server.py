@@ -1184,7 +1184,12 @@ class Handler(BaseHTTPRequestHandler):
             if os.path.exists(USAGE_PATH):
                 with open(USAGE_PATH) as f:
                     for line in f:
-                        entry = json.loads(line)
+                        try:
+                            entry = json.loads(line)
+                        except Exception:
+                            continue  # one corrupt line must not kill the endpoint
+                        if not isinstance(entry, dict):
+                            continue
                         pt = entry.get("prompt_tokens", 0)
                         ct = entry.get("completion_tokens", 0)
                         quotas["daily_usage"]["requests"] += 1
@@ -1203,8 +1208,15 @@ class Handler(BaseHTTPRequestHandler):
             if os.path.exists(USAGE_PATH):
                 with open(USAGE_PATH) as f:
                     for line in f:
-                        entry = json.loads(line)
-                        provider = entry["provider"]
+                        try:
+                            entry = json.loads(line)
+                        except Exception:
+                            continue  # one corrupt line must not kill the endpoint
+                        if not isinstance(entry, dict):
+                            continue
+                        provider = entry.get("provider")
+                        if not isinstance(provider, str) or not provider:
+                            continue
                         pt = entry.get("prompt_tokens", 0)
                         ct = entry.get("completion_tokens", 0)
                         if provider not in usage_data["per_provider"]:
@@ -1213,6 +1225,7 @@ class Handler(BaseHTTPRequestHandler):
                         usage_data["per_provider"][provider]["tokens"] += pt + ct
                         usage_data["totals"]["requests"] += 1
                         usage_data["totals"]["tokens"] += pt + ct
+            self._set_json_headers()
             self._send_body(json.dumps(usage_data).encode())
             return
         if parsed.path == "/api/routing":
@@ -1226,8 +1239,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/models":
             if not self._get_session():
-                self.send_response(401)
-                self.end_headers()
+                self._set_json_headers(401)
+                self.wfile.write(json.dumps({"error": "not logged in"}).encode())
                 return
             provider = parse_qs(parsed.query).get("provider", [""])[0]
             models = []
@@ -2393,9 +2406,16 @@ class Handler(BaseHTTPRequestHandler):
                 access = _load_access()
                 label = None
                 for l, h in access.items():
-                    ok, _ = _verify_password(password, h)
+                    ok, needs_up = _verify_password(password, h)
                     if ok:
                         label = l
+                        if needs_up:
+                            # Legacy unsalted hash — upgrade in place (the
+                            # encrypted backup refreshes on the next
+                            # master-password save; access.json covers the
+                            # running instance).
+                            access[l] = _hash_password(password)
+                            _save_access(access)
                         break
                 if not label:
                     recent.append(now)
@@ -2467,6 +2487,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 data = {}
             mode = data.get("set", "")
+            if mode not in ("quality", "save", "auto"):
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "invalid routing mode"}).encode())
+                return
             if mode in ("quality", "save", "auto"):
                 token = self._get_session()
                 if token and token in SESSIONS:
@@ -2855,7 +2879,10 @@ class Handler(BaseHTTPRequestHandler):
                 # Verify password against stored hash
                 access = _load_access()
                 stored = access.get(label, "")
-                ok, _ = _verify_password(password, stored)
+                ok, needs_up = _verify_password(password, stored)
+                if ok and needs_up and label in access:
+                    access[label] = _hash_password(password)
+                    _save_access(access)
                 if not ok:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong password"}).encode())
