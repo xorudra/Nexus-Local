@@ -429,15 +429,16 @@ border-radius:10px;padding:8px 14px;font-size:13px}
 
 /* ===== Composer: unified pill input ===== */
 .composer-box{background:#0a0a0d;border:1px solid #232329;border-radius:20px;padding:12px}
-.picker-row{display:flex;gap:8px;margin-bottom:10px}
 .picker{flex:1;min-width:0;background:#141419;border:1px solid rgba(168,85,247,.16);border-radius:10px;
 color:#e8e8ea;padding:9px 12px;font-size:13px;font-family:inherit;appearance:none}
 select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23A855F7' fill='none' stroke-width='1.6'/%3E%3C/svg%3E");
 background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;cursor:pointer}
 .picker:focus{outline:none;border-color:#A855F7;box-shadow:0 0 0 3px rgba(168,85,247,.12)}
 .picker::placeholder{color:#5a5a64}
-.input-pill{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;
-background:#141419;border:1px solid #2a2a32;border-radius:28px;padding:8px;min-height:66px;transition:border-color .2s,box-shadow .2s}
+.input-pill{display:flex;flex-direction:column;background:#141419;border:1px solid #2a2a32;border-radius:24px;padding:8px;transition:border-color .2s,box-shadow .2s}
+.input-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:6px;align-items:center;width:100%;min-height:50px}
+.pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;width:100%;border-top:1px solid #232329;margin-top:6px;padding-top:8px}
+.pill-pickers .picker{padding:7px 24px 7px 10px;font-size:12px;border-radius:9px;background-position:right 8px center}
 .input-pill:focus-within{border-color:#A855F7;box-shadow:0 0 0 3px rgba(168,85,247,.12),0 0 28px rgba(168,85,247,.08)}
 .attach-wrap{position:relative}
 #attach-plus{width:40px;height:40px;border-radius:50%;background:transparent;border:none;color:#8a8a92;
@@ -462,7 +463,7 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 #attach-preview{margin-top:10px}
 #attach-preview:empty{margin-top:0}
 @media(max-width:560px){
-.picker-row{flex-direction:column;gap:8px}
+.pill-pickers{grid-template-columns:1fr 1fr}
 .msg{max-width:94%}
 #composer-send{width:40px;height:40px}
 #attach-plus{width:36px;height:36px;font-size:22px}
@@ -559,28 +560,8 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
         </div>
     </div>
     <div class="composer-box">
-        <div class="picker-row">
-            <select id="composer-provider" class="picker" onchange="loadModels(this.value)" title="Provider"></select>
-            <select id="composer-model" class="picker" title="Model"><option value="">Select model...</option></select>
-            <select id="composer-mode" class="picker" title="Task mode" onchange="var p=document.getElementById('composer-provider'); if(p&&p.value) loadModels(p.value);">
-                <option value="text">Text</option>
-                <option value="code">Code</option>
-                <option value="search">Web search</option>
-                <option value="image">Image</option>
-                <option value="voice">Voice</option>
-                <option value="video">Video</option>
-                <option value="agent">Agentic</option>
-                <option value="auto">Auto</option>
-            </select>
-        </div>
-        <div class="picker-row" style="margin-top:6px">
-            <select id="routing-mode" class="picker" title="Routing mode" onchange="setRouting(this.value)">
-                <option value="quality">Quality first</option>
-                <option value="save">Save tokens</option>
-                <option value="auto">Auto routing</option>
-            </select>
-        </div>
         <div class="input-pill">
+            <div class="input-row">
             <div class="attach-wrap">
                 <button type="button" id="attach-plus" title="Attach">+</button>
                 <div id="attach-menu" style="display:none">
@@ -595,6 +576,26 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
             <textarea id="composer-message" rows="1" placeholder="Type a message..."></textarea>
             <button id="composer-mic" title="Voice input" style="width:40px;height:40px;border-radius:50%;background:#1a1a20;border:1px solid #2a2a32;font-size:16px;cursor:pointer;flex:none;color:#e8e8ea">🎤</button>
             <button id="composer-send" title="Send"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 19V5M5 12l7-7 7 7" stroke="#0a0a0a" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+            <div class="pill-pickers">
+                <select id="composer-provider" class="picker" onchange="loadModels(this.value)" title="Provider"></select>
+                <select id="composer-model" class="picker" title="Model"><option value="">Select model...</option></select>
+                <select id="composer-mode" class="picker" title="Task mode" onchange="var p=document.getElementById('composer-provider'); if(p&&p.value) loadModels(p.value);">
+                <option value="text">Text</option>
+                <option value="code">Code</option>
+                <option value="search">Web search</option>
+                <option value="image">Image</option>
+                <option value="voice">Voice</option>
+                <option value="video">Video</option>
+                <option value="agent">Agentic</option>
+                <option value="auto">Auto</option>
+            </select>
+                <select id="routing-mode" class="picker" title="Routing mode" onchange="setRouting(this.value)">
+                <option value="quality">Quality first</option>
+                <option value="save">Save tokens</option>
+                <option value="auto">Auto routing</option>
+            </select>
+            </div>
         </div>
         <input type="file" id="attach-input" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
         <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
