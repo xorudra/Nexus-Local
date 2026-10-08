@@ -188,6 +188,38 @@ _CHAT_V2_AAD_DATA = b"nexus-admin-chats-v2:data"
 _CHAT_KEK_CONTEXT = "NexusLocal-admin-chats-v2\x00"
 _CHAT_UNLOCKS = {}  # unlock_id -> {dek, wrap_*, label, admin, expires, bound_token}
 
+# --- Temporary view passes (owner-approved 2026-10-09) ----------------------
+# The admin can mint a short-lived, READ-ONLY link (/view/<token>) so
+# someone can look at the pages without an account. Only the SHA-256 of
+# the token is kept, grants live in memory only (a restart kills every
+# pass), and viewer sessions are fenced to read-only calls in the
+# handlers below. The token itself is shown once, at creation.
+_VIEW_GRANTS = {}  # sha256(token) hex -> {"name", "created", "expires"}
+_VIEWPASS_HOURS = (1, 6, 24)
+_VIEWPASS_MAX = 5
+_VIEWPASS_NAME_RE = _re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _\-]{0,23}$")
+
+
+def _view_grant_for(token):
+    """The live grant for a raw view token, or None. Expired grants are
+    dropped on sight."""
+    if not token:
+        return None
+    h = hashlib.sha256(token.encode()).hexdigest()
+    g = _VIEW_GRANTS.get(h)
+    if not g:
+        return None
+    if time.time() > g["expires"]:
+        del _VIEW_GRANTS[h]
+        return None
+    return g
+
+
+def _sweep_view_grants():
+    now = time.time()
+    for h in [h for h, g in _VIEW_GRANTS.items() if now > g["expires"]]:
+        del _VIEW_GRANTS[h]
+
 def _chat_kek(password, wrap_salt):
     return hashlib.pbkdf2_hmac("sha256", (_CHAT_KEK_CONTEXT + password).encode(),
                                wrap_salt, 600_000, dklen=32)
@@ -828,6 +860,11 @@ class Handler(BaseHTTPRequestHandler):
                     del SESSIONS[token]
                     return None
                 now = time.time()
+                if sess.get("hard_expires") and now > sess["hard_expires"]:
+                    # Hard cap (e.g. a view pass end) beats the sliding window.
+                    _drop_chat_unlock(sess.get("chat_unlock"))
+                    del SESSIONS[token]
+                    return None
                 if now - sess["ts"] < SESSION_EXPIRY:
                     sess["ts"] = now  # sliding window
                     _rec = _CHAT_UNLOCKS.get(sess.get("chat_unlock") or "")
@@ -968,6 +1005,30 @@ class Handler(BaseHTTPRequestHandler):
             # Deliberately minimal: proves the process serves, leaks nothing.
             self._set_json_headers()
             self._send_body(json.dumps({"ok": True}).encode())
+            return
+        if parsed.path.startswith("/view/"):
+            # Temporary view pass door: a valid, unexpired token mints a
+            # read-only viewer session and lands on the dashboard.
+            raw_token = parsed.path[len("/view/"):].strip()
+            grant = _view_grant_for(raw_token)
+            if not grant:
+                self.send_response(404)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>This view link is invalid or has expired.</h1>")
+                return
+            stok = secrets.token_hex(32)
+            SESSIONS[stok] = {
+                "label": f"viewer:{grant['name']}", "admin": False,
+                "viewer": True,
+                "grant": hashlib.sha256(raw_token.encode()).hexdigest(),
+                "ts": time.time(), "hard_expires": grant["expires"],
+            }
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie",
+                             f"session={stok}; HttpOnly; Secure; SameSite=Lax; Path=/")
+            self.end_headers()
             return
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
@@ -1240,13 +1301,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Location", "/login")
                 self.end_headers()
                 return
-            if not info.get("admin"):
+            if not (info.get("admin") or info.get("viewer")):
                 self.send_response(403)
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
                 self._send_body(b"<h1>Admin only</h1>")
                 return
-            # Show current keys (masked) with fields to update
+            # Show current keys (masked) with fields to update. Viewers may
+            # look (owner's choice) but every POST stays refused for them.
             current = getattr(Handler, 'keys', {})
             sidebar = (Path(__file__).parent / "sidebar.html").read_text(encoding="utf-8")
             def masked(k):
@@ -1663,7 +1725,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(js.dumps({"models": models}).encode())
             return
         if parsed.path == "/admin":
-            if not self._session_info() or not self._session_info().get("admin"):
+            _ainfo = self._session_info()
+            if not _ainfo or not (_ainfo.get("admin") or _ainfo.get("viewer")):
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.end_headers()
@@ -1690,6 +1753,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(302)
                 self.send_header("Location", "/settings")
                 self.end_headers()
+                return
+            if info.get("viewer"):
+                # View passes never reach personal key vaults.
+                self.send_response(403)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>Not available with read-only access</h1>")
                 return
             try:
                 content = (Path(__file__).parent / "mykeys.html").read_text(encoding="utf-8")
@@ -1728,6 +1798,16 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path != "/api/login" and not self._check_origin():
             self._set_json_headers(403)
             self.wfile.write(json.dumps({"error": "origin mismatch"}).encode())
+            return
+        # Temporary view passes are READ-ONLY: only the whitelisted POST
+        # routes may proceed, and the access handler narrows further
+        # (viewers may call just list / 2fa_state there). Routing changes
+        # are writes, so they are refused here like everything else.
+        _pinfo = self._session_info()
+        if (_pinfo and _pinfo.get("viewer")
+                and parsed.path not in ("/api/access", "/api/logout")):
+            self._set_json_headers(403)
+            self.wfile.write(json.dumps({"error": "read-only access"}).encode())
             return
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
@@ -2885,16 +2965,25 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": True, "routing": mode}).encode())
             return
         if parsed.path == "/api/access":
-            if not self._require_admin():
-                return
-            import hashlib
             content_length = int(self.headers.get("Content-Length", 0))
             raw_body = self.rfile.read(content_length) if content_length else b"{}"
             try:
                 data = json.loads(raw_body)
             except Exception:
                 data = {}
+            if not isinstance(data, dict):
+                data = {}
             action = data.get("action", "list")
+            _ainfo = self._session_info()
+            if _ainfo and _ainfo.get("viewer"):
+                # Viewers may only READ here: the friend list / sessions
+                # and the 2FA state line the admin page renders.
+                if action not in ("list", "2fa_state"):
+                    self._set_json_headers(403)
+                    self.wfile.write(json.dumps({"error": "read-only access"}).encode())
+                    return
+            elif not self._require_admin():
+                return
             if action == "list":
                 access = _load_access()
                 sessions = []
@@ -2906,6 +2995,76 @@ class Handler(BaseHTTPRequestHandler):
                     "access": [{"label": l} for l in sorted(access.keys())],
                     "sessions": sessions,
                 }).encode())
+                return
+            if action == "viewpass_create":
+                master_pw = data.get("master_pw") or ""
+                try:
+                    decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+                name = (data.get("name") or "").strip()
+                hours = data.get("hours")
+                if not _VIEWPASS_NAME_RE.match(name):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "name must be 1-24 chars (letters, numbers, spaces, - _)"}).encode())
+                    return
+                if hours not in _VIEWPASS_HOURS:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "duration must be 1, 6 or 24 hours"}).encode())
+                    return
+                _sweep_view_grants()
+                if len(_VIEW_GRANTS) >= _VIEWPASS_MAX:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "too many active view passes (max 5) — revoke one first"}).encode())
+                    return
+                raw_token = secrets.token_urlsafe(32)
+                now = time.time()
+                _VIEW_GRANTS[hashlib.sha256(raw_token.encode()).hexdigest()] = {
+                    "name": name, "created": now, "expires": now + hours * 3600}
+                self._set_json_headers()
+                self.wfile.write(json.dumps({
+                    "ok": True, "url": f"/view/{raw_token}",
+                    "expires": now + hours * 3600}).encode())
+                return
+            if action == "viewpass_list":
+                _sweep_view_grants()
+                grants = []
+                for h, g in sorted(_VIEW_GRANTS.items(),
+                                   key=lambda kv: kv[1]["created"]):
+                    grants.append({
+                        "id": h[:12], "name": g["name"],
+                        "created": g["created"], "expires": g["expires"],
+                        "watching": sum(
+                            1 for s in SESSIONS.values()
+                            if isinstance(s, dict) and s.get("grant") == h),
+                    })
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "grants": grants}).encode())
+                return
+            if action == "viewpass_revoke":
+                master_pw = data.get("master_pw") or ""
+                try:
+                    decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+                gid = data.get("id") or ""
+                target = next((h for h in _VIEW_GRANTS
+                               if len(gid) >= 8 and h.startswith(gid)), None)
+                if not target:
+                    self._set_json_headers(404)
+                    self.wfile.write(json.dumps({"error": "view pass not found"}).encode())
+                    return
+                del _VIEW_GRANTS[target]
+                # Kill any live viewer sessions riding on this pass.
+                for tok in [t for t, s in SESSIONS.items()
+                            if isinstance(s, dict) and s.get("grant") == target]:
+                    del SESSIONS[tok]
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
                 return
             if action == "add":
                 label = (data.get("label") or "").strip().lower()

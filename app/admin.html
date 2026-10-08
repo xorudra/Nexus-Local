@@ -48,6 +48,9 @@ background:linear-gradient(180deg,var(--violet),var(--cyan))}
 input{background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);
 padding:12px 14px;font-size:14px;flex:1;min-width:140px;font-family:inherit}
 input::placeholder{color:#6E7794}
+select{background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);
+padding:12px 14px;font-size:14px;font-family:inherit;min-width:130px}
+select:focus{border-color:var(--violet);outline:none}
 input:focus{border-color:var(--violet);box-shadow:0 0 0 3px rgba(124,108,255,.22);outline:none}
 button{background:linear-gradient(135deg,#8B7CFF,#6D5DF6);border:none;border-radius:10px;color:#fff;
 padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit}
@@ -96,6 +99,7 @@ border:1px solid rgba(56,198,217,.4);border-radius:999px;padding:2px 9px;margin-
 <a href="#sessions-card"><i></i>Active Sessions</a>
 <a href="#master-card"><i></i>Master Password</a>
 <a href="#tfa-card"><i></i>Two-Factor Auth</a>
+<a href="#viewpass-card"><i></i>View Access</a>
 </nav>
 <div class="side-links">
 <a href="/settings"><i></i>Update Keys</a>
@@ -162,6 +166,31 @@ border:1px solid rgba(56,198,217,.4);border-radius:999px;padding:2px 9px;margin-
 <div id="tfaMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
 </div>
 
+<div class="card" id="viewpass-card">
+<h2>TEMPORARY VIEW ACCESS</h2>
+<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Create a temporary link that lets someone <b>look at the pages</b> — dashboard, connections, this admin page, Update Keys (masked) — without an account and without changing anything. Every action is refused for viewers. A pass dies at its expiry, when you revoke it, or whenever the server restarts.</p>
+<div id="vpControls">
+<div class="row">
+<input id="vpName" aria-label="View pass name" placeholder="Name (e.g. For review)" maxlength="24">
+<select id="vpHours" aria-label="View pass duration">
+<option value="1">1 hour</option>
+<option value="6">6 hours</option>
+<option value="24" selected>24 hours</option>
+</select>
+</div>
+<div class="row">
+<input id="vpMaster" type="password" aria-label="Your master password" placeholder="Your master password (to create)">
+<button id="vpBtn" onclick="createViewPass()">Create view pass</button>
+</div>
+<div id="vpResult" style="display:none;margin-top:12px;padding:14px;background:#0D1122;border:1px solid #262C4F;border-radius:10px">
+<p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Copy this link now — it is shown only once:</p>
+<input id="vpLink" aria-label="View pass link" readonly style="width:100%;font-family:monospace;font-size:13px">
+</div>
+<div id="vpMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
+</div>
+<div id="vpList"></div>
+</div>
+
 </main>
 </div>
 
@@ -179,7 +208,12 @@ async function api(action, extra) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(Object.assign({action}, extra || {}))
     });
-    if (r.status === 403 || r.status === 401) { location.href = '/login'; return null; }
+    if (r.status === 401) { location.href = '/login'; return null; }
+    if (r.status === 403) {
+        const j = await r.json().catch(() => null);
+        if (j && j.error === 'read-only access') { showMsg('Read-only access — viewers cannot make changes', false); return null; }
+        location.href = '/login'; return null;
+    }
     return r.json();
 }
 function showMsg(t, ok) {
@@ -373,7 +407,79 @@ document.getElementById('ask-input').addEventListener('keydown', (e) => {
 document.getElementById('ask-backdrop').addEventListener('click', (e) => { if (e.target.id === 'ask-backdrop') _askDone(null); });
 
 document.getElementById('tfaMaster').addEventListener('change', check2FA);
+
+// ===== Temporary view passes =====
+async function vpApi(action, extra) {
+    const r = await fetch('/api/access', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(Object.assign({action}, extra || {}))
+    });
+    if (r.status === 401) { location.href = '/login'; return null; }
+    return r.json().catch(() => null);
+}
+function vpMsg(t, ok) {
+    const m = document.getElementById('vpMsg');
+    if (!m) return;
+    m.textContent = t;
+    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
+}
+function vpWhen(ts) {
+    const mins = Math.max(0, Math.round((ts * 1000 - Date.now()) / 60000));
+    if (mins < 60) return mins + ' min left';
+    return Math.round(mins / 60) + ' h left';
+}
+async function loadViewPasses() {
+    const list = document.getElementById('vpList');
+    if (!list) return;
+    const j = await vpApi('viewpass_list');
+    if (!j || j.error) {
+        // Viewers (and anyone who may not manage passes) just see a note.
+        document.getElementById('vpControls').style.display = 'none';
+        list.innerHTML = '<div class="empty">View passes are managed from the admin account.</div>';
+        return;
+    }
+    if (!j.grants.length) {
+        list.innerHTML = '<div class="empty">No active view passes.</div>';
+        return;
+    }
+    list.innerHTML = j.grants.map(g =>
+        '<div class="person"><div><span class="name">' + esc(g.name) + '</span>' +
+        '<span class="tag">' + vpWhen(g.expires) + (g.watching ? ' · ' + g.watching + ' watching' : '') + '</span></div>' +
+        '<button class="danger" onclick="revokeViewPass(\'' + g.id + '\')">Revoke</button></div>'
+    ).join('');
+}
+async function createViewPass() {
+    const name = document.getElementById('vpName').value.trim();
+    const hours = parseInt(document.getElementById('vpHours').value, 10);
+    const master_pw = document.getElementById('vpMaster').value;
+    if (!name) { vpMsg('Give the pass a name first', false); return; }
+    if (!master_pw) { vpMsg('Enter your master password to create', false); return; }
+    const btn = document.getElementById('vpBtn');
+    btn.disabled = true;
+    const j = await vpApi('viewpass_create', {name, hours, master_pw});
+    btn.disabled = false;
+    if (j && j.ok) {
+        const link = location.origin + j.url;
+        document.getElementById('vpLink').value = link;
+        document.getElementById('vpResult').style.display = 'block';
+        document.getElementById('vpMaster').value = '';
+        vpMsg('View pass created — copy the link now', true);
+        loadViewPasses();
+    } else {
+        vpMsg((j && j.error) || 'Failed', false);
+    }
+}
+async function revokeViewPass(id) {
+    const master_pw = await askModal({title: 'Revoke view pass?', label: 'The link stops working immediately and anyone using it is disconnected. Enter your master password to confirm:', type: 'password', okText: 'Revoke'});
+    if (!master_pw) return;
+    const j = await vpApi('viewpass_revoke', {id, master_pw});
+    if (j && j.ok) { vpMsg('View pass revoked', true); loadViewPasses(); load(); }
+    else { vpMsg((j && j.error) || 'Failed', false); }
+}
+
 load();
+loadViewPasses();
 </script>
 </body>
 </html>
