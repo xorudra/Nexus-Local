@@ -36,6 +36,126 @@ details.exp .cnt{font-size:11px;color:#9aa3b2;font-weight:400;margin-left:8px}
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Press+Start+2P&display=swap" rel="stylesheet">
 </head>
 <body>
+<!-- Nexus Sidebar -->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
+/* Nexus sidebar — shadcn-style composition (brand header, grouped nav,
+   footer, collapsible-to-icons) in the original Purple Gotham theme.
+   Desktop >=1100px: pinned rail, content offset. Below: slide-over. */
+.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(168,85,247,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#A855F7;font-size:18px;line-height:1;display:none;align-items:center;justify-content:center}
+.nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:none}
+.nexus-overlay.show{display:block}
+.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#0c0c0f;border-right:1px solid rgba(168,85,247,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
+.nexus-side-head{display:flex;align-items:center;gap:9px;padding:16px 12px 12px}
+.nexus-brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:1;min-width:0}
+.nexus-brand .bt{color:#fff;font-family:'Bebas Neue',sans-serif;font-size:16.5px;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
+.nexus-brand .bt em{font-style:normal;color:#A855F7}
+.nexus-toggle{margin-left:auto;width:30px;height:30px;border-radius:7px;border:1px solid rgba(168,85,247,.25);background:transparent;color:#9aa3b2;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nexus-toggle:hover{color:#fff;border-color:#A855F7}
+.nexus-nav{flex:1;overflow-y:auto;padding:4px 12px 12px;scrollbar-width:thin}
+.nexus-glabel{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#6d6475;padding:16px 10px 6px;white-space:nowrap}
+.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#9aa3b2;text-decoration:none;font-size:14.5px;white-space:nowrap;border-left:none}
+.nexus-sidebar a.nx-item svg{flex-shrink:0;opacity:.85}
+.nexus-sidebar a.nx-item:hover{color:#fff;background:rgba(168,85,247,.07)}
+.nexus-sidebar a.nx-item.active{color:#fff;background:rgba(168,85,247,.14)}
+.nexus-sidebar a.nx-item.active svg{color:#A855F7;opacity:1}
+.nexus-foot{border-top:1px solid rgba(168,85,247,.14);padding:10px 12px}
+/* Self-defence: some pages style bare button/svg elements globally.
+   The sidebar's own geometry is pinned so it renders identically
+   on every page. */
+.nexus-burger{width:40px!important;height:40px!important;padding:0!important}
+.nexus-toggle{width:30px!important;height:30px!important;padding:0!important}
+.nexus-toggle svg{width:15px!important;height:15px!important;flex:none}
+.nexus-sidebar a.nx-item svg{width:17px!important;height:17px!important;flex:none}
+@media (min-width:1100px){
+  body{margin-left:260px;transition:margin-left .2s ease}
+  html.nx-min body{margin-left:76px}
+  html.nx-min .nexus-sidebar{width:76px}
+  html.nx-min .nexus-brand .bt,html.nx-min .nexus-glabel,html.nx-min .nexus-sidebar a.nx-item span{display:none}
+  html.nx-min .nexus-side-head{flex-direction:column;padding:14px 8px 10px}
+  html.nx-min .nexus-toggle{margin-left:0}
+  html.nx-min .nexus-sidebar a.nx-item{justify-content:center;padding:10px 0}
+  html.nx-min .nexus-glabel{padding:10px 0 2px;text-align:center}
+}
+@media (max-width:1099px){
+  .nexus-sidebar{left:-280px}
+  .nexus-sidebar.open{left:0}
+  .nexus-burger{display:flex}
+  .nexus-toggle{display:none}
+}
+</style>
+<button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
+<div class="nexus-overlay" id="nx-overlay"></div>
+<nav class="nexus-sidebar" id="nx-rail" aria-label="Main navigation">
+  <div class="nexus-side-head">
+    <a class="nexus-brand" href="/">
+      <svg viewBox="0 0 100 36" style="width:26px;height:11px;flex-shrink:0" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#A855F7"/></svg>
+      <span class="bt">NEXUS <em>LOCAL</em></span>
+    </a>
+    <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
+  </div>
+  <div class="nexus-nav">
+    <div class="nexus-glabel">Main</div>
+    <a class="nx-item" href="/" data-page="dashboard" title="Dashboard"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg><span>Dashboard</span></a>
+    <a class="nx-item" href="/connections" data-page="connections" title="Connections"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 17H7a5 5 0 0 1 0-10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/></svg><span>Connections</span></a>
+    <a class="nx-item" href="/mykeys" data-page="mykeys" id="nav-mykeys" style="display:none" title="My Keys"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="15.5" r="4.5"/><path d="M11.2 12.3 20 3.5M16.5 7l3 3"/></svg><span>My Keys</span></a>
+    <a class="nx-item" href="/settings" data-page="settings" id="nav-keys" style="display:none" title="Update Keys"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="10.5" width="16" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg><span>Update Keys</span></a>
+    <div class="nexus-glabel" id="nav-admin-label" style="display:none">Admin</div>
+    <a class="nx-item" href="/admin" data-page="admin" id="nav-admin" style="display:none" title="Admin"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3.5 5 6v5c0 4.6 3 7.7 7 9.5 4-1.8 7-4.9 7-9.5V6l-7-2.5Z"/><path d="m9.3 12 2 2 3.6-3.8"/></svg><span>Admin</span></a>
+    <a class="nx-item" href="/api-access" data-page="api-access" id="nav-api" style="display:none" title="API Access"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m8 8-4.5 4L8 16M16 8l4.5 4L16 16"/></svg><span>API Access</span></a>
+  </div>
+  <div class="nexus-foot">
+    <a class="nx-item" href="#" title="Logout" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login');return false"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/><path d="M10 12h11M18 8.5 21.5 12 18 15.5"/></svg><span>Logout</span></a>
+  </div>
+</nav>
+<script>
+(function(){
+  var rail=document.getElementById('nx-rail'),
+      overlay=document.getElementById('nx-overlay'),
+      burger=document.getElementById('nx-burger'),
+      toggle=document.getElementById('nx-toggle');
+  // Restore the collapsed state before the page settles.
+  try{ if(localStorage.getItem('nexus-rail-min')==='1') document.documentElement.classList.add('nx-min'); }catch(e){}
+  function setMin(min){
+    document.documentElement.classList.toggle('nx-min',min);
+    try{ localStorage.setItem('nexus-rail-min',min?'1':'0'); }catch(e){}
+  }
+  if(toggle) toggle.addEventListener('click',function(){
+    setMin(!document.documentElement.classList.contains('nx-min'));
+  });
+  document.addEventListener('keydown',function(e){
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='b'){ e.preventDefault();
+      setMin(!document.documentElement.classList.contains('nx-min')); }
+  });
+  if(burger) burger.addEventListener('click',function(){
+    rail.classList.add('open'); overlay.classList.add('show');
+  });
+  if(overlay) overlay.addEventListener('click',function(){
+    rail.classList.remove('open'); overlay.classList.remove('show');
+  });
+  // Active item for the current page (same rule as before).
+  var p=location.pathname;
+  document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
+    if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
+  });
+  // Role-gated items (same behaviour as before): admins see Update
+  // Keys / Admin / API Access; friends see My Keys instead.
+  fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})})
+  .then(function(r){
+    if(r.ok){
+      ['nav-admin','nav-api','nav-keys','nav-admin-label'].forEach(function(id){
+        var el=document.getElementById(id); if(el) el.style.display='';
+      });
+    } else {
+      var m=document.getElementById('nav-mykeys'); if(m) m.style.display='';
+    }
+  })
+  .catch(function(){
+    var m=document.getElementById('nav-mykeys'); if(m) m.style.display='';
+  });
+})();
+</script>
+
 <h1>MY KEYS</h1>
 <p class="sub">Your personal provider keys. When set, your chats use <b>your</b> keys instead of the shared ones — your usage burns your own quotas, not the admin's. Keys are encrypted with your login password. Leave a field blank to keep its current value.</p>
 
