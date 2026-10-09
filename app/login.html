@@ -52,7 +52,9 @@ animation:breathe 6s ease-in-out infinite}
 margin:0;letter-spacing:.14em;line-height:1;
 background:linear-gradient(#ffffff,#a9a9b3);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .mc-logo .g{background:linear-gradient(#C084FC,#7C3AED);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.tagline{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.42em;color:#8a8a92;margin:10px 0 26px;text-transform:uppercase}
+.tagline{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.42em;color:#8a8a92;margin:10px 0 26px;text-transform:uppercase;
+/* dark halo so the dot-grid dims behind the text (owner request) */
+text-shadow:0 0 6px #050507,0 0 10px #050507,0 0 16px #050507,0 0 24px #050507,0 0 32px #050507}
 .gold-div{height:2px;background:linear-gradient(90deg,transparent,rgba(168,85,247,.7),transparent);margin-bottom:26px}
 /* card restyled to the picked design: solid #121212, #222 edge, 12px radius */
 .card{background:#121212;border:1px solid #222;border-radius:12px;
@@ -74,7 +76,8 @@ button:disabled{opacity:.6;cursor:wait}
 border-radius:8px;padding:10px 12px;margin-bottom:16px}
 .shake{animation:shake .4s}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
-.link{margin-top:20px;color:#8a8a92;font-size:13px}
+.link{margin-top:20px;color:#8a8a92;font-size:13px;
+text-shadow:0 0 6px #050507,0 0 10px #050507,0 0 16px #050507,0 0 24px #050507,0 0 32px #050507}
 .link a{color:#A855F7;text-decoration:none;font-weight:600}
 .link a:hover{text-decoration:underline}
 #pw{padding-right:48px;margin-bottom:0}
