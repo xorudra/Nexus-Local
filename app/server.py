@@ -658,6 +658,7 @@ class RelayHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self._proxy_safe()
 
+
     def do_POST(self):
         self._proxy_safe()
 
@@ -1033,14 +1034,20 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
             keys_exist = key_path.exists()
-            # If keys already set up, require admin. First-time setup is public.
-            if keys_exist:
-                info = self._session_info()
-                if not info or not info.get("admin"):
-                    self.send_response(302)
-                    self.send_header("Location", "/login")
-                    self.end_headers()
-                    return
+            # Once keys are set up, the page needs a session: admins get the
+            # full (shared) setup; signed-in users get the same page in
+            # personal mode, saving to their OWN vault (owner order
+            # 2026-10-09: "Enable Setup Your Key page for User too").
+            # First-time setup (no keys yet) stays public. Read-only view
+            # passes never get the form.
+            info = self._session_info()
+            user_mode = bool(keys_exist and info and not info.get("admin")
+                             and not info.get("viewer"))
+            if keys_exist and (not info or info.get("viewer")):
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
             relay_names = [n for n in PROVIDER_NAMES if n.startswith("relay_")]
             other_names = [n for n in PROVIDER_NAMES if n != "freellmapi" and not n.startswith("relay_")]
             relay_fields = "".join(
@@ -1073,6 +1080,23 @@ class Handler(BaseHTTPRequestHandler):
                 + fields +
                 "</div></details>"
                 "</details>"
+            )
+            secure_card = (
+                "<div class='card'><h3>Confirm it\u2019s you</h3>"
+                "<p class='hint'>Your account password encrypts your personal key vault. Keys are stored only for your account and are never shared.</p>"
+                "<label>Your account password<input type='password' name='password' required id='pw1'></label>"
+            ) if user_mode else (
+                "<div class='card'><h3>Secure your keys</h3>"
+                    "<p class='hint'>This password encrypts everything and unlocks your dashboard</p>"
+                    "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8' id='pw1'></label>"
+                    "<label>Confirm password<input type='password' name='confirm' required id='pw2'></label>"
+                    "<div id='pwm' style='font-size:13px;margin-top:6px'></div>"
+                    "<script>"
+                    "document.getElementById('pw2').addEventListener('input',function(){"
+                    "var a=document.getElementById('pw1').value,b=this.value;"
+                    "document.getElementById('pwm').innerHTML=a===b&&a.length>=8?'<span style=\"color:#A855F7\">✓ Match</span>':'<span style=\"color:#ef4444\">Must match (8+ chars)</span>';"
+                    "if(a===b&&a.length>=8)document.getElementById('st3').className='st on';});"
+                    "</script>"
             )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -1118,7 +1142,7 @@ class Handler(BaseHTTPRequestHandler):
                     "@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}""@keyframes grainShift{0%,100%{transform:translate(0,0)}12%{transform:translate(-3%,-5%)}25%{transform:translate(-8%,3%)}37%{transform:translate(4%,-8%)}50%{transform:translate(-3%,8%)}62%{transform:translate(-8%,3%)}75%{transform:translate(6%,0)}87%{transform:translate(0,6%)}}""@keyframes batDrift{0%,100%{transform:translateY(-50%) translateX(0)}50%{transform:translateY(-60%) translateX(-26px)}}""@keyframes tabGlow{0%,100%{box-shadow:0 0 14px rgba(168,85,247,.10)}50%{box-shadow:0 0 26px rgba(168,85,247,.28)}}""body::before{content:\"\";position:fixed;inset:0;z-index:2000;pointer-events:none;background:radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.62) 100%)}""body::after{content:\"\";position:fixed;inset:-120px;z-index:2001;pointer-events:none;opacity:.05;background-image:url(\"data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27140%27%20height%3D%27140%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.85%27%20numOctaves%3D%272%27/%3E%3C/filter%3E%3Crect%20width%3D%27140%27%20height%3D%27140%27%20filter%3D%27url%28%23n%29%27%20opacity%3D%270.55%27/%3E%3C/svg%3E\");animation:grainShift 7s steps(8) infinite}"".hero{position:relative;overflow:hidden;animation:fadeUp .7s cubic-bezier(.2,.7,.3,1) both}"".hero::after{content:\"\";position:absolute;right:-34px;top:50%;width:280px;height:101px;background:url(\"data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20100%2036%27%3E%3Cpath%20d%3D%27M0%2C14%20L24%2C3%20L39%2C9%20L44%2C1%20L46.5%2C7%20L50%2C5%20L53.5%2C7%20L56%2C1%20L61%2C9%20L76%2C3%20L100%2C14%20L90%2C20%20L83%2C16%20L75%2C24%20L67%2C18%20L59%2C28%20L54%2C22%20L50%2C30%20L46%2C22%20L41%2C28%20L33%2C18%20L25%2C24%20L17%2C16%20L10%2C20%20Z%27%20fill%3D%27%23A855F7%27/%3E%3C/svg%3E\") no-repeat center/contain;opacity:.07;pointer-events:none;animation:batDrift 11s ease-in-out infinite}"".steps{animation:fadeUp .7s .08s cubic-bezier(.2,.7,.3,1) both}"".tabs{animation:fadeUp .7s .14s cubic-bezier(.2,.7,.3,1) both}"".tab.sel{animation:tabGlow 2.6s ease-in-out infinite}"".sec.on .card{animation:fadeUp .5s cubic-bezier(.2,.7,.3,1) both}"
                     "</style></head><body><div class='wrap'>"
                     "<div class='hero'><div class='eyebrow'>NEXUS LOCAL</div>" +
-                    ("<div class='warn'><p><b>Keys already set up.</b> Submitting will <b>overwrite</b> existing keys.</p></div>" if keys_exist else "") +
+                    ("<div class='warn'><p><b>Your keys, your vault.</b> Everything you save here goes only into <b>your personal vault</b>, encrypted with your account password \u2014 the shared setup is never touched.</p></div>" if user_mode else "<div class='warn'><p><b>Keys already set up.</b> Submitting will <b>overwrite</b> existing keys.</p></div>" if keys_exist else "") +
                     "<h1>Set up <span>your</span> keys</h1>"
                     "<p class='sub'>Connect your AI providers in under a minute</p></div><div class='gold-div'></div>"
                     "<div class='steps'>"
@@ -1254,21 +1278,11 @@ class Handler(BaseHTTPRequestHandler):
                     "document.getElementById('custom-fl-list').appendChild(d);"
                     "}"
                     "</script></div></div>"
-                    "<div class='card'><h3>Secure your keys</h3>"
-                    "<p class='hint'>This password encrypts everything and unlocks your dashboard</p>"
-                    "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8' id='pw1'></label>"
-                    "<label>Confirm password<input type='password' name='confirm' required id='pw2'></label>"
-                    "<div id='pwm' style='font-size:13px;margin-top:6px'></div>"
-                    "<script>"
-                    "document.getElementById('pw2').addEventListener('input',function(){"
-                    "var a=document.getElementById('pw1').value,b=this.value;"
-                    "document.getElementById('pwm').innerHTML=a===b&&a.length>=8?'<span style=\"color:#A855F7\">✓ Match</span>':'<span style=\"color:#ef4444\">Must match (8+ chars)</span>';"
-                    "if(a===b&&a.length>=8)document.getElementById('st3').className='st on';});"
-                    "</script>"
-                    "<button type='submit'>Encrypt and Finish Setup</button>"
-                    "</form>"
-                    "<p style='text-align:center;margin-top:20px;color:#9aa3b2'>Already have keys set up? <a href='/login' style='color:#A855F7'>Log in →</a></p>"
-                    "</div></body></html>")
+                    + secure_card
+                    + ("<button type='submit'>Save My Keys</button>" if user_mode else "<button type='submit'>Encrypt and Finish Setup</button>")
+                    + "</form>"
+                    + ("<p style='text-align:center;margin-top:20px;color:#9aa3b2'>Your saved keys live under <a href='/mykeys' style='color:#A855F7'>My Keys</a> \u00b7 <a href='/' style='color:#A855F7'>Back to dashboard \u2192</a></p>" if user_mode else "<p style='text-align:center;margin-top:20px;color:#9aa3b2'>Already have keys set up? <a href='/login' style='color:#A855F7'>Log in →</a></p>")
+                    + "</div></body></html>")
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -1773,6 +1787,77 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_error(404, "Not Found")
 
+    def _setup_save_user_keys(self, info):
+        """POST /setup for a signed-in non-admin user: the setup form saves
+        into the user's OWN per-user vault (same store and rules as
+        /api/mykeys) — never the shared keys.enc, never the master password.
+        The account password both authenticates the save and encrypts the
+        vault, exactly like the My Keys save."""
+        label = info.get("label", "")
+        if not _LABEL_RE.match(label):
+            self._set_json_headers(400)
+            self.wfile.write(json.dumps({"error": "invalid label"}).encode())
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        form = parse_qs(self.rfile.read(length).decode())
+        password = form.get("password", [""])[0]
+        if not password:
+            self._set_json_headers(400)
+            self.wfile.write(json.dumps({"error": "password required to encrypt your vault"}).encode())
+            return
+        access = _load_access()
+        stored = access.get(label, "")
+        ok, needs_up = _verify_password(password, stored)
+        if ok and needs_up and label in access:
+            access[label] = _hash_password(password)
+            _save_access(access)
+        if not ok:
+            self._set_json_headers(401)
+            self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+            return
+        keys = {}
+        for n in PROVIDER_NAMES:
+            v = form.get("k_" + n, [""])[0].strip()
+            if v:
+                keys[n] = v
+        import re
+        for fk in list(form.keys()):
+            m = re.match(r"^cr_name_(\d+)$", fk)
+            if m:
+                idx = m.group(1)
+                name = form.get(fk, [""])[0].strip().lower()
+                url = form.get(f"cr_url_{idx}", [""])[0].strip()
+                key = form.get(f"cr_key_{idx}", [""])[0].strip()
+                if name and url and key and re.match(r"^[a-z0-9_]+$", name):
+                    if url.startswith("http://") or url.startswith("https://"):
+                        keys[f"custom_relay_{name}"] = key
+                        keys[f"custom_relay_{name}_url"] = url
+        for fk in list(form.keys()):
+            m = re.match(r"^cf_name_(\d+)$", fk)
+            if m:
+                idx = m.group(1)
+                name = form.get(fk, [""])[0].strip().lower()
+                key = form.get(f"cf_key_{idx}", [""])[0].strip()
+                if name and key and re.match(r"^[a-z0-9_]+$", name):
+                    keys[f"custom_fl_{name}"] = key
+        gw_url = form.get("url_freellmapi", [""])[0].strip()
+        if gw_url:
+            if not (gw_url.startswith("http://") or gw_url.startswith("https://")):
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "gateway URL must start with http:// or https://"}).encode())
+                return
+            keys["freellmapi_url"] = gw_url
+        vault = _load_userkeys(label, password) or {}
+        vault.update(keys)
+        _save_userkeys(label, vault, password)
+        for tok, sess in SESSIONS.items():
+            if isinstance(sess, dict) and sess.get("label") == label and not sess.get("admin"):
+                sess["userkeys"] = dict(vault)
+        self.send_response(302)
+        self.send_header("Location", "/mykeys")
+        self.end_headers()
+        return
+
     def do_POST(self):
         self._resp_started = False
         try:
@@ -1812,6 +1897,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
             keys_exist = key_path.exists()
+            # Signed-in users save to their own vault (see GET). Admin and
+            # first-time setup keep the original shared-setup path below.
+            _su = self._session_info()
+            if keys_exist and _su and not _su.get("admin") and not _su.get("viewer"):
+                self._setup_save_user_keys(_su)
+                return
             # If keys already set up, require admin for POST. First-time setup is public.
             if keys_exist and not (self._session_info() or {}).get("admin"):
                 self._set_json_headers(403)

@@ -267,10 +267,29 @@ class ApiHardeningTests(Harness, unittest.TestCase):
     def test_07_settings_and_setup_guards(self):
         status, _, _, _ = self._req("GET", "/settings", cookie=self.friend_cookie)
         self.assertEqual(status, 403)
+        # Setup page opened to users (owner order 2026-10-09): a friend's
+        # POST /setup now saves to their OWN vault, so a wrong account
+        # password is a 401 (previously the route was admin-only: 403).
         status, body, _, _ = self._req("POST", "/setup", raw="password=x&confirm=x",
                                        cookie=self.friend_cookie,
                                        headers={"Content-Type": "application/x-www-form-urlencoded"})
-        self.assertEqual(status, 403, body)
+        self.assertEqual(status, 401, body)
+        # Correct account password: saves into the friend's vault and
+        # redirects to their My Keys page; shared setup untouched.
+        status, body, _, headers = self._req(
+            "POST", "/setup",
+            raw="password=" + FRIEND1_PW + "&k_groq=friend-setup-key",
+            cookie=self.friend_cookie,
+            headers={"Content-Type": "application/x-www-form-urlencoded"})
+        self.assertEqual(status, 302, body)
+        self.assertEqual(headers.get("location"), "/mykeys")
+        status, body, _, _ = self._req("POST", "/api/mykeys", {"action": "view"},
+                                       cookie=self.friend_cookie)
+        self.assertEqual(status, 200, body)
+        self.assertIn("groq", body.get("configured", []))
+        # Friend GET /setup is served (200), not bounced to /login.
+        status, body, _, _ = self._req("GET", "/setup", cookie=self.friend_cookie)
+        self.assertEqual(status, 200)
         status, _, _, headers = self._req("GET", "/setup")
         self.assertEqual(status, 302)
         self.assertEqual(headers.get("location"), "/login")
