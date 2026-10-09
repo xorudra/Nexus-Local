@@ -38,6 +38,7 @@ To use your own keys instead, delete `keys.enc` from the install folder and use 
 - **Dashboard** (`/`) — task composer with provider/model picker, image attachments, usage overview
 - **Connections** (`/connections`) — all providers grouped in expanders (Direct, Relay, FreeLLMAPI) with key status and usage
 - **Update Keys** (`/settings`) — update API keys after login (shows last 4 chars, blank = keep current)
+- **API Access** (`/api-access`, admin only) — status of the external `/v1` API: endpoint, service-key hint, supply-lane readiness, live self-test
 
 Use the ☰ menu (top-left) to navigate between pages.
 
@@ -47,6 +48,27 @@ Use the ☰ menu (top-left) to navigate between pages.
 - **Provider Groups** — 14 direct providers, 5 relay providers, unified gateway — all with live key status
 - **Image Attachments** — vision-capable providers accept images alongside text
 - **Encrypted Storage** — all keys AES-256-GCM encrypted, PBKDF2 600k iterations, never stored as plaintext
+
+## External API (`/v1`)
+
+Nexus can supply other projects (e.g. DSRclone's AI service) through an
+OpenAI-compatible endpoint:
+
+- `GET /v1/models` — `nexus-auto`, per-lane `lane/model` ids, and live lane catalogs
+- `POST /v1/chat/completions` — standard OpenAI request/response shape
+
+**Off by default.** Set the `NEXUS_V1_API_KEY` environment variable to enable
+it; clients send it as `Authorization: Bearer <key>`. Without the variable the
+routes answer 404. The key is a service credential — it lives only in the
+server environment and the consumer's settings, never in this repo, and the
+API Access page shows only its last 4 characters.
+
+Ask for model `nexus-auto` and Nexus tries its relay lanes in order
+(Gemini → OpenRouter → Groq → NVIDIA → Pollinations) until one answers,
+honouring the same circuit breaker as dashboard chat; usage is logged as
+`v1:<lane>`. While the provider vault is locked (no admin login since the
+last restart) only keyless lanes answer — the same rule dashboard chat
+follows before unlock.
 
 ## Uninstall
 
