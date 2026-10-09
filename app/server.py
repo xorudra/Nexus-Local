@@ -639,6 +639,107 @@ RELAY_UPSTREAMS = {
 # relay_pollinations needs no key
 RELAY_KEYLESS = {"relay_pollinations", "aihorde", "pollinations", "kilo", "ovh"}
 
+# ---------------------------------------------------------------------------
+# External API (owner order 2026-10-09): an OpenAI-compatible surface so
+# Rudra's other project (DSRclone's AI service) can be supplied by Nexus.
+# Disabled unless NEXUS_V1_API_KEY is set in the environment. The key is a
+# service credential: never stored in the repo and never shown in the UI
+# (the admin API page displays status + last 4 only). Requests ride the
+# integrated relay lanes with failover; when the shared vault is locked,
+# keyed lanes cannot run yet — exactly like the dashboard's own pre-unlock
+# behaviour — while keyless lanes keep working.
+# ---------------------------------------------------------------------------
+_V1_LANES = [
+    ("relay_gemini", "gemini-3.5-flash-lite"),
+    ("relay_openrouter", "apodex/apodex-1.1-mini:free"),
+    ("relay_groq", "openai/gpt-oss-20b"),
+    ("relay_nvidia", "google/gemma-3-12b-it"),
+    ("relay_pollinations", "openai"),
+]
+_V1_MODELS_CACHE = {"at": 0.0, "ids": []}
+
+
+def _v1_api_key():
+    return os.environ.get("NEXUS_V1_API_KEY", "")
+
+
+def _v1_lane_key(lane):
+    keys = getattr(Handler, "keys", None)
+    if isinstance(keys, dict):
+        return keys.get(lane) or ""
+    return ""
+
+
+def _v1_relay_call(lane, path, payload=None, timeout=90):
+    """One integrated-relay call; returns parsed JSON, raises on failure.
+    The relay itself reads the shared keys from Handler.keys in-process;
+    X-Vault-Key is passed when a per-lane key is present, mirroring
+    /api/chat's own relay dispatch."""
+    headers = {"Content-Type": "application/json", "X-Relay-Token": RELAY_TOKEN}
+    vault_key = _v1_lane_key(lane)
+    if vault_key:
+        headers["X-Vault-Key"] = vault_key
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = Request(f"http://127.0.0.1:{RELAY_PORT}/{lane}/v1{path}",
+                  data=data, headers=headers,
+                  method="POST" if payload is not None else "GET")
+    with urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _v1_route(model):
+    """Resolve a requested model to an ordered (lane, upstream model) list."""
+    model = (model or "").strip()
+    if model and model != "nexus-auto":
+        if "/" in model:
+            lane, rest = model.split("/", 1)
+            if lane in RELAY_UPSTREAMS and rest:
+                return [(lane, rest)]
+        for lane, default in _V1_LANES:
+            if model == default:
+                return [(lane, model)]
+        return [(lane, model) for lane, _d in _V1_LANES[:3]]
+    return list(_V1_LANES)
+
+
+def _v1_chat(messages, model, temperature=None):
+    """Run a chat completion across the relay lanes until one answers.
+    Returns (status_code, openai_shaped_dict, lane_used)."""
+    last_error = "no lane available"
+    for lane, mdl in _v1_route(model):
+        if _provider_down(lane):
+            continue
+        if lane not in RELAY_KEYLESS and getattr(Handler, "keys", None) is None:
+            last_error = "vault locked"
+            continue
+        payload = {"model": mdl, "messages": messages, "max_tokens": 4096}
+        if temperature is not None:
+            payload["temperature"] = temperature
+        try:
+            data = _v1_relay_call(lane, "/chat/completions", payload)
+            reply = data["choices"][0]["message"]["content"]
+            if not isinstance(reply, str):
+                raise ValueError("unexpected upstream shape")
+            _note_success(lane)
+            usage = data.get("usage") or {}
+            _append_usage({"ts": datetime.datetime.now().isoformat(),
+                           "provider": f"v1:{lane}", "model": mdl,
+                           "prompt_tokens": usage.get("prompt_tokens", 0),
+                           "completion_tokens": usage.get("completion_tokens", 0)})
+            data.setdefault("model", mdl)
+            return 200, data, lane
+        except HTTPError as e:
+            _note_failure(lane)
+            last_error = f"{lane} returned {e.code}"
+            continue
+        except Exception:
+            _note_failure(lane)
+            last_error = f"{lane} unreachable"
+            continue
+    return 502, {"error": {"message": f"all Nexus lanes failed ({last_error})",
+                           "type": "upstream_error"}}, ""
+
+
 def register_custom_providers(keys):
     """Register custom relay providers from keys dict into RELAY_UPSTREAMS."""
     if not keys:
@@ -937,6 +1038,136 @@ class Handler(BaseHTTPRequestHandler):
         self._set_json_headers(503)
         self.wfile.write(json.dumps({"error": LOCKED_ERROR}).encode())
 
+    # -- External /v1 API (see the module-level note above _V1_LANES) --
+
+    def _v1_authorized(self):
+        key = _v1_api_key()
+        if not key:
+            return False
+        auth = self.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return False
+        return _hmac.compare_digest(auth[len("Bearer "):].strip(), key)
+
+    def _v1_gate(self):
+        """Shared gate for /v1 routes. Returns True when the request may
+        proceed; otherwise the error response has already been written.
+        A disabled endpoint (no key configured) answers 404 so the
+        surface stays invisible."""
+        if not _v1_api_key():
+            self._set_json_headers(404)
+            self._send_body(json.dumps({"error": {"message": "not found", "type": "not_found"}}).encode())
+            return False
+        if not self._v1_authorized():
+            self._set_json_headers(401)
+            self._send_body(json.dumps({"error": {"message": "invalid api key", "type": "authentication_error"}}).encode())
+            return False
+        return True
+
+    def _v1_models(self):
+        if not self._v1_gate():
+            return
+        ids = ["nexus-auto"] + [f"{lane}/{mdl}" for lane, mdl in _V1_LANES]
+        now = time.time()
+        if now - _V1_MODELS_CACHE["at"] > 300:
+            live = []
+            for lane, _d in _V1_LANES:
+                try:
+                    data = _v1_relay_call(lane, "/models", timeout=5)
+                    for m in data.get("data", []):
+                        if isinstance(m, dict) and m.get("id"):
+                            live.append(f"{lane}/{m['id']}")
+                except Exception:
+                    continue
+            _V1_MODELS_CACHE.update(at=now, ids=live)
+        for extra in _V1_MODELS_CACHE["ids"]:
+            if extra not in ids:
+                ids.append(extra)
+        body = {"object": "list",
+                "data": [{"id": i, "object": "model", "owned_by": "nexus-local"} for i in ids]}
+        self._set_json_headers()
+        self._send_body(json.dumps(body).encode())
+
+    def _v1_chat_completions(self):
+        if not self._v1_gate():
+            return
+        if not _rl_ok("v1", (self.headers.get("Authorization", "") or "")[-8:], 60, 60):
+            self._set_json_headers(429)
+            self.wfile.write(json.dumps({"error": {"message": "rate limit", "type": "rate_limit_error"}}).encode())
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            data = json.loads(self.rfile.read(length) or b"{}")
+        except Exception:
+            self._set_json_headers(400)
+            self.wfile.write(json.dumps({"error": {"message": "invalid JSON", "type": "invalid_request_error"}}).encode())
+            return
+        messages = data.get("messages")
+        if not isinstance(messages, list) or not messages:
+            self._set_json_headers(400)
+            self.wfile.write(json.dumps({"error": {"message": "messages must be a non-empty list", "type": "invalid_request_error"}}).encode())
+            return
+        code, out, _lane = _v1_chat(messages, data.get("model") or "nexus-auto",
+                                    data.get("temperature"))
+        self._set_json_headers(code)
+        self.wfile.write(json.dumps(out).encode())
+
+    def _v1_access_info(self):
+        """Admin-only status for the API Access page. Never returns the
+        key itself — status, last 4 and lane readiness only."""
+        info = self._session_info()
+        if not info or not info.get("admin"):
+            self._set_json_headers(403)
+            self._send_body(json.dumps({"error": "admin only"}).encode())
+            return
+        key = _v1_api_key()
+        proto = self.headers.get("X-Forwarded-Proto", "http")
+        host = self.headers.get("Host", "nexus-local.onrender.com")
+        unlocked = getattr(Handler, "keys", None) is not None
+        lanes = [{"lane": lane, "model": mdl,
+                  "ready": (lane in RELAY_KEYLESS) or unlocked}
+                 for lane, mdl in _V1_LANES]
+        body = {"enabled": bool(key),
+                "key_last4": key[-4:] if key else "",
+                "base_url": f"{proto}://{host}/v1",
+                "consumer": "DSRclone AI service",
+                "vault_unlocked": unlocked,
+                "lanes": lanes}
+        self._set_json_headers()
+        self._send_body(json.dumps(body).encode())
+
+    def _v1_access_test(self):
+        """Admin-only live self-test: one tiny nexus-auto completion
+        through the same path external clients use."""
+        info = self._session_info()
+        if not info or not info.get("admin"):
+            self._set_json_headers(403)
+            self.wfile.write(json.dumps({"error": "admin only"}).encode())
+            return
+        if not _v1_api_key():
+            self._set_json_headers(200)
+            self.wfile.write(json.dumps({"ok": False, "error": "endpoint not enabled (NEXUS_V1_API_KEY is not set)"}).encode())
+            return
+        started = time.time()
+        code, out, lane = _v1_chat([{"role": "user", "content": "Reply with exactly: NEXUS API OK"}],
+                                   "nexus-auto")
+        latency = int((time.time() - started) * 1000)
+        if code == 200:
+            try:
+                reply = out["choices"][0]["message"]["content"]
+            except Exception:
+                reply = ""
+            self._set_json_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "lane": lane,
+                                         "model": out.get("model", ""),
+                                         "reply": str(reply)[:160],
+                                         "latency_ms": latency}).encode())
+        else:
+            self._set_json_headers(200)
+            self.wfile.write(json.dumps({"ok": False, "lane": lane,
+                                         "error": (out.get("error") or {}).get("message", "failed"),
+                                         "latency_ms": latency}).encode())
+
     def _set_json_headers(self, status: int = 200):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -1006,6 +1237,13 @@ class Handler(BaseHTTPRequestHandler):
             # Deliberately minimal: proves the process serves, leaks nothing.
             self._set_json_headers()
             self._send_body(json.dumps({"ok": True}).encode())
+            return
+        if parsed.path == "/v1/models":
+            # External API (service-key auth, no session): see _V1_LANES.
+            self._v1_models()
+            return
+        if parsed.path == "/api/v1-access":
+            self._v1_access_info()
             return
         if parsed.path.startswith("/view/"):
             # Temporary view pass door: a valid, unexpired token mints a
@@ -1755,6 +1993,31 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, "internal error")
             return
+        if parsed.path == "/api-access":
+            # Admin-only: the external /v1 API's status page. The service
+            # key itself is never rendered — status + last 4 only.
+            info = self._session_info()
+            if not info:
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            if not info.get("admin"):
+                self.send_response(403)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>Admin only</h1>")
+                return
+            try:
+                content = (Path(__file__).parent / "api.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception as e:
+                self.send_error(500, "internal error")
+            return
         if parsed.path == "/mykeys":
             # Friend's personal key vault page (friends only; admins use Update Keys)
             info = self._session_info()
@@ -1893,6 +2156,13 @@ class Handler(BaseHTTPRequestHandler):
                 and parsed.path not in ("/api/access", "/api/logout")):
             self._set_json_headers(403)
             self.wfile.write(json.dumps({"error": "read-only access"}).encode())
+            return
+        if parsed.path == "/v1/chat/completions":
+            # External API (service-key auth, no session): see _V1_LANES.
+            self._v1_chat_completions()
+            return
+        if parsed.path == "/api/v1-access/test":
+            self._v1_access_test()
             return
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"

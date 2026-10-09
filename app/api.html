@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus Local - API Access</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&display=swap');
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background-color:#050507;background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.07), transparent 70%);color:#dde;width:100%;overflow-x:hidden}
+.header{display:flex;align-items:center;padding:20px 32px;padding-left:70px;background:#11141b;border-bottom:1px solid rgba(168,85,247,.18)}
+.header h1{font-family:'Bebas Neue',sans-serif;font-weight:400;letter-spacing:.14em;font-size:26px;margin:0;color:#e6e9f0}
+.header .sub{margin-left:14px;color:#8b93a3;font-size:13px}
+.wrap{max-width:880px;margin:0 auto;padding:28px 20px 60px}
+.card{background:#101319;border:1px solid rgba(168,85,247,.16);border-radius:14px;padding:22px 24px;margin-bottom:20px}
+.card h2{margin:0 0 6px;font-family:'Oswald',sans-serif;font-weight:600;font-size:16px;letter-spacing:.06em;color:#e6e9f0;text-transform:uppercase}
+.card p{color:#9aa3b2;font-size:14px;line-height:1.55;margin:6px 0}
+.pill{display:inline-block;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.04em}
+.pill.on{background:rgba(46,204,113,.14);color:#2ecc71;border:1px solid rgba(46,204,113,.4)}
+.pill.off{background:rgba(231,76,60,.12);color:#e74c3c;border:1px solid rgba(231,76,60,.4)}
+.kv{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:14px}
+.kv:last-child{border-bottom:none}
+.kv .k{color:#8b93a3}
+.kv .v{color:#e6e9f0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;text-align:right;word-break:break-all}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05)}
+th{color:#8b93a3;font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+td{color:#cfd6e4;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.ready{color:#2ecc71}.notready{color:#e0a23c}
+pre{background:#0a0c10;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px;overflow-x:auto;font-size:12.5px;line-height:1.6;color:#c9d4e8}
+button{background:#A855F7;color:#fff;border:none;border-radius:9px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer}
+button:hover{background:#9333ea}
+button.ghost{background:transparent;border:1px solid rgba(168,85,247,.5);color:#c9a7f5;padding:6px 14px;font-size:12.5px}
+#test-result{margin-top:14px;font-size:14px;line-height:1.55;color:#cfd6e4;white-space:pre-wrap}
+.note{font-size:12.5px;color:#77808f}
+</style>
+<style>
+.nexus-sidebar{position:fixed;top:0;left:-280px;width:260px;height:100%;background:#101014;border-right:2px solid #000;z-index:1000;transition:left .25s ease;padding:70px 0 20px;box-sizing:border-box}
+.nexus-sidebar.open{left:0}
+.nexus-sidebar a{display:block;padding:14px 24px;color:#9aa3b2;text-decoration:none;font-size:15px;border-left:3px solid transparent}
+.nexus-sidebar a:hover{color:#e6e9f0;background:#0f1622}
+.nexus-sidebar a.active{color:#A855F7;border-left-color:#A855F7;background:rgba(168,85,247,.06)}
+.nexus-sidebar .nav-title{padding:0 24px 12px;color:#A855F7;font-size:15px;letter-spacing:.28em;font-family:'Bebas Neue',sans-serif}
+.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#101014;color:#e6e9f0;border:1px solid rgba(168,85,247,.4);border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer}
+.nexus-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999}
+.nexus-overlay.show{display:block}
+</style>
+</head>
+<body>
+<button class="nexus-burger" onclick="document.querySelector('.nexus-sidebar').classList.add('open');document.querySelector('.nexus-overlay').classList.add('show')">&#9776;</button>
+<div class="nexus-overlay" onclick="document.querySelector('.nexus-sidebar').classList.remove('open');this.classList.remove('show')"></div>
+<nav class="nexus-sidebar">
+<div class="nav-title"><svg viewBox="0 0 100 36" style="width:26px;height:10px;vertical-align:baseline;margin-right:8px"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#A855F7"/></svg>NEXUS LOCAL</div>
+<a href="/" data-page="dashboard">Dashboard</a>
+<a href="/connections" data-page="connections">Connections</a>
+<a href="/settings" data-page="settings" id="nav-keys">Update Keys</a>
+<a href="/mykeys" data-page="mykeys" id="nav-mykeys" style="display:none">My Keys</a>
+<a href="/admin" data-page="admin" id="nav-admin">Admin</a>
+<a href="/api-access" data-page="api-access" id="nav-api">API Access</a>
+<a href="#" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login');return false">Logout</a>
+</nav>
+<script>
+(function(){
+var p=location.pathname;
+document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
+if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
+});
+})();
+</script>
+
+<div class="header"><h1>API ACCESS</h1><span class="sub">Nexus as an OpenAI-compatible endpoint for your other projects</span></div>
+
+<div class="wrap">
+  <div class="card">
+    <h2>Endpoint status <span id="status-pill" class="pill off" style="margin-left:8px">loading</span></h2>
+    <div class="kv"><span class="k">Base URL</span><span class="v" id="base-url">—</span></div>
+    <div class="kv"><span class="k">Service key</span><span class="v" id="key-hint">—</span></div>
+    <div class="kv"><span class="k">Connected consumer</span><span class="v" id="consumer">—</span></div>
+    <div class="kv"><span class="k">Provider vault</span><span class="v" id="vault">—</span></div>
+    <p class="note">The full key lives only in the server's environment settings and in the consumer
+    project — it is never stored in this app or shown on this page. Requests are answered by the
+    same provider lanes as Nexus chat, with failover. When the vault is locked (no admin login
+    since the last restart), only keyless lanes answer until you sign in.</p>
+  </div>
+
+  <div class="card">
+    <h2>Supply lanes</h2>
+    <table><thead><tr><th>Lane</th><th>Default model</th><th>Ready</th></tr></thead>
+    <tbody id="lanes"><tr><td colspan="3">loading…</td></tr></tbody></table>
+    <p class="note">Ask for model <b>nexus-auto</b> and Nexus tries the lanes in this order until one answers.
+    A specific lane model can be requested as <b>lane/model</b>, e.g. relay_groq/openai/gpt-oss-20b.
+    GET /v1/models lists everything currently reachable.</p>
+  </div>
+
+  <div class="card">
+    <h2>Use it from any OpenAI client</h2>
+    <pre id="example">loading…</pre>
+    <button id="test-btn" onclick="runTest()">Run live test</button>
+    <div id="test-result"></div>
+  </div>
+</div>
+
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
+  var pill=document.getElementById('status-pill');
+  if(d.enabled){pill.textContent='ENABLED';pill.className='pill on';}
+  else{pill.textContent='NOT CONFIGURED';pill.className='pill off';}
+  document.getElementById('base-url').textContent=d.base_url;
+  document.getElementById('key-hint').textContent=d.enabled?('••••••••'+d.key_last4):'not set';
+  document.getElementById('consumer').textContent=d.consumer;
+  document.getElementById('vault').textContent=d.vault_unlocked?'unlocked':'locked (keyless lanes only)';
+  document.getElementById('lanes').innerHTML=d.lanes.map(function(l){
+    return '<tr><td>'+esc(l.lane)+'</td><td>'+esc(l.model)+'</td><td class="'+(l.ready?'ready':'notready')+'">'+(l.ready?'ready':'needs unlock')+'</td></tr>';
+  }).join('');
+  document.getElementById('example').textContent=
+'curl '+d.base_url+'/chat/completions \\\n'+
+'  -H "Authorization: Bearer <your service key>" \\\n'+
+'  -H "Content-Type: application/json" \\\n'+
+'  -d \'{"model": "nexus-auto", "messages": [{"role": "user", "content": "Hello"}]}\'';
+}).catch(function(){
+  document.getElementById('status-pill').textContent='ERROR';
+});
+function runTest(){
+  var btn=document.getElementById('test-btn'), out=document.getElementById('test-result');
+  btn.disabled=true; out.textContent='Testing — asking the lanes for a reply…';
+  fetch('/api/v1-access/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+  .then(function(r){return r.json()}).then(function(d){
+    btn.disabled=false;
+    if(d.ok){ out.textContent='✓ Working — lane '+d.lane+' · model '+d.model+' · '+d.latency_ms+' ms\nReply: "'+d.reply+'"'; }
+    else{ out.textContent='✗ Not answering yet: '+(d.error||'unknown error')+(d.latency_ms?(' · '+d.latency_ms+' ms'):''); }
+  }).catch(function(){ btn.disabled=false; out.textContent='✗ Test request failed.'; });
+}
+</script>
+</body>
+</html>

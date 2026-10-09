@@ -19,6 +19,7 @@
 <a href="/settings" data-page="settings" id="nav-keys" style="display:none">Update Keys</a>
 <a href="/mykeys" data-page="mykeys" id="nav-mykeys" style="display:none">My Keys</a>
 <a href="/admin" data-page="admin" id="nav-admin" style="display:none">Admin</a>
+<a href="/api-access" data-page="api-access" id="nav-api" style="display:none">API Access</a>
 <a href="#" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login');return false">Logout</a>
 </nav>
 <script>
@@ -33,6 +34,7 @@ fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},b
 .then(function(r){
   if(r.ok){
     var el=document.getElementById('nav-admin'); if(el) el.style.display='';
+    var ap=document.getElementById('nav-api'); if(ap) ap.style.display='';
     var k=document.getElementById('nav-keys'); if(k) k.style.display='';
   } else {
     // Non-admin (friend): show My Keys instead
