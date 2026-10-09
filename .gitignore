@@ -25,3 +25,8 @@ Thumbs.db
 
 # Runtime friend-access working file (mirror lives in app/access.enc)
 app/access.json
+
+# Admin console runtime (settings.enc is the synced mirror; the
+# plaintext working copy and the audit log stay off git)
+app/settings.json
+app/audit.jsonl

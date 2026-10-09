@@ -1,486 +1,812 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Nexus Local - Admin</title>
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-*{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0B0E1A; --panel:#151936; --panel2:#0D1122; --border:#262C4F;
-  --text:#F4F6FF; --muted:#9AA3B2; --violet:#7C6CFF; --violet2:#5B8CFF;
-  --cyan:#38C6D9; --pink:#FF5C8A; --rose:#F43F5E;
-}
-html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
-background:radial-gradient(ellipse 70% 45% at 85% -10%,rgba(124,108,255,.14),transparent),
-radial-gradient(ellipse 55% 40% at -10% 110%,rgba(56,198,217,.08),transparent)}
-.layout{display:flex;align-items:flex-start;max-width:1180px;margin:0 auto;position:relative;z-index:1}
-/* ===== Sidebar (Dashdark-style) ===== */
-.side{width:248px;flex:0 0 248px;position:sticky;top:0;height:100vh;padding:26px 18px;
-display:flex;flex-direction:column;gap:22px;border-right:1px solid var(--border);background:rgba(13,17,34,.65)}
-.brand{font-size:19px;font-weight:800;letter-spacing:.04em;color:#fff;padding:2px 10px}
-.brand span{color:var(--violet)}
-.brand small{display:block;font-size:10px;font-weight:600;letter-spacing:.28em;color:var(--muted);margin-top:3px}
-.snav{display:flex;flex-direction:column;gap:4px}
-.snav a,.side-links a{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:10px;
-color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;transition:all .15s}
-.snav a i,.side-links a i{width:8px;height:8px;border-radius:3px;background:var(--border);flex:0 0 8px}
-.snav a:hover,.side-links a:hover{color:#fff;background:var(--panel)}
-.snav a:hover i{background:var(--violet)}
-.side-links{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--border);padding-top:16px}
-.side-links a i{background:var(--cyan)}
-.side-foot{margin-top:auto;font-size:11px;line-height:1.55;color:var(--muted);padding:0 10px}
-.side-foot a{color:var(--muted)}
-/* ===== Main column ===== */
-.main{flex:1;min-width:0;padding:30px 30px 40px}
-h1{font-size:27px;font-weight:800;letter-spacing:-.01em;color:#fff;margin-bottom:6px}
-.sub{color:var(--muted);font-size:14px;margin-bottom:26px}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:16px;
-padding:22px;margin-bottom:20px;scroll-margin-top:18px;box-shadow:0 10px 30px rgba(2,4,12,.35)}
-.card h2{font-size:12px;font-weight:700;color:#C9CEFF;margin-bottom:18px;letter-spacing:.14em;
-display:flex;align-items:center;gap:10px}
-.card h2::before{content:"";width:4px;height:14px;border-radius:2px;
-background:linear-gradient(180deg,var(--violet),var(--cyan))}
-.row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
-input{background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);
-padding:12px 14px;font-size:14px;flex:1;min-width:140px;font-family:inherit}
-input::placeholder{color:#6E7794}
-select{background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);
-padding:12px 14px;font-size:14px;font-family:inherit;min-width:130px}
-select:focus{border-color:var(--violet);outline:none}
-input:focus{border-color:var(--violet);box-shadow:0 0 0 3px rgba(124,108,255,.22);outline:none}
-button{background:linear-gradient(135deg,#8B7CFF,#6D5DF6);border:none;border-radius:10px;color:#fff;
-padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit}
-button:hover{box-shadow:0 6px 20px rgba(124,108,255,.45);transform:translateY(-1px)}
-button.danger{background:linear-gradient(135deg,#FB7185,#E11D48)}
-button.danger:hover{box-shadow:0 6px 20px rgba(244,63,94,.4)}
-button:disabled{opacity:.5;cursor:default;transform:none}
-.person{display:flex;align-items:center;justify-content:space-between;background:var(--panel2);
-border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:8px;animation:slideIn .25s ease-out}
-@keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.person .name{font-weight:600}
-.person .tag{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--cyan);
-border:1px solid rgba(56,198,217,.4);border-radius:999px;padding:2px 9px;margin-left:10px;text-transform:uppercase}
-.person button{padding:8px 16px;font-size:13px}
-.empty{color:var(--muted);font-size:14px;padding:12px 0}
-#msg{text-align:center;min-height:22px;font-size:14px;margin-top:12px}
-/* ===== In-theme modal (replaces prompt/confirm) ===== */
-#ask-backdrop{position:fixed;inset:0;background:rgba(3,5,12,.7);display:none;align-items:center;justify-content:center;z-index:1600;padding:18px}
-#ask-backdrop.open{display:flex}
-#ask-card{background:var(--panel);border:1px solid rgba(124,108,255,.4);border-radius:16px;padding:20px;width:min(400px,94vw);box-shadow:0 18px 50px rgba(0,0,0,.7)}
-#ask-title{color:#fff;font-size:16px;font-weight:600;margin-bottom:6px;font-family:'Inter','Segoe UI',system-ui,sans-serif}
-#ask-label{color:var(--muted);font-size:13px;line-height:1.5;margin-bottom:12px;font-family:'Inter','Segoe UI',system-ui,sans-serif}
-#ask-input{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:11px 12px;font-size:14px;font-family:'Inter','Segoe UI',system-ui,sans-serif;box-sizing:border-box}
-#ask-input:focus{outline:none;border-color:var(--violet)}
-.ask-row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
-#ask-cancel{background:none;border:1px solid var(--border);color:var(--muted);border-radius:10px;padding:9px 18px;font-size:14px;cursor:pointer;font-family:'Inter','Segoe UI',system-ui,sans-serif}
-#ask-ok{background:linear-gradient(135deg,#8B7CFF,#6D5DF6);border:none;border-radius:10px;color:#fff;padding:9px 22px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Inter','Segoe UI',system-ui,sans-serif}
-@media (max-width:860px){
-  .layout{flex-direction:column}
-  .side{width:100%;flex:none;height:auto;position:static;padding:18px 16px 12px;gap:12px;
-  border-right:none;border-bottom:1px solid var(--border)}
-  .snav,.side-links{flex-direction:row;overflow-x:auto;padding-bottom:4px}
-  .side-links{border-top:none;padding-top:0}
-  .snav a,.side-links a{white-space:nowrap;padding:9px 12px;background:var(--panel)}
-  .side-foot{display:none}
-  .main{padding:22px 16px 34px;width:100%}
-}
+:root{--bg:#ececec;--panel:rgba(255,255,255,.62);--line:rgba(0,0,0,.13);--tx:#0b0b0b;--mu:#666;--wire:#111;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#050505;--panel:rgba(14,14,14,.58);--line:rgba(255,255,255,.14);--tx:#f2f2f2;--mu:#8e8e8e;--wire:#fff}}
+:root[data-theme="dark"]{--bg:#050505;--panel:rgba(14,14,14,.58);--line:rgba(255,255,255,.14);--tx:#f2f2f2;--mu:#8e8e8e;--wire:#fff}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 "Space Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
+.mono,h2,code,.dock b,small{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+#bg{position:fixed;inset:0;width:100%;height:100%;z-index:0}
+.stage{position:relative;z-index:1;max-width:1560px;margin:auto;padding:16px 16px 56px;display:grid;--l:232px;--r:268px;grid-template-columns:var(--l) minmax(0,1fr) var(--r);gap:16px;align-items:start;transition:grid-template-columns .3s}main{min-width:0}
+.dock{position:sticky;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:20;display:flex;align-items:center;gap:12px;padding:7px 8px 7px 16px;margin-top:10px;border-radius:999px;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.dock b{font-size:12px;letter-spacing:.22em;display:flex;align-items:center;gap:9px}.dock b i{width:13px;height:13px;background:var(--tx);transform:rotate(45deg)}
+nav{display:flex;gap:2px;margin:0 auto;overflow-x:auto;scrollbar-width:none}
+nav button,.ib{all:unset;cursor:pointer;padding:7px 14px;border-radius:999px;color:var(--mu);white-space:nowrap;font-size:13px}
+nav button:hover,.ib:hover{color:var(--tx)}nav button.on,.ib.on{background:var(--tx);color:var(--bg)}
+.ib{border:1px solid var(--line);padding:5px 11px;font-size:12px}
+.hero{min-height:46vh;display:flex;align-items:flex-end;padding:40px 4px 28px}
+h1{margin:0;font-size:clamp(46px,10vw,116px);line-height:.9;letter-spacing:-.055em;font-weight:700}
+.head{padding:44px 4px 20px}.head h1{font-size:clamp(36px,6.5vw,68px);line-height:1}
+h2{margin:0 0 14px;font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--mu)}
+.sub{color:var(--mu);font-size:12px}small{font-size:10.5px}
+.num{font-size:clamp(38px,5.6vw,72px);font-weight:700;letter-spacing:-.05em;line-height:1}
+.view{display:none}.view.on{display:block}
+.bento{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+.s3{grid-column:span 3}.s4{grid-column:span 4}.s5{grid-column:span 5}.s6{grid-column:span 6}.s7{grid-column:span 7}.s8{grid-column:span 8}.s12{grid-column:span 12}
+.p{position:relative;padding:18px;border-radius:20px;min-width:0;transform-style:preserve-3d;transform:perspective(1000px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform .25s ease-out}
+.p::before{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);z-index:-1}
+.p::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:radial-gradient(260px circle at var(--mx,50%) var(--my,0%),var(--line),transparent 70%);opacity:0;transition:opacity .2s}
+.p:hover::after{opacity:1}
+.lift{transform:translateZ(26px)}
+.view.on .p{animation:in .7s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0)*55ms)}
+@keyframes in{from{opacity:0;transform:perspective(1000px) translateY(30px) translateZ(-120px) rotateX(14deg)}}
+.row{display:flex;gap:8px}.row input{flex:1;width:auto}
+.btn{all:unset;cursor:pointer;padding:9px 16px;border-radius:12px;background:var(--tx);color:var(--bg);font-weight:600;font-size:13px;text-align:center}
+.btn:hover{opacity:.85}.btn.g{background:var(--line);color:var(--tx)}
+input,textarea,select{width:100%;background:var(--line);border:1px solid var(--line);color:var(--tx);border-radius:12px;padding:9px 12px;font:inherit;outline:none}
+input:focus,textarea:focus,select:focus{border-color:var(--tx)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;background:var(--tx);box-shadow:0 0 8px var(--tx)}
+.dot.w{background:transparent;border:2px solid var(--tx);box-shadow:none}.dot.b{background:transparent;border:2px dashed var(--mu);box-shadow:none}
+.chip{padding:5px 12px;border-radius:999px;border:1px solid var(--line)}.chip.on{background:var(--tx);color:var(--bg)}.chip.x{opacity:.4;text-decoration:line-through}
+.bar{height:5px;background:var(--line);border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;background:var(--tx)}
+.rw{display:flex;align-items:center;gap:8px;padding:5px 0}.rw>.bar{flex:1}.rw .mono{margin-left:auto}
+.log{font:11.5px "JetBrains Mono",monospace;color:var(--mu);max-height:200px;overflow:auto}
+.msgs{height:380px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:2px 2px 14px}
+.m{max-width:78%;padding:9px 13px;border-radius:14px;background:var(--line)}.m.u{align-self:flex-end;background:var(--tx);color:var(--bg)}
+.m small{display:block;color:var(--mu);margin-bottom:2px}
+.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.tile{border:1px solid var(--line);border-radius:14px;padding:8px;overflow:hidden}.tile svg,.vid{width:100%;aspect-ratio:1;display:block;color:var(--tx)}
+.vid{position:relative;overflow:hidden;border-radius:8px;display:grid;place-items:center}.vid::before{content:"";position:absolute;inset:-50%;background:conic-gradient(var(--line),transparent,var(--line));animation:rot 6s linear infinite}.vid span{position:relative}
+@keyframes rot{to{transform:rotate(1turn)}}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.av{width:38px;height:38px;border-radius:12px;background:var(--tx);color:var(--bg);display:grid;place-items:center;font-weight:700}
+.vr{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.vr code{margin-left:auto;color:var(--mu)}.lb{position:fixed;z-index:30;pointer-events:none;padding:4px 10px;border-radius:8px;background:var(--tx);color:var(--bg);font:11px "JetBrains Mono",monospace;transform:translate(14px,-50%);white-space:nowrap}.lb[hidden]{display:none}[hidden]{display:none!important}.sbf .tools{grid-template-columns:repeat(4,1fr)}#lg{align-items:center;padding-top:0;background:rgba(0,0,0,.3);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}#lg .box{align-self:center;text-align:center}.ov{position:fixed;inset:0;z-index:50;display:flex;justify-content:center;padding-top:12vh;background:rgba(0,0,0,.4)}.ov[hidden]{display:none}.ov .box{width:min(460px,92vw);align-self:flex-start;border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:18px}.ov label{display:block;font-size:12px;color:var(--mu);margin-bottom:4px}.mt{margin:10px auto 0;width:max-content;max-width:100%;padding:6px 16px;border-radius:999px;border:1px dashed var(--tx);font:11px "JetBrains Mono",monospace;text-align:center}.mt[hidden]{display:none}
+.side{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);height:calc(100vh - 32px);display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:20px;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);overflow:auto;scrollbar-width:none}
+.side .logo{display:flex;align-items:center;gap:10px;font:500 12px "JetBrains Mono",monospace;letter-spacing:.22em;margin:4px 6px 10px}.side .logo i{width:13px;height:13px;background:var(--tx);transform:rotate(45deg);flex:none}
+.side nav{flex-direction:column;margin:0;gap:2px;overflow:visible}
+.side nav button{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;border-radius:12px;padding:10px 12px}
+.side i{font-style:normal;width:18px;text-align:center;flex:none}
+.side nav em{margin-left:auto;font:500 10px "JetBrains Mono",monospace;font-style:normal;padding:1px 7px;border-radius:99px;background:var(--line)}.side nav em:empty{display:none}
+.nl{font:500 10px "JetBrains Mono",monospace;letter-spacing:.16em;color:var(--mu);margin:14px 8px 4px}
+.sbf{margin-top:auto;display:grid;gap:6px}.sbf .ib{display:flex;align-items:center;gap:10px;border-radius:12px;padding:8px 12px}
+.side.r h2{margin:14px 0 6px}.side.r h2:first-child{margin-top:2px}.side .rw{flex-wrap:wrap}.side .btn{display:block;width:100%;box-sizing:border-box}
+.stage.c{--l:70px}.stage.c .side.l span,.stage.c .side.l em,.stage.c .nl,.stage.c .who>div:last-child{display:none}.stage.c .side.l nav button{justify-content:center;padding:10px 0}.stage.c .side.l .ib{justify-content:center;padding:8px 0}.stage.c .logo{justify-content:center}
+.stage.nr,.stage.nr.c{grid-template-columns:var(--l) minmax(0,1fr)}.stage.nr .side.r{display:none}
+.side.l{padding:12px 10px;gap:4px}
+.ws{display:flex;align-items:center;gap:10px;padding:6px 8px;margin-bottom:10px}.ws .lg{width:34px;height:34px;border-radius:11px;background:var(--tx);color:var(--bg);display:grid;place-items:center;flex:none}.ws b{display:block;font:600 13px "Space Grotesk",sans-serif;line-height:1.2}.ws small{color:var(--mu);display:flex;align-items:center}
+.side.l svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.side nav button{color:var(--mu);transition:color .15s,background .15s}.side nav button:hover{background:var(--line);color:var(--tx)}
+.side.l nav button span{flex:1;text-align:left}.side nav button kbd{border-color:transparent;opacity:.45}
+.side nav button.on{background:var(--line);color:var(--tx);box-shadow:inset 0 0 0 1px var(--line)}
+.side nav button.on::before{content:"";position:absolute;left:-10px;top:22%;bottom:22%;width:3px;border-radius:3px;background:var(--tx);box-shadow:0 0 10px var(--tx)}
+.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.tl{all:unset;cursor:pointer;display:grid;place-items:center;height:34px;border-radius:10px;border:1px solid var(--line);color:var(--mu)}.tl:hover{color:var(--tx);border-color:var(--mu)}
+.stage.c #sc svg{transform:rotate(180deg)}.stage.c .ws .wt,.stage.c .sq span,.stage.c .sq kbd,.stage.c .sub-nav,.stage.c kbd,.stage.c .wi,.stage.c .chev,.stage.c .menu{display:none}
+.stage.c .sq,.stage.c .who{justify-content:center;padding-left:0;padding-right:0}.stage.c .tools{grid-template-columns:1fr}.stage.c .ws{justify-content:center;padding:6px}
+@media(max-width:1180px){.stage{grid-template-columns:var(--l) minmax(0,1fr)}.side.r{display:none}}
+@media(max-width:900px){.stage{display:block;padding:12px 12px 96px}.side.l{position:fixed;left:10px;right:10px;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);height:auto;flex-direction:row;align-items:center;padding:6px 8px;z-index:40;border-radius:999px}.side.l .ws,.side.l .sq,.side.l .nl,.side.l .who,.side.l nav kbd,.tools>:not(#th),.sub-nav{display:none}.side.l nav{flex-direction:row;flex:1;justify-content:space-around;overflow-x:auto}.side.l nav button{flex-direction:column;gap:2px;padding:6px 8px;font-size:10px;width:auto}.sbf{margin:0}}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}th{color:var(--mu);font:500 11px "JetBrains Mono",monospace;letter-spacing:.1em;text-transform:uppercase}.rw>span:first-child{min-width:42px}input[type=range]{padding:0;accent-color:var(--tx)}
+.pal{position:fixed;inset:0;z-index:50;display:flex;justify-content:center;padding-top:16vh;background:rgba(0,0,0,.4)}.pal[hidden]{display:none}
+.pal .box{width:min(520px,92vw);align-self:flex-start;border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:10px}
+.pal button{all:unset;display:block;box-sizing:border-box;width:100%;padding:9px 12px;border-radius:10px;cursor:pointer}.pal button:hover{background:var(--line)}
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);transform:translate(-50%,20px);padding:10px 18px;border-radius:999px;background:var(--tx);color:var(--bg);opacity:0;transition:.3s;z-index:60;pointer-events:none}#toast.on{opacity:1;transform:translate(-50%,0)}
+@media(max-width:900px){.bento>*{grid-column:1/-1}.dock b span{display:none}.hero{min-height:36vh}}
+@media(prefers-reduced-motion:reduce){.view.on .p,.vid::before{animation:none}.p{transition:none}}
+
+/* === Nexus console additions === */
+.ro [data-mut]{display:none!important}
+.qrbox{display:none;margin-top:12px;padding:14px;border:1px solid var(--line);border-radius:12px}
+.qrbox img{display:block;width:200px;height:200px;margin:0 auto 12px;background:#fff;border-radius:8px;padding:8px}
+code.mono{word-break:break-all}
+.tag{font:500 10px "JetBrains Mono",monospace;padding:1px 7px;border-radius:99px;background:var(--line);letter-spacing:.08em;text-transform:uppercase}
+select{background:var(--line);border:1px solid var(--line);color:var(--tx);border-radius:12px;padding:9px 12px;font:inherit}
+.msg{min-height:20px;font-size:13px;margin-top:8px}
+.okc{color:#3fae6a}body[data-theme="dark"] .okc{color:#7dff9a}
+.badc{color:#d33}body[data-theme="dark"] .badc{color:#ff9a9a}
+input[type=range]{width:100%}
+.kbd{font:500 10px "JetBrains Mono",monospace;opacity:.45}
+.chain .chip.x{opacity:.4;text-decoration:line-through}
+#sess .vr code{margin-left:auto}
+.spin{opacity:.5;pointer-events:none}
+
 </style>
 </head>
 <body>
-<div class="layout">
-<aside class="side">
-<div class="brand">NEXUS <span>LOCAL</span><small>ADMIN CONSOLE</small></div>
-<nav class="snav">
-<a href="#friends"><i></i>Friend Access</a>
-<a href="#sessions-card"><i></i>Active Sessions</a>
-<a href="#master-card"><i></i>Master Password</a>
-<a href="#tfa-card"><i></i>Two-Factor Auth</a>
-<a href="#viewpass-card"><i></i>View Access</a>
-</nav>
-<div class="side-links">
-<a href="/settings"><i></i>Update Keys</a>
-<a href="/connections"><i></i>Providers</a>
-<a href="/"><i></i>Dashboard</a>
-</div>
-<div class="side-foot">Admin UI styled after Dashdark X by Malik Ali — <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></div>
-</aside>
-<main class="main">
-<h1>Admin Panel</h1>
-<p class="sub">Manage friend access, keys, and providers.</p>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="stage">
+<aside class="side l">
+<div class="ws"><div class="lg"><svg viewBox="0 0 100 36" style="width:21px;height:auto;fill:currentColor;stroke:none"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div><div class="wt"><b id="wn">Nexus Local</b><small><span class="dot" id="wd" style="width:6px;height:6px;margin-right:5px"></span><span id="wsub">Admin console</span></small></div></div>
+<nav id="nav"></nav>
+<div class="sbf"><div class="tools"><button class="tl" id="k" data-tip="Search (Ctrl+K)" aria-label="Open command palette"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button><button class="tl" id="sc" data-tip="Collapse sidebar" aria-label="Collapse sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg></button><button class="tl" id="so" data-tip="Sign out" aria-label="Sign out"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg></button><button class="tl" id="th" data-tip="Theme" aria-label="Toggle theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button></div></div></aside>
+<main><div id="mt" class="mt" hidden>Maintenance mode is on — friends are blocked</div>
+<section class="view on" id="ov">
+<div class="hero"><div><div class="mono sub" style="letter-spacing:.22em">ADMIN CONSOLE</div><h1 id="heroName">Nexus<br>Local</h1><div class="sub" id="hl" style="margin-top:16px;font-size:14px"></div></div></div>
+<div class="bento">
+<div class="p s6"><h2 class="lift">Requests today</h2><div class="num lift" id="rq">—</div><svg id="spark" viewBox="0 0 600 110" preserveAspectRatio="none" style="width:100%;height:90px;display:block;margin-top:12px" role="img" aria-label="Requests per day, last 7 days"></svg><div class="sub" style="margin-top:6px">per day · last 7 days</div></div>
+<div class="p s3"><h2 class="lift">Failovers handled</h2><div class="num lift" id="fo">—</div><div class="sub">today · from the audit log</div></div>
+<div class="p s3"><h2 class="lift">Active sessions</h2><div class="num lift" id="mg">—</div><div class="sub" id="mgSub">of — accounts</div></div>
+<div class="p s4"><h2>Provider chain</h2><div class="chain row" style="flex-wrap:wrap;align-items:center"></div><div class="row" style="margin-top:16px"><button class="btn" data-x="rc" data-mut>Re-check status</button><button class="btn g" data-x="pv">Providers</button></div></div>
+<div class="p s4"><h2>Mesh health</h2><div id="th2"></div></div>
+<div class="p s4"><h2>Instance</h2><div class="rw"><span>CPU</span><div class="bar"><i id="cpu" style="width:0%"></i></div><span class="mono" id="cpv">—</span></div><div class="rw"><span>RAM</span><div class="bar"><i id="ram" style="width:0%"></i></div><span class="mono" id="rmv">—</span></div><div class="rw"><span>Disk</span><div class="bar"><i id="dsk" style="width:0%"></i></div><span class="mono" id="dsv">—</span></div><div class="sub" style="margin-top:8px" id="uptime">—</div></div>
+</div></section>
 
-<div class="card" id="friends">
-<h2>FRIEND ACCESS</h2>
-<div class="row">
-<input id="fname" aria-label="Friend's name" placeholder="Friend's name (e.g. Rudra)" maxlength="30">
-<input id="fpass" type="password" aria-label="Friend's password" placeholder="Their password (min 4 chars)">
-</div>
-<div class="row">
-<input id="mPW" type="password" aria-label="Your master password" placeholder="Your master password (to save)">
-<button id="addBtn" onclick="addFriend()">Add friend</button>
-</div>
-<div id="msg"></div>
-<div id="people"></div>
-</div>
+<section class="view" id="an"><div class="head"><div class="sub mono">REQUESTS · LATENCY · RELIABILITY</div><h1>Analytics</h1></div><div class="row" id="arg" style="margin-bottom:14px"></div><div class="bento"><div id="ank" style="display:contents"></div>
+<div class="p s7"><h2>Requests by provider</h2><div id="anp"></div></div>
+<div class="p s5"><h2>Top friends</h2><div id="anf"></div></div>
+<div class="p s12"><h2>Requests over time</h2><svg id="anl" viewBox="0 0 600 140" preserveAspectRatio="none" style="width:100%;height:140px;display:block" role="img" aria-label="Requests over the selected range"></svg><div class="sub mono" id="anc" style="margin-top:8px"></div></div></div></section>
 
-<div class="card" id="sessions-card">
-<h2>ACTIVE SESSIONS</h2>
-<div id="sessions"></div>
-</div>
+<section class="view" id="au"><div class="head"><div class="sub mono">EVERY ADMIN &amp; SYSTEM EVENT</div><h1>Audit log</h1></div><div class="bento"><div class="p s12"><div class="row" id="af" style="margin-bottom:14px;flex-wrap:wrap"></div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr><th>Time</th><th>Category</th><th>Event</th></tr></thead><tbody id="at"></tbody></table></div><div class="sub" style="margin-top:10px">Stored on the server (audit.jsonl) — resets on redeploy, like sessions. Newest first, last 200.</div></div></div></section>
 
+<section class="view" id="pv"><div class="head"><div class="sub mono">FAILOVER ORDER · TOP TO BOTTOM</div><h1>Providers</h1><button class="btn" data-x="ap" data-mut style="display:inline-block;margin-top:14px">+ Add provider</button></div><div class="row" id="pfl" style="margin-bottom:14px;flex-wrap:wrap"></div><div class="pgrid" id="pgrid"></div></section>
 
+<section class="view" id="fr"><div class="head"><div class="sub mono">PER-USER ENCRYPTED VAULTS</div><h1>Friends</h1></div><div class="bento">
+<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px"><h2 style="margin:0">Accounts</h2><button class="btn" data-x="addf" data-mut>Add friend</button></div><div class="pgrid" id="ug"></div></div>
+<div class="p s12"><h2>Active invites — view passes</h2><div id="vpControls" data-mut><div class="row" style="flex-wrap:wrap;margin-bottom:10px"><input id="vpName" aria-label="View pass name" placeholder="Name (e.g. For review)" maxlength="24" style="flex:1;min-width:150px"><select id="vpHours" aria-label="View pass duration"><option value="1">1 hour</option><option value="6">6 hours</option><option value="24" selected>24 hours</option></select><input id="vpMaster" type="password" aria-label="Your master password" placeholder="Your master password" style="flex:1;min-width:150px"><button class="btn" id="vpBtn">Create view pass</button></div><div id="vpResult" style="display:none;margin-bottom:10px"><div class="sub" style="margin-bottom:6px">Copy this link now — it is shown only once:</div><input id="vpLink" aria-label="View pass link" readonly style="width:100%;font-family:monospace;font-size:13px"></div><div class="msg" id="vpMsg"></div></div><div id="iv"></div></div>
+<div class="p s7"><h2>Key vault</h2><div id="vl"></div><div class="sub" style="margin-top:12px">Keys are encrypted per user. Admins only ever see masked values.</div></div>
+<div class="p s5"><h2>Add key</h2><form id="kf" style="display:grid;gap:10px"><select id="ku" aria-label="Friend"></select><select id="kp" aria-label="Provider"></select><input id="kfp" type="password" placeholder="Friend's account password" aria-label="Friend's account password"><input id="kk" type="password" placeholder="Paste API key" aria-label="API key"><input id="kfm" type="password" placeholder="Your master password" aria-label="Your master password"><button class="btn" data-mut>Encrypt &amp; save</button><div class="sub">Written into their personal vault, encrypted with their password. Takes effect at their next sign-in.</div><div class="msg" id="kfMsg"></div></form></div>
+</div></section>
 
-<div class="card" id="master-card">
-<h2>MASTER PASSWORD</h2>
-<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Change the password that encrypts all your provider keys. At least 10 characters. You'll be signed out everywhere and must log in with the new password.</p>
-<div class="row">
-<input id="mpCur" type="password" aria-label="Current master password" placeholder="Current master password">
-<input id="mpNew" type="password" aria-label="New master password" placeholder="New master password (10+ chars)">
-<button onclick="changeMaster()">Change password</button>
+<section class="view" id="se"><div class="head"><div class="sub mono">POLICY · SECURITY · BACKUP</div><h1>Settings</h1></div><div class="bento">
+<div class="p s6"><h2>Failover policy</h2><div class="sub" style="margin-bottom:8px">Routing mode (applies to your sessions)</div><div id="sm" class="row" style="margin-bottom:16px;flex-wrap:wrap"></div><label class="sub" for="rg">Max attempts per request: <b id="rv">4</b></label><input type="range" id="rg" min="1" max="8" value="4" data-mut><label class="sub" for="cg" style="display:block;margin-top:16px">Daily cap per friend: <b id="cv">200</b> requests <span class="sub">(0 = no cap)</span></label><input type="range" id="cg" min="0" max="1000" step="25" value="200" data-mut><div class="msg" id="polMsg"></div></div>
+<div class="p s6"><h2>Security, alerts &amp; maintenance</h2><div id="sw"></div></div>
+<div class="p s12"><h2>General &amp; performance</h2><label class="sub" for="nm">Instance name</label><input id="nm" value="Nexus Local" style="margin-bottom:6px" data-mut><div id="sg"></div></div>
+<div class="p s12"><h2>Active sessions</h2><div id="sess"></div></div>
+<div class="p s12" id="tfaCard"><h2>Two-factor auth (admin)</h2><div class="sub" style="margin-bottom:10px">Protect your admin login with an authenticator app. Friends are not affected.</div><div id="tfaStatus" style="margin-bottom:12px;font-size:14px">Checking…</div><div class="row" style="flex-wrap:wrap" data-mut><input id="tfaMaster" type="password" aria-label="Your master password" placeholder="Your master password" style="flex:1;min-width:180px"><button class="btn" id="tfaBtn">Enable 2FA</button></div><div class="qrbox" id="tfaSecret"><p class="sub" style="margin-bottom:8px">Scan this QR with your authenticator app:</p><img id="tfaQR" src="" alt="2FA QR code"><p class="sub" style="margin-bottom:8px">Or enter the key manually:</p><p id="tfaKey" style="font-family:monospace;font-size:16px;letter-spacing:.1em;word-break:break-all"></p><p class="sub" style="margin-top:8px">Then enter a code from the app to confirm:</p><div class="row" style="margin-top:8px;flex-wrap:wrap"><input id="tfaConfirm" aria-label="Two-factor code" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="text-align:center;letter-spacing:.3em;flex:1"><button class="btn" id="tfaConfirmBtn">Confirm</button></div></div><div class="msg" id="tfaMsg"></div></div>
+<div class="p s12" id="mpCard"><h2>Master password</h2><div class="sub" style="margin-bottom:10px">Change the password that encrypts all your provider keys. At least 10 characters. You'll be signed out everywhere and must log in with the new password.</div><div class="row" style="flex-wrap:wrap" data-mut><input id="mpCur" type="password" aria-label="Current master password" placeholder="Current master password" style="flex:1;min-width:180px"><input id="mpNew" type="password" aria-label="New master password" placeholder="New master password (10+ chars)" style="flex:1;min-width:180px"><button class="btn" id="mpBtn">Change password</button></div><div class="msg" id="mpMsg"></div></div>
+<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap"><div><h2 style="margin:0 0 4px">Backup &amp; keys</h2><div class="sub">Download providers, order and policy as JSON. Keys are never included.</div></div><div class="row" style="flex-wrap:wrap"><button class="btn" data-x="bk">Backup now</button><button class="btn g" data-x="exp">Copy config</button><button class="btn g" data-x="rk" data-mut>Rotate master key</button></div></div></div>
+<div class="p s12"><h2>Danger zone</h2><div class="row" style="flex-wrap:wrap" data-mut><button class="btn g" data-x="cl">Clear audit log</button><button class="btn g" data-x="rs">Reset provider statuses</button><button class="btn g" data-x="rva">Revoke all view passes</button><button class="btn g" data-x="fx">Factory reset</button></div><div class="msg" id="dzMsg"></div></div>
+</div></section>
+</main><aside class="side r"><h2>Status</h2><div id="rss"></div><h2>Alerts</h2><div id="ral"></div><h2>Recent</h2><div id="rac" class="log" style="max-height:none"></div><div style="margin-top:auto"><button class="btn g" data-x="rc" data-mut>Re-check providers</button></div></aside>
 </div>
-<div id="mpMsg" style="margin-top:10px;font-size:13px;color:#9aa3b2"></div>
-</div>
-
-<div class="card" id="tfa-card">
-<h2>TWO-FACTOR AUTH (ADMIN)</h2>
-<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Protect your admin login with an authenticator app (Google Authenticator, Authy, etc.). Friends are not affected.</p>
-<div id="tfaStatus" style="margin-bottom:12px;font-size:14px;color:#9aa3b2">Enter your master password to check status</div>
-<div class="row">
-<input id="tfaMaster" type="password" aria-label="Your master password" placeholder="Your master password">
-<button id="tfaBtn" onclick="toggle2FA()">Enable 2FA</button>
-</div>
-<div id="tfaSecret" style="display:none;margin-top:12px;padding:14px;background:#0D1122;border:1px solid #262C4F;border-radius:10px">
-<p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Scan this QR with your authenticator app:</p>
-<img id="tfaQR" src="" alt="2FA QR code" style="display:block;width:200px;height:200px;margin:0 auto 12px;background:#fff;border-radius:8px;padding:8px">
-<p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Or enter the key manually:</p>
-<p id="tfaKey" style="font-family:monospace;font-size:16px;color:#A99CFF;letter-spacing:.1em;word-break:break-all"></p>
-<p style="font-size:12px;color:#9aa3b2;margin-top:8px">Then enter a code from the app to confirm:</p>
-<div class="row" style="margin-top:8px">
-<input id="tfaConfirm" aria-label="Two-factor code" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="text-align:center;letter-spacing:.3em">
-<button onclick="confirm2FA()">Confirm</button>
-</div>
-</div>
-<div id="tfaMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
-</div>
-
-<div class="card" id="viewpass-card">
-<h2>TEMPORARY VIEW ACCESS</h2>
-<p style="color:#9aa3b2;font-size:13px;margin-bottom:12px">Create a temporary link that lets someone <b>look at the pages</b> — dashboard, connections, this admin page, Update Keys (masked) — without an account and without changing anything. Every action is refused for viewers. A pass dies at its expiry, when you revoke it, or whenever the server restarts.</p>
-<div id="vpControls">
-<div class="row">
-<input id="vpName" aria-label="View pass name" placeholder="Name (e.g. For review)" maxlength="24">
-<select id="vpHours" aria-label="View pass duration">
-<option value="1">1 hour</option>
-<option value="6">6 hours</option>
-<option value="24" selected>24 hours</option>
-</select>
-</div>
-<div class="row">
-<input id="vpMaster" type="password" aria-label="Your master password" placeholder="Your master password (to create)">
-<button id="vpBtn" onclick="createViewPass()">Create view pass</button>
-</div>
-<div id="vpResult" style="display:none;margin-top:12px;padding:14px;background:#0D1122;border:1px solid #262C4F;border-radius:10px">
-<p style="font-size:13px;color:#9aa3b2;margin-bottom:8px">Copy this link now — it is shown only once:</p>
-<input id="vpLink" aria-label="View pass link" readonly style="width:100%;font-family:monospace;font-size:13px">
-</div>
-<div id="vpMsg" style="min-height:20px;font-size:13px;margin-top:8px"></div>
-</div>
-<div id="vpList"></div>
-</div>
-
-</main>
-</div>
-
-<div id="ask-backdrop"><div id="ask-card">
-    <div id="ask-title">Confirm</div>
-    <div id="ask-label"></div>
-    <input id="ask-input" type="password" autocomplete="off" aria-labelledby="ask-title">
-    <div class="ask-row"><button id="ask-cancel">Cancel</button><button id="ask-ok">OK</button></div>
-</div></div>
-
+<div class="pal" id="pal" hidden><div class="box"><input id="cq" placeholder="Type a command…" aria-label="Command"><div id="cl" style="margin-top:6px"></div></div></div>
+<div id="toast" role="status"></div><div id="lb" class="lb" hidden></div><div id="tip" class="lb" hidden></div>
+<div class="ov" id="md" hidden><div class="box"><h2 id="mh"></h2><div id="mb" style="display:grid;gap:10px"></div><div class="row" style="margin-top:16px"><button class="btn" id="ms">Save</button><button class="btn g" id="mc">Cancel</button></div></div></div>
 <script>
-async function api(action, extra) {
-    const r = await fetch('/api/access', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(Object.assign({action}, extra || {}))
-    });
-    if (r.status === 401) { location.href = '/login'; return null; }
-    if (r.status === 403) {
-        const j = await r.json().catch(() => null);
-        if (j && j.error === 'read-only access') { showMsg('Read-only access — viewers cannot make changes', false); return null; }
-        location.href = '/login'; return null;
-    }
-    return r.json();
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=n=>Number(n||0).toLocaleString();
+let S=null,SYS=null,L=null,Q=null,AU=[],V1=null,AN7=null,FO=0,VIEWER=false,_mpw='',RG='7d',AF='All',PF='All',GRANTS=[];
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove("on"),2600)}
+async function apiS(action,extra){
+  const r=await fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action},extra||{}))});
+  if(r.status===401){location.href='/login';return{status:401,j:null}}
+  const j=await r.json().catch(()=>null);
+  if(r.status===403&&j&&j.error==='read-only access')toast('Read-only access — viewers cannot make changes');
+  return{status:r.status,j};
 }
-function showMsg(t, ok) {
-    const m = document.getElementById('msg');
-    m.textContent = t;
-    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
-    setTimeout(() => m.textContent = '', 4000);
+const api=async(a,e)=>(await apiS(a,e)).j;
+async function jget(u){
+  const r=await fetch(u);
+  if(r.status===401){location.href='/login';return null}
+  if(!r.ok)return null;
+  return r.json().catch(()=>null);
 }
-async function load() {
-    const j = await api('list');
-    if (!j) return;
-    if (!j.access || !j.sessions) {
-        document.getElementById('people').innerHTML = '<div class="empty">Could not load — please refresh. If this keeps happening, log out and back in.</div>';
-        return;
-    }
-    const ppl = document.getElementById('people');
-    if (!j.access.length) {
-        ppl.innerHTML = '<div class="empty">No friends added yet. Only you (admin) have access.</div>';
-    } else {
-        ppl.innerHTML = j.access.map(a =>
-            '<div class="person"><div><span class="name">' + esc(a.label) + '</span></div>' +
-            '<button class="danger" onclick="revoke(\'' + esc(a.label) + '\')">Revoke access</button></div>'
-        ).join('');
-    }
-    const sess = document.getElementById('sessions');
-    if (!j.sessions.length) {
-        sess.innerHTML = '<div class="empty">No active sessions.</div>';
-    } else {
-        sess.innerHTML = j.sessions.map(s =>
-            '<div class="person"><div><span class="name">' + esc(s.label) + '</span>' +
-            '<span class="tag">' + (s.admin ? 'admin' : 'friend') + '</span></div></div>'
-        ).join('');
-    }
-    // Truthful 2FA status straight from the session (no password re-entry).
-    const s = await api('2fa_state');
-    if (s && !s.error) {
-        _tfaEnabled = !!s.enabled;
-        const st = document.getElementById('tfaStatus');
-        if (st) {
-            st.innerHTML = s.enabled
-                ? '<span style="color:#7dff9a">✓ 2FA is ON</span>'
-                : (s.pending
-                    ? '<span style="color:#ffd97d">2FA setup pending — confirm with a code below</span>'
-                    : '<span style="color:#9aa3b2">2FA is OFF</span>');
-        }
-        const btn = document.getElementById('tfaBtn');
-        if (btn) btn.textContent = s.enabled ? 'Disable 2FA' : 'Enable 2FA';
-    }
+function dlg(t,fields){
+  return new Promise(res=>{
+    $("#mh").textContent=t;
+    $("#mb").innerHTML=fields.map((x,i)=>`<div><label for="f${i}">${esc(x[0])}</label>${x[3]==='select'?`<select id="f${i}">${x[4].map(o=>`<option ${o==x[2]?'selected':''}>${esc(o)}</option>`).join('')}</select>`:`<input id="f${i}" type="${x[3]||'text'}" value="${esc(String(x[2]??''))}" placeholder="${esc(x[5]||'')}" autocomplete="off">`}</div>`).join('');
+    $("#md").hidden=false;
+    const f0=$("#f0");if(f0)setTimeout(()=>f0.focus(),30);
+    $("#ms").onclick=()=>{const vals=fields.map((x,i)=>$("#f"+i).value);$("#md").hidden=true;res(vals)};
+    $("#mc").onclick=()=>{$("#md").hidden=true;res(null)};
+  });
 }
-function esc(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+$("#md").onclick=e=>{if(e.target.id==="md")$("#md").hidden=true};
+$("#mc").onclick=()=>{$("#md").hidden=true};
+async function askMaster(title){
+  const v=await dlg(title||'Master password required',[['Your master password','pw','','password']]);
+  return v?v[0]:null;
 }
-async function addFriend() {
-    const label = document.getElementById('fname').value.trim();
-    const password = document.getElementById('fpass').value;
-    const master_pw = document.getElementById('mPW').value;
-    if (!label || password.length < 4) { showMsg('Name and password (min 4 chars) required', false); return; }
-    if (!master_pw) { showMsg('Enter your master password to save', false); return; }
-    const btn = document.getElementById('addBtn');
-    btn.disabled = true;
-    const j = await api('add', {label, password, master_pw});
-    btn.disabled = false;
-    if (j && j.ok) {
-        showMsg('Friend added: ' + label, true);
-        document.getElementById('fname').value = '';
-        document.getElementById('fpass').value = '';
-        document.getElementById('mPW').value = '';
-        load();
-    } else {
-        showMsg((j && j.error) || 'Failed', false);
-    }
+async function withMaster(fn){
+  for(let i=0;i<2;i++){
+    if(!_mpw){const p=await askMaster();if(!p)return null;_mpw=p}
+    const r=await fn(_mpw);
+    if(r&&r.status!==401)return r;
+    _mpw='';
+  }
+  toast('Wrong master password');
+  return null;
 }
-async function revoke(label) {
-    const master_pw = await askModal({title: 'Revoke ' + label + '?', label: 'They will be logged out immediately and their saved chats and keys removed. Enter your master password to confirm:', type: 'password', okText: 'Revoke'});
-    if (!master_pw) return;
-    const j = await api('revoke', {label, master_pw});
-    if (j && j.ok) { showMsg('Access revoked: ' + label, true); load(); }
-    else { showMsg((j && j.error) || 'Failed', false); }
+async function setSettings(patch,okMsg){
+  const r=await withMaster(mpw=>apiS('settings_set',{master_pw:mpw,patch}));
+  if(r&&r.j&&r.j.ok){S=r.j.settings;if(okMsg)toast(okMsg);renderAll();return true}
+  if(r&&r.j&&r.j.error)toast(r.j.error);
+  return false;
 }
-// Master password change
-async function changeMaster() {
-    const cur = document.getElementById('mpCur').value;
-    const nw = document.getElementById('mpNew').value;
-    const msg = document.getElementById('mpMsg');
-    if (!cur || !nw) { msg.textContent = 'Enter both passwords.'; return; }
-    if (nw.length < 10) { msg.textContent = 'New password must be at least 10 characters.'; return; }
-    msg.textContent = 'Changing…';
-    const r = await api('change_master', {master_pw: cur, new_master_pw: nw});
-    if (r && r.ok) {
-        msg.innerHTML = '<span style="color:#7dff9a">✓ Password changed. Signing you out — log in with the new password.</span>';
-        setTimeout(() => { location.href = '/login'; }, 1500);
-    } else {
-        msg.textContent = (r && r.error) ? r.error : 'Change failed.';
-    }
+const KEYLESS=new Set(['aihorde','kilo','ovh','pollinations','relay_pollinations']);
+const laneOf=p=>p.provider.startsWith('relay_')||p.provider.startsWith('custom_relay_')?'Relay':(KEYLESS.has(p.provider)?'Keyless':'Direct');
+const stOf=p=>p.down?['b','Down']:(p.disabled?['w','Disabled']:['','Online']);
+function upCount(){return Q?Q.providers.filter(p=>!p.down&&!p.disabled).length:0}
+async function loadAll(){
+  const [l,q]=await Promise.all([api('list'),jget('/api/quotas')]);
+  if(l)L=l;
+  if(q)Q=q;
+  const sg=await apiS('settings_get');
+  if(sg.status===403){VIEWER=true;document.body.classList.add('ro');$("#wsub").textContent='View pass · read-only'}
+  else if(sg.j&&sg.j.ok){S=sg.j.settings;SYS=sg.j.system;FO=sg.j.failovers_today||0}
+  const au=await jget('/api/audit');
+  if(au){AU=au.events||[];FO=au.failovers_today||0}
+  V1=await jget('/api/v1-access');
+  if(!AN7)AN7=await jget('/api/analytics?range=7d');
+  await loadViewPasses();
+  renderAll();
 }
-
-// 2FA management
-let _tfaEnabled = false;
-async function check2FA() {
-    const master_pw = document.getElementById('tfaMaster').value;
-    const st = document.getElementById('tfaStatus');
-    if (!master_pw) {
-        st.innerHTML = '<span style="color:#9aa3b2">Enter your master password to check status</span>';
-        return;
-    }
-    const j = await api('2fa_status', {master_pw});
-    if (!j) { return; }
-    if (j.error) {
-        st.innerHTML = '<span style="color:#ff9a9a">Wrong master password</span>';
-        return;
-    }
-    _tfaEnabled = j.enabled;
-    st.innerHTML = j.enabled
-        ? '<span style="color:#7dff9a">✓ 2FA is ON</span>'
-        : (j.pending
-            ? '<span style="color:#ffd97d">2FA setup pending — confirm with a code below</span>'
-            : '<span style="color:#9aa3b2">2FA is OFF</span>');
-    document.getElementById('tfaBtn').textContent = j.enabled ? 'Disable 2FA' : 'Enable 2FA';
+function renderAll(){
+  if(!L||!Q)return;
+  const name=(S&&S.instance_name)||L.instance_name||'Nexus Local';
+  $("#wn").textContent=name;
+  $("#heroName").innerHTML=esc(name).replace(' ','<br>');
+  $("#mt").hidden=!(S&&S.maintenance);
+  renderOverview();renderSide();renderProviders();renderFriends();renderSettings();renderAudit();
+  window._P=Q.providers.map(p=>({n:p.display_name,s:p.down?'b':(p.disabled?'w':'ok'),req:p.history.requests[6]}));
+  window._halo=Q.providers.map(p=>p.history.requests[6]);
 }
-async function toggle2FA() {
-    const master_pw = document.getElementById('tfaMaster').value;
-    if (!master_pw) { tfaMsg('Enter your master password first', false); return; }
-    if (_tfaEnabled) {
-        const code = await askModal({title: 'Disable 2FA', label: 'Enter your current 2FA code to disable:', type: 'text', placeholder: '6-digit code', okText: 'Disable'});
-        if (!code) return;
-        const j = await api('2fa_disable', {master_pw, code});
-        if (j && j.ok) { tfaMsg('2FA disabled', true); check2FA(); }
-        else { tfaMsg((j && j.error) || 'Failed', false); }
-    } else {
-        const j = await api('2fa_enable', {master_pw});
-        if (j && j.ok) {
-            document.getElementById('tfaKey').textContent = j.secret;
-            document.getElementById('tfaQR').src = '/api/2fa_qr?' + Date.now();
-            document.getElementById('tfaSecret').style.display = 'block';
-            tfaMsg('Scan the QR, then confirm with a code', true);
-        } else { tfaMsg((j && j.error) || 'Failed', false); }
-    }
+function sparkPath(vals,h){
+  const mx=Math.max(...vals,1);
+  return vals.map((v,i)=>(i?'L':'M')+(i/(vals.length-1)*600).toFixed(1)+' '+(h-v/mx*(h-8)-4).toFixed(1)).join('');
 }
-async function confirm2FA() {
-    const code = document.getElementById('tfaConfirm').value.trim();
-    const master_pw = document.getElementById('tfaMaster').value;
-    if (!code) { tfaMsg('Enter the 6-digit code from your app', false); return; }
-    if (!master_pw) { tfaMsg('Enter your master password above first', false); return; }
-    // Server verifies the code against the pending secret; 2FA activates only on success
-    const j = await api('2fa_confirm', {master_pw, code});
-    if (j && j.ok) {
-        tfaMsg('✓ 2FA is ON. Your next login will ask for a code.', true);
-        document.getElementById('tfaSecret').style.display = 'none';
-        document.getElementById('tfaConfirm').value = '';
-        check2FA();
-    } else {
-        tfaMsg((j && j.error) || 'Wrong code — try again', false);
-        document.getElementById('tfaConfirm').value = '';
-        document.getElementById('tfaConfirm').focus();
-    }
+function renderOverview(){
+  const ups=upCount(),tot=Q.providers.length,bad=tot-ups;
+  $("#hl").innerHTML=`<span class="dot${bad?' w':''}"></span>${ups} / ${tot} providers online`;
+  $("#wd").className='dot'+(bad?' w':'');
+  $("#rq").textContent=fmt(Q.history.requests[6]);
+  const hist=Q.history.requests;
+  $("#spark").innerHTML=`<path d="${sparkPath(hist,110)}L600 110L0 110Z" style="fill:var(--line)"/><path d="${sparkPath(hist,110)}" style="fill:none;stroke:var(--tx);stroke-width:2" vector-effect="non-scaling-stroke"/>`;
+  $("#fo").textContent=fmt(FO);
+  $("#mg").textContent=L.sessions.length;
+  $("#mgSub").textContent='of '+(L.access.length+1)+' accounts';
+  const top=[...Q.providers].sort((a,b)=>b.history.requests[6]-a.history.requests[6]).slice(0,6);
+  const firstUp=top.findIndex(p=>!p.down&&!p.disabled);
+  $(".chain").innerHTML=top.map((p,i)=>`<span class="chip ${i===firstUp?'on':(p.down||p.disabled)?'x':''}">${esc(p.display_name)}</span>`).join('<span class="sub">→</span>');
+  const groups=[['Relay','Relay'],['Direct','Direct'],['Keyless','Keyless']];
+  $("#th2").innerHTML=groups.map(([lbl,lane])=>{
+    const a=Q.providers.filter(p=>laneOf(p)===lane),o=a.filter(p=>!p.down&&!p.disabled).length;
+    return `<div class="rw"><span>${lbl}</span><div class="bar"><i style="width:${a.length?o/a.length*100:0}%"></i></div><span class="mono">${o}/${a.length}</span></div>`;
+  }).join('');
+  if(SYS){
+    const pct=(id,vid,v)=>{$(id).style.width=(v==null?0:v)+'%';$(vid).textContent=v==null?'—':v+'%'};
+    pct('#cpu','#cpv',SYS.cpu_pct);pct('#ram','#rmv',SYS.ram_pct);pct('#dsk','#dsv',SYS.disk_pct);
+    const u=SYS.uptime_s||0,d=Math.floor(u/86400),h=Math.floor(u%86400/3600),m=Math.floor(u%3600/60);
+    $("#uptime").textContent=`Uptime ${d?d+'d ':''}${h}h ${m}m · ${location.host}`;
+  }
 }
-function tfaMsg(t, ok) {
-    const m = document.getElementById('tfaMsg');
-    m.textContent = t;
-    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
+function renderSide(){
+  const tot=Q.providers.length,up=upCount(),bad=Q.providers.filter(p=>p.down||p.disabled);
+  $("#rss").innerHTML=`<div class="row" style="align-items:center;gap:14px"><svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" fill="none" stroke="var(--line)" stroke-width="6"/><circle cx="32" cy="32" r="26" fill="none" stroke="var(--tx)" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(163.4*up/tot).toFixed(1)} 163.4" transform="rotate(-90 32 32)" style="transition:stroke-dasharray .6s"/></svg><div><b style="font-size:22px;letter-spacing:-.03em">${up}/${tot}</b><div class="sub">${bad.length?bad.length+' degraded':'All systems normal'}</div></div></div>`;
+  $("#ral").innerHTML=bad.length?bad.map(p=>`<div class="rw"><span class="dot ${p.down?'b':'w'}"></span>${esc(p.display_name)}<span class="mono sub">${p.down?'down':'disabled'}</span></div>`).join(''):'<div class="sub">No active alerts</div>';
+  $("#rac").innerHTML=AU.slice(0,5).map(e=>`<div class="rw" style="align-items:flex-start"><span class="mono sub">${esc(String(e.ts).slice(11,19))}</span><span>${esc(e.event)}</span></div>`).join('')||'<div class="sub">No events yet</div>';
+  const nb=$('#nav [data-v="pv"] em');
+  if(nb)nb.textContent=bad.length||'';
 }
-// ===== In-theme modal (replaces the browser's basic prompt/confirm) =====
-let _askResolve = null;
-function askModal(opts){
-    return new Promise(res => {
-        _askResolve = res;
-        document.getElementById('ask-title').textContent = opts.title || 'Confirm';
-        document.getElementById('ask-label').textContent = opts.label || '';
-        const inp = document.getElementById('ask-input');
-        inp.type = opts.type || 'text';
-        inp.placeholder = opts.placeholder || '';
-        inp.value = '';
-        document.getElementById('ask-ok').textContent = opts.okText || 'OK';
-        document.getElementById('ask-backdrop').classList.add('open');
-        setTimeout(() => inp.focus(), 30);
-    });
+async function recheck(){
+  toast('Re-checking providers…');
+  const r=await fetch('/api/refresh',{method:'POST'});
+  if(r.status===401){location.href='/login';return}
+  if(!r.ok){toast('Re-check failed');return}
+  const j=await r.json().catch(()=>null);
+  Q=await jget('/api/quotas');
+  renderAll();
+  if(j&&j.status){const off=Object.entries(j.status).filter(([k,v])=>!v).map(([k])=>k);toast(off.length?('Still unreachable: '+off.join(', ')):'All checked providers responded')}
 }
-function _askDone(val){
-    document.getElementById('ask-backdrop').classList.remove('open');
-    if (_askResolve) { const r = _askResolve; _askResolve = null; r(val); }
+function renderProviders(){
+  const lat={};
+  if(AN7)AN7.per_provider.forEach(p=>lat[p.provider]=p.avg_ms);
+  $("#pfl").innerHTML=['All','Online','Down','Disabled','Relay','Direct'].map(t=>`<button class="ib ${t===PF?'on':''}" data-pf="${t}">${t}</button>`).join('');
+  const names=Q.providers.map(p=>p.provider);
+  const mx=Math.max(...Q.providers.map(p=>p.history.requests[6]),1);
+  $("#pgrid").innerHTML=Q.providers.map((p,i)=>{
+    if(PF==='Online'&&(p.down||p.disabled))return'';
+    if(PF==='Down'&&!p.down)return'';
+    if(PF==='Disabled'&&!p.disabled)return'';
+    if(PF==='Relay'&&laneOf(p)!=='Relay')return'';
+    if(PF==='Direct'&&laneOf(p)==='Relay')return'';
+    const s=stOf(p),custom=p.provider.startsWith('custom_relay_');
+    return `<div class="p" style="--i:${i}"><div class="lift"><b>${esc(p.display_name)}</b> <span class="sub mono">#${i+1}</span></div><div class="sub lift" style="margin:2px 0 12px">${laneOf(p)==='Keyless'?'Keyless':laneOf(p)+' · '+(p.key_configured?'key set':'no key')}</div><div class="lift"><span class="dot ${s[0]}"></span>${s[1]}<span class="sub mono" style="float:right">${lat[p.provider]!=null?lat[p.provider]+'ms':''}</span></div><div class="bar" style="margin:12px 0"><i style="width:${p.history.requests[6]/mx*100}%"></i></div><div class="sub mono" style="margin:-6px 0 10px">${fmt(p.history.requests[6])} requests today · ${fmt(p.history.tokens[6])} tokens</div><div class="row" style="flex-wrap:wrap" data-mut><button class="ib" data-a="up" data-i="${i}" aria-label="Move up">▲</button><button class="ib" data-a="dn" data-i="${i}" aria-label="Move down">▼</button><button class="ib" data-a="ping" data-i="${i}">Test</button><button class="ib" data-a="cfg" data-i="${i}">Config</button>${custom?`<button class="ib" data-a="del" data-i="${i}">Remove</button>`:''}<button class="ib ${p.disabled?'':'on'}" data-a="en" data-i="${i}" style="margin-left:auto">${p.disabled?'OFF':'ON'}</button></div></div>`;
+  }).join('');
+  $("#pgrid").dataset.names=JSON.stringify(names);
 }
-document.getElementById('ask-cancel').addEventListener('click', () => _askDone(null));
-document.getElementById('ask-ok').addEventListener('click', () => {
-    const v = document.getElementById('ask-input').value.trim();
-    _askDone(v || null);
+$("#pfl").onclick=e=>{const b=e.target.closest('button');if(b){PF=b.dataset.pf;renderProviders()}};
+$("#pgrid").onclick=async e=>{
+  const b=e.target.closest('button');if(!b)return;
+  const i=+b.dataset.i,a=b.dataset.a,p=Q.providers[i];
+  const names=JSON.parse($("#pgrid").dataset.names||'[]');
+  if(a==='ping'){await recheck();const q2=(Q.providers.find(x=>x.provider===p.provider)||{});toast(p.display_name+': '+(q2.down?'still down':(q2.disabled?'disabled':'online')));return}
+  if(a==='up'||a==='dn'){
+    const j=a==='up'?i-1:i+1;
+    if(j<0||j>=names.length)return;
+    [names[i],names[j]]=[names[j],names[i]];
+    await setSettings({provider_order:names},'Failover order updated');
+    return;
+  }
+  if(a==='en'){
+    const dis=new Set(S.provider_disabled||[]);
+    if(p.disabled)dis.delete(p.provider);else dis.add(p.provider);
+    await setSettings({provider_disabled:[...dis]},p.display_name+(p.disabled?' enabled':' disabled'));
+    return;
+  }
+  if(a==='cfg'){
+    const cur=(S.provider_limits||{})[p.provider]||'';
+    const v=await dlg('Configure '+p.display_name,[['Daily request limit (blank = no limit)','lim',cur,'number'],['Your master password','pw','','password']]);
+    if(!v)return;
+    const lims=Object.assign({},S.provider_limits||{});
+    const n=parseInt(v[0],10);
+    if(n>0)lims[p.provider]=n;else delete lims[p.provider];
+    _mpw=v[1];
+    const r=await apiS('settings_set',{master_pw:_mpw,patch:{provider_limits:lims}});
+    if(r.status===401)_mpw='';
+    if(r.j&&r.j.ok){S=r.j.settings;toast('Limit '+(n>0?('set: '+n+'/day'):'cleared')+' for '+p.display_name);renderAll()}
+    else toast((r.j&&r.j.error)||'Failed');
+    return;
+  }
+  if(a==='del'){
+    const v=await dlg('Remove '+p.display_name+'?',[['Type the provider name to confirm','c','','text'],['Your master password','pw','','password']]);
+    if(!v)return;
+    if(v[0]!==p.provider.replace('custom_relay_','')){toast('Cancelled');return}
+    const r=await apiS('custom_provider_remove',{master_pw:v[1],name:v[0]});
+    if(r.j&&r.j.ok){toast(p.display_name+' removed');loadAll()}
+    else toast((r.j&&r.j.error)||'Failed');
+    return;
+  }
+};
+</script>
+<script>
+let RT='quality',TFA_ON=false;
+function vpWhen(ts){const mins=Math.max(0,Math.round((ts*1000-Date.now())/60000));if(mins<60)return mins+' min left';return Math.round(mins/60)+' h left'}
+async function loadViewPasses(){
+  const j=await api('viewpass_list');
+  if(!j||j.error){GRANTS=[];const c=$("#vpControls");if(c)c.style.display='none';$("#iv").innerHTML='<div class="sub">View passes are managed from the admin account.</div>';return}
+  GRANTS=j.grants||[];
+  $("#iv").innerHTML=GRANTS.length?GRANTS.map(g=>`<div class="vr"><b>${esc(g.name)}</b><span class="sub">${vpWhen(g.expires)}${g.watching?' · '+g.watching+' watching':''}</span><button class="ib" data-vp="${g.id}" data-mut style="margin-left:auto">Revoke</button></div>`).join(''):'<div class="sub">No active view passes</div>';
+}
+document.addEventListener('click',async e=>{
+  const rb=e.target.closest&&e.target.closest('[data-vp]');
+  if(rb){
+    const mpw=await askMaster('Revoke view pass?');
+    if(!mpw)return;
+    const r=await apiS('viewpass_revoke',{id:rb.dataset.vp,master_pw:mpw});
+    if(r.j&&r.j.ok){toast('View pass revoked');await loadViewPasses();renderFriends();loadAllSoft()}
+    else toast((r.j&&r.j.error)||'Failed');
+  }
 });
-document.getElementById('ask-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') document.getElementById('ask-ok').click();
-    if (e.key === 'Escape') _askDone(null);
+async function loadAllSoft(){const l=await api('list');if(l){L=l;renderAll()}}
+$("#vpBtn").addEventListener('click',async()=>{
+  const name=$("#vpName").value.trim(),hours=parseInt($("#vpHours").value,10),master_pw=$("#vpMaster").value;
+  const msg=$("#vpMsg");
+  if(!name){msg.textContent='Give the pass a name first';return}
+  if(!master_pw){msg.textContent='Enter your master password to create';return}
+  const btn=$("#vpBtn");btn.disabled=true;
+  const r=await apiS('viewpass_create',{name,hours,master_pw});
+  btn.disabled=false;
+  if(r.j&&r.j.ok){
+    $("#vpLink").value=location.origin+r.j.url;
+    $("#vpResult").style.display='block';
+    $("#vpMaster").value='';
+    msg.innerHTML='<span class="okc">View pass created — copy the link now</span>';
+    await loadViewPasses();renderFriends();
+  }else msg.textContent=(r.j&&r.j.error)||'Failed';
 });
-document.getElementById('ask-backdrop').addEventListener('click', (e) => { if (e.target.id === 'ask-backdrop') _askDone(null); });
-
-document.getElementById('tfaMaster').addEventListener('change', check2FA);
-
-// ===== Temporary view passes =====
-async function vpApi(action, extra) {
-    const r = await fetch('/api/access', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(Object.assign({action}, extra || {}))
+function renderFriends(){
+  const online=new Set(L.sessions.map(s=>s.label));
+  const used={};
+  if(AN7)AN7.per_user.forEach(u=>used[u.label]=u.requests);
+  const mx=Math.max(...Object.values(used),1);
+  const myCap=S?(S.daily_cap||0):200;
+  $("#ug").innerHTML=`<div style="padding:12px;border:1px solid var(--line);border-radius:14px"><div class="row" style="align-items:center"><div class="av">R</div><div><b>Rudra</b> <span class="tag">Admin</span><div class="sub">Owner · this is you</div></div></div></div>`+L.access.map(a=>{
+    const cap=a.cap!=null?a.cap:myCap;
+    return `<div style="padding:12px;border:1px solid var(--line);border-radius:14px"><div class="row" style="align-items:center"><div class="av">${esc(a.label[0].toUpperCase())}</div><div><b>${esc(a.label)}</b>${a.suspended?' <span class="sub">suspended</span>':''}<div class="sub">Friend · cap ${cap?cap+'/day':'no cap'} · ${online.has(a.label)?'online now':'offline'}</div></div></div><div class="rw" style="margin-top:10px"><span class="sub">${fmt(used[a.label]||0)} requests (7d)</span><div class="bar"><i style="width:${Math.min(100,(used[a.label]||0)/mx*100)}%"></i></div></div><div class="sub" style="margin-top:4px">Personal vault: ${a.vault?'set up':'not set up'}</div><div class="row" style="margin-top:8px;flex-wrap:wrap" data-mut><button class="ib" data-u="sus" data-l="${esc(a.label)}">${a.suspended?'Restore':'Suspend'}</button><button class="ib" data-u="cap" data-l="${esc(a.label)}">Edit cap</button><button class="ib" data-u="rst" data-l="${esc(a.label)}">Reset pw</button><button class="ib" data-u="del" data-l="${esc(a.label)}">Remove</button></div></div>`;
+  }).join('');
+  // vault list
+  const keyedN=Q.providers.filter(p=>p.key_configured).length;
+  $("#vl").innerHTML=
+    `<div class="vr">🔒 <b>API service key</b><span class="sub">/v1 external API</span><code>${V1?(V1.configured?'••••••••'+esc(V1.last4||''):esc('not configured')):'—'}</code><a class="ib" href="/api-access" style="text-decoration:none">Manage</a></div>`+
+    `<div class="vr">🔒 <b>Shared provider keys</b><span class="sub">${keyedN} providers configured</span><code>master vault</code><a class="ib" href="/settings" style="text-decoration:none">Update keys</a></div>`+
+    L.access.map(a=>`<div class="vr">🔒 <b>${esc(a.label)}</b><span class="sub">personal vault</span><code>${a.vault?'set up':'not set up'}</code>${a.vault?`<button class="ib" data-vc="${esc(a.label)}" data-mut>Clear</button>`:''}</div>`).join('');
+  $("#ku").innerHTML=L.access.map(a=>`<option value="${esc(a.label)}">${esc(a.label)}</option>`).join('')||'<option value="">No friends yet</option>';
+  $("#kp").innerHTML=Q.providers.map(p=>`<option value="${esc(p.provider)}">${esc(p.display_name)}</option>`).join('');
+}
+document.addEventListener('click',async e=>{
+  const vc=e.target.closest&&e.target.closest('[data-vc]');
+  if(vc){
+    const r=await withMaster(mpw=>apiS('friend_vault_clear',{master_pw:mpw,label:vc.dataset.vc}));
+    if(r&&r.j&&r.j.ok){toast('Vault cleared for '+vc.dataset.vc);loadAllSoft()}
+    else if(r&&r.j)toast(r.j.error||'Failed');
+    return;
+  }
+  const b=e.target.closest&&e.target.closest('#ug [data-u]');
+  if(!b)return;
+  const label=b.dataset.l,act=b.dataset.u;
+  if(act==='sus'){
+    const cur=new Set((S&&S.suspended)||[]);
+    if(cur.has(label))cur.delete(label);else cur.add(label);
+    await setSettings({suspended:[...cur]},label+(cur.has(label)?' suspended':' restored'));
+  }
+  if(act==='cap'){
+    const a=L.access.find(x=>x.label===label);
+    const v=await dlg('Daily cap for '+label,[['Cap (requests/day, blank = instance default '+(S?S.daily_cap:200)+')','cap',a&&a.cap!=null?a.cap:'','number']]);
+    if(!v)return;
+    const caps=Object.assign({},(S&&S.user_caps)||{});
+    const n=parseInt(v[0],10);
+    if(n>0)caps[label]=n;else delete caps[label];
+    await setSettings({user_caps:caps},'Cap updated for '+label);
+  }
+  if(act==='rst'){
+    const v=await dlg('Reset password for '+label+' — their saved keys and chats (encrypted under the old password) will be removed',[['New password (min 6 chars)','np','','password'],['Your master password','pw','','password']]);
+    if(!v)return;
+    const r=await apiS('friend_reset_pw',{master_pw:v[1],label,new_password:v[0]});
+    if(r.j&&r.j.ok)toast('Password reset for '+label);
+    else toast((r.j&&r.j.error)||'Failed');
+  }
+  if(act==='del'){
+    const v=await dlg('Remove '+label+'? They will be logged out immediately and their saved chats and keys removed.',[['Your master password','pw','','password']]);
+    if(!v)return;
+    const r=await apiS('revoke',{label,master_pw:v[0]});
+    if(r.j&&r.j.ok){toast('Access revoked: '+label);loadAllSoft()}
+    else toast((r.j&&r.j.error)||'Failed');
+  }
+});
+$("#kf").addEventListener('submit',async e=>{
+  e.preventDefault();
+  const msg=$("#kfMsg");
+  const body={label:$("#ku").value,provider:$("#kp").value,key:$("#kk").value,friend_pw:$("#kfp").value,master_pw:$("#kfm").value};
+  if(!body.label){msg.textContent='Add a friend first';return}
+  if(!body.key||!body.friend_pw||!body.master_pw){msg.textContent='Fill the key, the friend\'s password and your master password';return}
+  const r=await apiS('friend_key_add',body);
+  if(r.j&&r.j.ok){msg.innerHTML='<span class="okc">Key encrypted into '+esc(body.label)+'\'s vault</span>';$("#kk").value='';loadAllSoft()}
+  else msg.textContent=(r.j&&r.j.error)||'Failed';
+});
+function segRow(label,opts,cur,attr){
+  return `<div class="vr"><span>${label}</span><div class="row" style="margin-left:auto;flex-wrap:wrap">${opts.map(o=>`<button class="ib ${o[1]===cur?'on':''}" data-seg="${attr}" data-v="${o[1]}">${o[0]}</button>`).join('')}</div></div>`;
+}
+function renderSettings(){
+  $("#sess").innerHTML=L.sessions.length?L.sessions.map(s=>`<div class="vr"><b>${esc(s.label)}</b><span class="tag">${s.admin?'admin':(s.viewer?'viewer':'friend')}</span></div>`).join(''):'<div class="sub">No active sessions</div>';
+  const st0=$("#tfaStatus");
+  st0.innerHTML=TFA_ON?'<span class="okc">\u2713 2FA is ON</span>':'<span style="color:var(--mu)">2FA is OFF</span>';
+  $("#tfaBtn").textContent=TFA_ON?'Disable 2FA':'Enable 2FA';
+  if(!S)return;
+  $("#sm").innerHTML=[['quality','Quality first'],['save','Save tokens'],['auto','Auto']].map(m=>`<button class="ib ${m[0]===RT?'on':''}" data-rt="${m[0]}">${m[1]}</button>`).join('');
+  $("#rg").value=S.max_attempts;$("#rv").textContent=S.max_attempts;
+  $("#cg").value=S.daily_cap;$("#cv").textContent=S.daily_cap===0?'no cap':S.daily_cap;
+  $("#nm").value=S.instance_name||'Nexus Local';
+  const grantsN=GRANTS.length;
+  $("#sw").innerHTML=
+    `<div class="vr"><span>Maintenance mode (block friends)</span><button class="ib ${S.maintenance?'on':''}" data-sw="maint" data-mut style="margin-left:auto">${S.maintenance?'ON':'OFF'}</button></div>`+
+    `<div class="vr"><span>Vault encryption (AES-256-GCM)</span><span class="tag" style="margin-left:auto">Always on</span></div>`+
+    `<div class="vr"><span>Two-factor for admin</span><span class="sub" style="margin-left:auto">${TFA_ON?'On':'Off'}</span><button class="ib" data-sw="tfa">Manage</button></div>`+
+    `<div class="vr"><span>View passes</span><span class="sub" style="margin-left:auto">${grantsN} active</span><button class="ib" data-sw="vp">Manage</button></div>`+
+    `<div class="vr"><span>Audit logging</span><span class="tag" style="margin-left:auto">Always on</span></div>`;
+  const q3=localStorage.getItem('nexus-q3')||'High';
+  const th=localStorage.getItem('nexus-theme')||'System';
+  $("#sg").innerHTML=
+    segRow('Session timeout',[['30m',30],['1h',60],['8h',480],['24h',1440]],S.session_minutes||30,'session_minutes')+
+    segRow('Log retention',[['7d',7],['30d',30],['90d',90]],S.retention_days,'retention_days')+
+    segRow('3D scene quality',[['High','High'],['Low','Low'],['Off','Off']],q3,'q3')+
+    segRow('Theme',[['System','System'],['Light','Light'],['Dark','Dark']],th,'theme')+
+    `<div class="vr"><span>Auto-backup</span><span class="sub" style="margin-left:auto">Continuous · encrypted mirror to GitHub</span></div>`+
+    `<div class="vr"><span>Registration</span><span class="sub" style="margin-left:auto">Invite-only · accounts are created by the admin</span></div>`;
+}
+$("#sm").addEventListener('click',async e=>{
+  const b=e.target.closest('[data-rt]');if(!b)return;
+  const r=await fetch('/api/routing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({set:b.dataset.rt})});
+  if(r.status===401){location.href='/login';return}
+  const j=await r.json().catch(()=>null);
+  if(j&&j.ok){RT=j.routing;renderSettings();toast('Routing: '+b.textContent)}
+});
+$("#rg").addEventListener('change',async e=>{await setSettings({max_attempts:+e.target.value},'Max attempts: '+e.target.value);$("#polMsg").textContent='';});
+$("#cg").addEventListener('change',async e=>{await setSettings({daily_cap:+e.target.value},'Daily cap: '+(+e.target.value===0?'off':e.target.value));});
+$("#rg").addEventListener('input',e=>{$("#rv").textContent=e.target.value});
+$("#cg").addEventListener('input',e=>{$("#cv").textContent=+e.target.value===0?'no cap':e.target.value});
+$("#nm").addEventListener('change',async e=>{const v=e.target.value.trim();if(v)await setSettings({instance_name:v},'Instance renamed')});
+$("#sw").addEventListener('click',async e=>{
+  const b=e.target.closest('[data-sw]');if(!b)return;
+  if(b.dataset.sw==='maint')await setSettings({maintenance:!S.maintenance},'Maintenance mode '+(S.maintenance?'off':'on'));
+  if(b.dataset.sw==='tfa'){go('se');setTimeout(()=>$("#tfaCard").scrollIntoView({behavior:'smooth'}),60)}
+  if(b.dataset.sw==='vp'){go('fr')}
+});
+$("#sg").addEventListener('click',async e=>{
+  const b=e.target.closest('[data-seg]');if(!b)return;
+  const k=b.dataset.seg,v=b.dataset.v;
+  if(k==='q3'){localStorage.setItem('nexus-q3',v);window.q3set&&q3set(v);renderSettings();toast('3D quality: '+v);return}
+  if(k==='theme'){applyTheme(v);renderSettings();return}
+  await setSettings({[k]:+v},'Saved');
+});
+function renderAudit(){
+  $("#af").innerHTML=['All','Providers','Users','Vault','System'].map(c=>`<button class="ib ${c===AF?'on':''}" data-f="${c}">${c}</button>`).join('');
+  const rows=AU.filter(e2=>AF==='All'||e2.cat===AF);
+  $("#at").innerHTML=rows.length?rows.map(e2=>`<tr><td class="mono sub">${esc(String(e2.ts).replace('T',' ').slice(0,19))}</td><td>${esc(e2.cat)}</td><td>${esc(e2.event)}</td></tr>`).join(''):'<tr><td colspan="3" class="sub">No events in this category yet</td></tr>';
+}
+$("#af").addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(b){AF=b.dataset.f;renderAudit()}});
+async function anRender(){
+  if(VIEWER){$("#ank").innerHTML='<div class="p s12"><h2>Analytics</h2><div class="sub">Analytics is admin-only — a view pass can look, but request data stays with the owner.</div></div>';return}
+  const j=await jget('/api/analytics?range='+RG);
+  if(!j)return;
+  if(RG==='7d'){AN7=j;renderProviders()}
+  $("#arg").innerHTML=['24h','7d','30d'].map(t=>`<button class="ib ${t===RG?'on':''}" data-rg="${t}">${t}</button>`).join('');
+  const kpi=[['Total requests',fmt(j.totals.requests)],['Success rate',j.success_rate==null?'—':j.success_rate+'%'],['Avg latency',j.avg_ms==null?'—':fmt(j.avg_ms)+' ms'],['Failovers',fmt(j.failovers)]];
+  $("#ank").innerHTML=kpi.map(k=>`<div class="p s3"><h2 class="lift">${k[0]}</h2><div class="num lift" style="font-size:clamp(26px,3.2vw,42px)">${k[1]}</div></div>`).join('');
+  const bars=(arr,id,label)=>{const mx=Math.max(...arr.map(x=>x.requests),1);$(id).innerHTML=arr.length?arr.map(x=>`<div class="rw"><span style="min-width:110px">${esc(label(x))}</span><div class="bar"><i style="width:${x.requests/mx*100}%"></i></div><span class="mono">${fmt(x.requests)}</span></div>`).join(''):'<div class="sub">No requests in this range yet</div>'};
+  const names={};Q.providers.forEach(p=>names[p.provider]=p.display_name);
+  bars(j.per_provider,'#anp',x=>x.provider.startsWith('v1:')?((names[x.provider.slice(3)]||x.provider.slice(3))+' (API)'):names[x.provider]||x.provider);
+  bars(j.per_user,'#anf',x=>x.label);
+  const ser=j.series.map(s2=>s2.requests);
+  $("#anl").innerHTML=`<path d="${sparkPath(ser,140)}L600 140L0 140Z" style="fill:var(--line)"/><path d="${sparkPath(ser,140)}" style="fill:none;stroke:var(--tx);stroke-width:2" vector-effect="non-scaling-stroke"/>`;
+  $("#anc").textContent=`Range ${RG} · avg ${j.avg_ms==null?'—':fmt(j.avg_ms)+'ms'} · ${fmt(j.fails)} failed attempts · ${fmt(j.failovers)} failovers · ${fmt(j.totals.tokens)} tokens`;
+}
+$("#arg").addEventListener('click',e=>{const b=e.target.closest('[data-rg]');if(b){RG=b.dataset.rg;anRender()}});
+</script>
+<script>
+function configJSON(){
+  return {instance:(S&&S.instance_name)||'Nexus Local',exported_at:new Date().toISOString(),settings:S,
+    providers:Q.providers.map(p=>({provider:p.provider,name:p.display_name,disabled:!!p.disabled,key_configured:p.key_configured})),
+    usage:{today:{requests:Q.history.requests[6],tokens:Q.history.tokens[6]},last_7_days:Q.history}};
+}
+const ACT={
+  rc:()=>recheck(),
+  pv:()=>go('pv'),
+  ap:async()=>{
+    const v=await dlg('Add custom provider',[['Name (a-z, 0-9, _)','n','','text'],['Base URL (OpenAI-compatible)','u','https://','text'],['API key','k','','password'],['Your master password','pw','','password']]);
+    if(!v)return;
+    const r=await apiS('custom_provider_save',{name:v[0],url:v[1],key:v[2],master_pw:v[3]});
+    if(r.j&&r.j.ok){toast(v[0]+' added');loadAll()}
+    else toast((r.j&&r.j.error)||'Failed');
+  },
+  addf:async()=>{
+    const v=await dlg('Add friend',[['Friend\'s name (e.g. Rudra)','n','','text'],['Their password (min 6 chars)','p','','password'],['Your master password','pw','','password']]);
+    if(!v)return;
+    const r=await apiS('add',{label:v[0],password:v[1],master_pw:v[2]});
+    if(r.j&&r.j.ok){toast('Friend added: '+v[0]);loadAllSoft()}
+    else toast((r.j&&r.j.error)||'Failed');
+  },
+  bk:()=>{
+    const blob=new Blob([JSON.stringify(configJSON(),null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='nexus-backup.json';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+    toast('Backup downloaded');
+  },
+  exp:()=>{
+    const j=JSON.stringify(configJSON(),null,2);
+    (navigator.clipboard?navigator.clipboard.writeText(j):Promise.reject()).then(()=>toast('Config copied to clipboard'),()=>toast('Clipboard unavailable'));
+  },
+  rk:()=>{go('se');setTimeout(()=>$("#mpCard").scrollIntoView({behavior:'smooth'}),60)},
+  cl:async()=>{
+    const r=await withMaster(mpw=>apiS('audit_clear',{master_pw:mpw}));
+    if(r&&r.j&&r.j.ok){toast('Audit log cleared');const au=await jget('/api/audit');if(au)AU=au.events||[];renderAudit();renderSide()}
+    $("#dzMsg").textContent='';
+  },
+  rs:async()=>{
+    const r=await withMaster(mpw=>apiS('provider_health_reset',{master_pw:mpw}));
+    if(r&&r.j&&r.j.ok){toast('Provider statuses reset');Q=await jget('/api/quotas');renderAll()}
+  },
+  rva:async()=>{
+    if(!GRANTS.length){toast('No active view passes');return}
+    const mpw=_mpw||await askMaster('Revoke all view passes?');
+    if(!mpw)return;
+    _mpw=mpw;
+    let n=0;
+    for(const g of GRANTS){const r=await apiS('viewpass_revoke',{id:g.id,master_pw:mpw});if(r.j&&r.j.ok)n++}
+    toast(n+' view pass'+(n===1?'':'es')+' revoked');
+    await loadViewPasses();renderFriends();
+  },
+  fx:async()=>{
+    const v=await dlg('Factory reset — removes all friends, view passes, personal vaults and saved chats, and resets every console setting. Provider keys and the master password stay.',[['Type RESET to confirm','c','','text'],['Your master password','pw','','password']]);
+    if(!v)return;
+    const r=await apiS('factory_reset',{confirm:v[0],master_pw:v[1]});
+    if(r.j&&r.j.ok){toast('Factory reset done');_mpw='';loadAll()}
+    else toast((r.j&&r.j.error)||'Failed');
+  },
+};
+document.addEventListener('click',e=>{
+  const x=e.target.closest&&e.target.closest('[data-x]');
+  if(!x)return;
+  const a=x.dataset.x;
+  if(ACT[a])ACT[a]();else go(a);
+});
+// ===== 2FA (same server flow as before) =====
+async function check2FA(){
+  const master_pw=$("#tfaMaster").value;
+  if(!master_pw)return;
+  const j=await api('2fa_status',{master_pw});
+  if(!j)return;
+  if(j.error){$("#tfaStatus").innerHTML='<span class="badc">Wrong master password</span>';return}
+  TFA_ON=!!j.enabled;renderSettings();
+  if(j.pending)$("#tfaStatus").innerHTML='<span style="color:var(--mu)">2FA setup pending — confirm with a code below</span>';
+}
+$("#tfaMaster").addEventListener('change',check2FA);
+$("#tfaBtn").addEventListener('click',async()=>{
+  const master_pw=$("#tfaMaster").value;
+  const msg=$("#tfaMsg");
+  if(!master_pw){msg.textContent='Enter your master password first';return}
+  if(TFA_ON){
+    const v=await dlg('Disable 2FA',[['Enter your current 2FA code','code','','text']]);
+    if(!v)return;
+    const j=await api('2fa_disable',{master_pw,code:v[0]});
+    if(j&&j.ok){msg.innerHTML='<span class="okc">2FA disabled</span>';TFA_ON=false;renderSettings()}
+    else msg.textContent=(j&&j.error)||'Failed';
+  }else{
+    const j=await api('2fa_enable',{master_pw});
+    if(j&&j.ok){
+      $("#tfaKey").textContent=j.secret;
+      $("#tfaQR").src='/api/2fa_qr?'+Date.now();
+      $("#tfaSecret").style.display='block';
+      msg.textContent='Scan the QR, then confirm with a code';
+    }else msg.textContent=(j&&j.error)||'Failed';
+  }
+});
+$("#tfaConfirmBtn").addEventListener('click',async()=>{
+  const code=$("#tfaConfirm").value.trim(),master_pw=$("#tfaMaster").value,msg=$("#tfaMsg");
+  if(!code){msg.textContent='Enter the 6-digit code from your app';return}
+  if(!master_pw){msg.textContent='Enter your master password above first';return}
+  const j=await api('2fa_confirm',{master_pw,code});
+  if(j&&j.ok){
+    msg.innerHTML='<span class="okc">✓ 2FA is ON. Your next login will ask for a code.</span>';
+    $("#tfaSecret").style.display='none';$("#tfaConfirm").value='';TFA_ON=true;renderSettings();
+  }else{msg.textContent=(j&&j.error)||'Wrong code — try again';$("#tfaConfirm").value='';$("#tfaConfirm").focus()}
+});
+$("#mpBtn").addEventListener('click',async()=>{
+  const cur=$("#mpCur").value,nw=$("#mpNew").value,msg=$("#mpMsg");
+  if(!cur||!nw){msg.textContent='Enter both passwords.';return}
+  if(nw.length<10){msg.textContent='New password must be at least 10 characters.';return}
+  msg.textContent='Changing…';
+  const r=await api('change_master',{master_pw:cur,new_master_pw:nw});
+  if(r&&r.ok){msg.innerHTML='<span class="okc">✓ Password changed. Signing you out — log in with the new password.</span>';setTimeout(()=>{location.href='/login'},1500)}
+  else msg.textContent=(r&&r.error)?r.error:'Change failed.';
+});
+// ===== navigation =====
+const V=[["ov","Overview"],["an","Analytics"],["pv","Providers"],["fr","Friends"],["au","Audit log"],["se","Settings"]];
+const svg=d=>`<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+const IC={an:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',pv:'<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>',fr:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14.8c2 .6 3.2 2.3 3.5 5.2"/>',au:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',se:'<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'};
+$("#nav").innerHTML=V.map(v=>`<button data-v="${v[0]}" data-tip="${v[1]}">${svg(IC[v[0]])}<span>${v[1]}</span><em></em></button>`).join('');
+function go(v){
+  $$(".view").forEach(e2=>e2.classList.toggle("on",e2.id===v));
+  $$("#nav>button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  if(v==="an")anRender();
+  $$(".view.on .p").forEach((e2,i)=>e2.style.setProperty("--i",i));
+  window.cam&&cam(v);
+  scrollTo(0,0);
+}
+$("#nav").onclick=e=>{const b=e.target.closest("button");if(b)go(b.dataset.v)};
+$("#sc").onclick=()=>$(".stage").classList.toggle("c");
+$("#so").onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.href='/login'};
+document.addEventListener("mouseover",e=>{
+  const t=e.target.closest&&e.target.closest("[data-tip]"),tp=$("#tip");
+  if(t&&$(".stage").classList.contains("c")){const r=t.getBoundingClientRect();tp.textContent=t.dataset.tip;tp.style.left=r.right+"px";tp.style.top=(r.top+r.height/2)+"px";tp.hidden=false}
+  else tp.hidden=true;
+});
+// ===== theme =====
+function effectiveDark(){
+  const t=localStorage.getItem('nexus-theme');
+  if(t==='Dark')return true;
+  if(t==='Light')return false;
+  return matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function applyTheme(v){
+  localStorage.setItem('nexus-theme',v);
+  const r=document.documentElement;
+  if(v==='Dark')r.dataset.theme='dark';
+  else if(v==='Light')r.dataset.theme='light';
+  else r.removeAttribute('data-theme');
+  setTimeout(()=>window.recolor&&recolor(),30);
+}
+$("#th").onclick=()=>{applyTheme(effectiveDark()?'Light':'Dark');renderSettings()};
+// ===== command palette =====
+const CM=[...V.map(v=>["Go to "+v[1],()=>go(v[0])]),
+  ["Re-check providers",()=>recheck()],
+  ["Add a friend",()=>ACT.addf()],
+  ["Create view pass",()=>go('fr')],
+  ["Add custom provider",()=>ACT.ap()],
+  ["Backup now (download JSON)",()=>ACT.bk()],
+  ["Copy config",()=>ACT.exp()],
+  ["Toggle maintenance mode",async()=>{await setSettings({maintenance:!S.maintenance},'Maintenance mode toggled')}],
+  ["Toggle theme",()=>$("#th").click()],
+  ["Sign out",()=>$("#so").click()]];
+let fl=[];
+function fill(q){
+  fl=CM.filter(c=>c[0].toLowerCase().includes(q.toLowerCase()));
+  $("#cl").innerHTML=fl.map((c,i)=>`<button data-c="${i}">${esc(c[0])}</button>`).join('');
+}
+function pal(o){$("#pal").hidden=!o;if(o){$("#cq").value="";fill("");$("#cq").focus()}}
+$("#k").onclick=()=>pal(true);
+$("#cq").oninput=e=>fill(e.target.value);
+$("#cq").onkeydown=e=>{if(e.key==="Enter"&&fl[0]){pal(false);fl[0][1]()}};
+$("#cl").onclick=e=>{const b=e.target.closest("button");if(b){pal(false);fl[+b.dataset.c][1]()}};
+$("#pal").onclick=e=>{if(e.target.id==="pal")pal(false)};
+addEventListener("keydown",e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();pal(true)}
+  if(e.key==="Escape"){pal(false);$("#md").hidden=true}
+  if(!e.metaKey&&!e.ctrlKey&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)&&V[+e.key-1])go(V[+e.key-1][0]);
+});
+// ===== 3D card tilt + pointer light =====
+let lc=null,mx=0,my=0;
+addEventListener("pointermove",e=>{
+  mx=e.clientX/innerWidth-.5;my=e.clientY/innerHeight-.5;
+  const c=e.target.closest&&e.target.closest(".p");
+  if(lc&&lc!==c){lc.style.setProperty("--rx","0deg");lc.style.setProperty("--ry","0deg")}
+  lc=c;if(!c)return;
+  const r=c.getBoundingClientRect(),x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height;
+  c.style.setProperty("--ry",(x-.5)*5+"deg");c.style.setProperty("--rx",(.5-y)*5+"deg");
+  c.style.setProperty("--mx",x*100+"%");c.style.setProperty("--my",y*100+"%");
+});
+// ===== 3D scene: wireframe core, 3 orbit rings of provider nodes =====
+(function(){
+  if(!window.THREE)return;
+  let R;
+  try{R=new THREE.WebGLRenderer({canvas:$("#bg"),alpha:true,antialias:true})}catch(e){return}
+  R.setPixelRatio(Math.min(devicePixelRatio,2));
+  const Sc=new THREE.Scene(),C=new THREE.PerspectiveCamera(50,1,.1,120);
+  const col=()=>new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--wire").trim()||"#111");
+  let cc=col();const tint=[],gray=new THREE.Color(0x888888);
+  const mat=o=>{const m=new THREE.MeshBasicMaterial(Object.assign({color:cc.clone(),transparent:true},o));tint.push(m);return m};
+  const core=new THREE.Group();Sc.add(core);
+  core.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.2,1),mat({wireframe:true,opacity:.75})));
+  core.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.7,0),mat({opacity:.2})));
+  const spins=[],nodes=[];
+  [[2.6,.35,0,.004],[3.6,1.1,.5,-.003],[4.7,-.5,-.4,.002]].forEach(([r,rx,rz,sp])=>{
+    const tl=new THREE.Group();tl.rotation.set(rx,0,rz);Sc.add(tl);
+    const g=new THREE.Group();g.userData.sp=sp;tl.add(g);spins.push(g);
+    const t=new THREE.Mesh(new THREE.TorusGeometry(r,.012,6,140),mat({opacity:.4}));t.rotation.x=Math.PI/2;g.add(t);
+    for(let j=0;j<6;j++){const a=j/6*Math.PI*2,n=new THREE.Mesh(new THREE.SphereGeometry(.14,16,16),new THREE.MeshBasicMaterial({color:cc.clone()}));n.position.set(Math.cos(a)*r,0,Math.sin(a)*r);g.add(n);nodes.push(n)}
+  });
+  const la=new Float32Array(18*6),lg=new THREE.BufferGeometry();lg.setAttribute("position",new THREE.BufferAttribute(la,3));
+  const links=new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:cc.clone(),transparent:true,opacity:.28}));links.frustumCulled=false;tint.push(links.material);Sc.add(links);
+  const sp=new Float32Array(900);
+  for(let i=0;i<300;i++){const r=16+Math.random()*30,a=Math.random()*6.28,b=Math.acos(2*Math.random()-1);sp.set([r*Math.sin(b)*Math.cos(a),r*Math.cos(b),r*Math.sin(b)*Math.sin(a)],i*3)}
+  const sg=new THREE.BufferGeometry();sg.setAttribute("position",new THREE.BufferAttribute(sp,3));
+  const stars=new THREE.Points(sg,new THREE.PointsMaterial({size:.07,transparent:true,opacity:.6,color:cc.clone()}));tint.push(stars.material);Sc.add(stars);
+  const grid=new THREE.GridHelper(70,70,0xffffff,0xffffff);grid.position.y=-5.5;grid.material.transparent=true;grid.material.opacity=.14;grid.material.color.copy(cc);tint.push(grid.material);Sc.add(grid);
+  const halo=new THREE.Group(),bars=[];halo.rotation.x=.25;Sc.add(halo);
+  for(let i=0;i<18;i++){const a=i/18*Math.PI*2,b=new THREE.Mesh(new THREE.BoxGeometry(.16,1,.16),mat({opacity:.5}));b.position.set(Math.cos(a)*6.4,0,Math.sin(a)*6.4);halo.add(b);bars.push(b)}
+  const pm=mat({opacity:1}),pl=[],v3=new THREE.Vector3();
+  window._pulse=i=>{if(i<0||i>=nodes.length)return;const m=new THREE.Mesh(new THREE.SphereGeometry(.07,8,8),pm);Sc.add(m);pl.push({m,i,t:0})};
+  const CAM={ov:[[0,1.5,11],[-3.2,0,0]],an:[[0,3,10],[-2,0,0]],pv:[[0,.6,6.6],[0,0,0]],fr:[[-6,-1.5,10],[1.8,0,0]],au:[[-5,2,9],[1,0,0]],se:[[0,-3,9],[0,0,0]]};
+  const tp=new THREE.Vector3(...CAM.ov[0]),tg=new THREE.Vector3(...CAM.ov[1]),cp=new THREE.Vector3(0,14,44),cl2=tg.clone();
+  window.cam=k=>{if(CAM[k]){tp.set(...CAM[k][0]);tg.set(...CAM[k][1])}};
+  window.recolor=()=>{cc=col();tint.forEach(m=>m.color.copy(cc))};
+  window.q3set=q=>{if(q==='Off'){$("#bg").style.display='none'}else{$("#bg").style.display='';R.setPixelRatio(q==='Low'?1:Math.min(devicePixelRatio,2))}};
+  const rc=new THREE.Raycaster(),mv=new THREE.Vector2();let hov=-1;
+  const free=e=>!(e.target.closest&&e.target.closest(".p,.side,.pal,.ov"));
+  addEventListener("pointermove",e=>{
+    mv.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
+    rc.setFromCamera(mv,C);
+    const h=free(e)?rc.intersectObjects(nodes)[0]:null;
+    hov=h?nodes.indexOf(h.object):-1;
+    const lb=$("#lb");lb.hidden=hov<0;
+    document.body.style.cursor=hov>=0?"pointer":"";
+    if(hov>=0&&window._P&&window._P[hov]){const p=window._P[hov];lb.style.left=e.clientX+"px";lb.style.top=e.clientY+"px";lb.textContent=p.n+" · "+(p.s==='ok'?'Online':p.s==='w'?'Disabled':'Down')+" · "+fmt(p.req)+" today"}
+  });
+  addEventListener("click",e=>{if(hov>=0&&free(e))go("pv")});
+  const size=()=>{R.setSize(innerWidth,innerHeight,false);C.aspect=innerWidth/innerHeight;C.updateProjectionMatrix()};
+  addEventListener("resize",size);size();
+  const rm=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let t=0;
+  (function loop(){
+    requestAnimationFrame(loop);
+    if(document.hidden||(localStorage.getItem('nexus-q3')==='Off'))return;
+    t++;
+    if(!rm){spins.forEach(g=>g.rotation.y+=g.userData.sp);core.rotation.y+=.004;core.rotation.x+=.0015;halo.rotation.y+=.0015;stars.rotation.y+=.0003;
+      if(t%40===0&&window._P){const ok=window._P.map((p,i)=>i).filter(i=>window._P[i].s==='ok');if(ok.length)window._pulse(ok[Math.random()*ok.length|0])}}
+    const haloData=window._halo||[];const hmax=Math.max(...haloData,1);
+    bars.forEach((b,i)=>{const target=.2+((haloData[i]||0)/hmax)*2.8;b.scale.y+=(target-b.scale.y)*.08});
+    cp.lerp(tp,rm?1:.04);cl2.lerp(tg,rm?1:.04);
+    C.position.set(cp.x+mx*1.4,cp.y-my*.9,cp.z);C.lookAt(cl2);
+    nodes.forEach((n,i)=>{
+      const s=window._P&&window._P[i]?window._P[i].s:'ok';
+      n.material.color.copy(s==='ok'?cc:gray);
+      n.scale.setScalar(s==='ok'?1:s==='w'?.7:.4);
+      n.getWorldPosition(v3);la[i*6+3]=v3.x;la[i*6+4]=v3.y;la[i*6+5]=v3.z;
     });
-    if (r.status === 401) { location.href = '/login'; return null; }
-    return r.json().catch(() => null);
-}
-function vpMsg(t, ok) {
-    const m = document.getElementById('vpMsg');
-    if (!m) return;
-    m.textContent = t;
-    m.style.color = ok ? '#7dff9a' : '#ff9a9a';
-}
-function vpWhen(ts) {
-    const mins = Math.max(0, Math.round((ts * 1000 - Date.now()) / 60000));
-    if (mins < 60) return mins + ' min left';
-    return Math.round(mins / 60) + ' h left';
-}
-async function loadViewPasses() {
-    const list = document.getElementById('vpList');
-    if (!list) return;
-    const j = await vpApi('viewpass_list');
-    if (!j || j.error) {
-        // Viewers (and anyone who may not manage passes) just see a note.
-        document.getElementById('vpControls').style.display = 'none';
-        list.innerHTML = '<div class="empty">View passes are managed from the admin account.</div>';
-        return;
-    }
-    if (!j.grants.length) {
-        list.innerHTML = '<div class="empty">No active view passes.</div>';
-        return;
-    }
-    list.innerHTML = j.grants.map(g =>
-        '<div class="person"><div><span class="name">' + esc(g.name) + '</span>' +
-        '<span class="tag">' + vpWhen(g.expires) + (g.watching ? ' · ' + g.watching + ' watching' : '') + '</span></div>' +
-        '<button class="danger" onclick="revokeViewPass(\'' + g.id + '\')">Revoke</button></div>'
-    ).join('');
-}
-async function createViewPass() {
-    const name = document.getElementById('vpName').value.trim();
-    const hours = parseInt(document.getElementById('vpHours').value, 10);
-    const master_pw = document.getElementById('vpMaster').value;
-    if (!name) { vpMsg('Give the pass a name first', false); return; }
-    if (!master_pw) { vpMsg('Enter your master password to create', false); return; }
-    const btn = document.getElementById('vpBtn');
-    btn.disabled = true;
-    const j = await vpApi('viewpass_create', {name, hours, master_pw});
-    btn.disabled = false;
-    if (j && j.ok) {
-        const link = location.origin + j.url;
-        document.getElementById('vpLink').value = link;
-        document.getElementById('vpResult').style.display = 'block';
-        document.getElementById('vpMaster').value = '';
-        vpMsg('View pass created — copy the link now', true);
-        loadViewPasses();
-    } else {
-        vpMsg((j && j.error) || 'Failed', false);
-    }
-}
-async function revokeViewPass(id) {
-    const master_pw = await askModal({title: 'Revoke view pass?', label: 'The link stops working immediately and anyone using it is disconnected. Enter your master password to confirm:', type: 'password', okText: 'Revoke'});
-    if (!master_pw) return;
-    const j = await vpApi('viewpass_revoke', {id, master_pw});
-    if (j && j.ok) { vpMsg('View pass revoked', true); loadViewPasses(); load(); }
-    else { vpMsg((j && j.error) || 'Failed', false); }
-}
-
-load();
-loadViewPasses();
+    lg.attributes.position.needsUpdate=true;
+    for(let k=pl.length-1;k>=0;k--){const p=pl[k];p.t+=.02;nodes[p.i].getWorldPosition(v3);p.m.position.copy(v3).multiplyScalar(p.t);if(p.t>=1){Sc.remove(p.m);pl.splice(k,1)}}
+    R.render(Sc,C);
+  })();
+  window.q3set(localStorage.getItem('nexus-q3')||'High');
+})();
+// ===== init =====
+(async()=>{
+  const savedTheme=localStorage.getItem('nexus-theme');
+  if(savedTheme==='Dark')document.documentElement.dataset.theme='dark';
+  if(savedTheme==='Light')document.documentElement.dataset.theme='light';
+  await loadAll();
+  const rt=await jget('/api/routing');
+  if(rt&&rt.routing){RT=rt.routing;renderSettings()}
+  const tfa=await api('2fa_state');
+  if(tfa&&!tfa.error){TFA_ON=!!tfa.enabled;renderSettings()}
+  go('ov');
+})();
 </script>
 </body>
 </html>

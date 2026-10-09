@@ -154,6 +154,9 @@ async function submit(){
       if(j.need_2fa){ show2FA(j.tmp); return; }
       location.href='/';return;
     }
+    if(j.error==='maintenance mode is on'){ err.textContent='Maintenance mode is on — friends are paused right now. Please try again later.'; }
+    else if(j.error==='account suspended'){ err.textContent='This account has been suspended. Please contact the admin.'; }
+    else{ err.textContent='Wrong password. Try again.'; }
     throw 0;
   }catch(e){
     err.style.display='block';card.classList.remove('shake');void card.offsetWidth;card.classList.add('shake');

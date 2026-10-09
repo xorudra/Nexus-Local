@@ -29,6 +29,7 @@ import datetime
 import base64
 import hashlib
 import secrets
+import shutil
 import time
 from pathlib import Path
 
@@ -73,10 +74,319 @@ def _note_failure(p):
     h = _PROVIDER_HEALTH.setdefault(p, {"fails": 0, "down_until": 0.0})
     h["fails"] = h.get("fails", 0) + 1
     if h["fails"] >= 2:
+        if h.get("down_until", 0) <= time.time():
+            _audit("Providers", f"{p} marked down (circuit breaker, 3 min)")
         h["down_until"] = time.time() + 180  # skip for 3 min after 2 straight failures
 
 def _note_success(p):
     _PROVIDER_HEALTH.pop(p, None)
+
+# ---- Admin console settings (owner-ordered 2026-10-10) ----
+# One settings dict drives the admin console's working controls:
+# maintenance mode, per-friend suspension and daily caps, failover
+# attempts/order/provider enable+limits, session lifetime, audit
+# retention and the instance name. Persisted like the friend list:
+# a plaintext working copy on disk plus an encrypted mirror
+# (settings.enc, restore key) that rides the friend_blob sync, so
+# settings survive redeploys. Defaults reproduce the pre-console
+# behaviour exactly, so nothing changes until the admin flips a switch.
+SETTINGS_PATH = Path(__file__).parent / "settings.json"
+SETTINGS_ENC_PATH = Path(__file__).parent / "settings.enc"
+_SETTINGS_DEFAULTS = {
+    "maintenance": False,
+    "suspended": [],
+    "max_attempts": 4,
+    "daily_cap": 200,
+    "user_caps": {},
+    "provider_order": [],
+    "provider_disabled": [],
+    "provider_limits": {},
+    "session_minutes": None,  # None = follow NEXUS_SESSION_EXPIRY env
+    "retention_days": 30,
+    "instance_name": "Nexus Local",
+}
+_SETTINGS = dict(_SETTINGS_DEFAULTS)
+_BOOT_TS = time.time()
+
+
+def _save_settings():
+    try:
+        SETTINGS_PATH.write_text(json.dumps(_SETTINGS, indent=2))
+        os.chmod(SETTINGS_PATH, 0o600)
+    except Exception:
+        pass
+    if RESTORE_KEY:
+        try:
+            encrypt_keys(_SETTINGS, RESTORE_KEY, SETTINGS_ENC_PATH)
+        except Exception:
+            pass
+
+
+def _boot_restore_settings():
+    """Load settings at startup: encrypted mirror first (it is the
+    synced source of truth), then the local working copy."""
+    global _SETTINGS
+    try:
+        if RESTORE_KEY and SETTINGS_ENC_PATH.exists():
+            d = decrypt_keys(SETTINGS_ENC_PATH, RESTORE_KEY)
+            if isinstance(d, dict) and d:
+                merged = dict(_SETTINGS_DEFAULTS)
+                merged.update({k: v for k, v in d.items()
+                               if k in _SETTINGS_DEFAULTS})
+                _SETTINGS = merged
+                return
+    except Exception:
+        pass
+    try:
+        if SETTINGS_PATH.exists():
+            d = json.loads(SETTINGS_PATH.read_text())
+            if isinstance(d, dict) and d:
+                merged = dict(_SETTINGS_DEFAULTS)
+                merged.update({k: v for k, v in d.items()
+                               if k in _SETTINGS_DEFAULTS})
+                _SETTINGS = merged
+    except Exception:
+        pass
+
+
+def _friend_blocked(label):
+    """Maintenance mode blocks every friend; suspension blocks one.
+    Admins and view-pass viewers are never blocked."""
+    if _SETTINGS.get("maintenance"):
+        return "maintenance"
+    if label and label in (_SETTINGS.get("suspended") or []):
+        return "suspended"
+    return None
+
+
+def _session_seconds():
+    # An explicit console setting wins; until the admin sets one, the
+    # NEXUS_SESSION_EXPIRY env default rules (unchanged behaviour).
+    try:
+        v = _SETTINGS.get("session_minutes")
+        if v:
+            return max(60, int(v) * 60)
+    except Exception:
+        pass
+    return SESSION_EXPIRY
+
+
+def _ordered_provider_names():
+    order = [n for n in (_SETTINGS.get("provider_order") or [])
+             if n in PROVIDER_NAMES]
+    return order + [n for n in PROVIDER_NAMES if n not in order]
+
+
+def _disabled_providers():
+    return set(_SETTINGS.get("provider_disabled") or [])
+
+
+# ---- Audit log (admin console) ----
+# Append-only JSONL of admin + system events: sign-ins, friend and
+# view-pass changes, settings changes, provider downs and failovers.
+# Lives on local disk like usage.jsonl (resets on redeploy, same as
+# sessions and view passes); never holds secrets — labels, provider
+# names and counts only.
+AUDIT_PATH = Path(__file__).parent / "audit.jsonl"
+
+
+def _audit(category, event):
+    try:
+        with open(AUDIT_PATH, "a") as f:
+            f.write(json.dumps({
+                "ts": datetime.datetime.now().isoformat(),
+                "cat": str(category)[:24],
+                "event": str(event)[:300],
+            }) + "\n")
+        if os.path.getsize(AUDIT_PATH) > 512 * 1024:
+            with open(AUDIT_PATH) as f:
+                lines = f.readlines()
+            _cut = (datetime.datetime.now()
+                    - datetime.timedelta(days=int(_SETTINGS.get("retention_days") or 30))).isoformat()
+            lines = [ln for ln in lines[-1000:] if _fresh_line(ln, _cut)]
+            tmp = str(AUDIT_PATH) + ".tmp"
+            with open(tmp, "w") as f:
+                f.writelines(lines)
+            os.replace(tmp, AUDIT_PATH)
+    except Exception:
+        pass
+
+
+def _read_audit(limit=200):
+    out = []
+    try:
+        if AUDIT_PATH.exists():
+            with open(AUDIT_PATH) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(e, dict) and e.get("ts"):
+                        out.append(e)
+    except Exception:
+        pass
+    return out[-limit:][::-1]
+
+
+def _audit_count_today(prefix, cat=None):
+    today = datetime.date.today().isoformat()
+    n = 0
+    try:
+        if AUDIT_PATH.exists():
+            with open(AUDIT_PATH) as f:
+                for line in f:
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if str(e.get("ts", ""))[:10] != today:
+                        continue
+                    if cat and e.get("cat") != cat:
+                        continue
+                    if str(e.get("event", "")).startswith(prefix):
+                        n += 1
+    except Exception:
+        pass
+    return n
+
+
+# Today's usage counts (providers + users), cached briefly: the file
+# is bounded (20k lines) and chat is rate-limited, so a 20 s cache
+# keeps caps/limits cheap without drifting far from the truth.
+_TODAY_CACHE = {"ts": 0.0, "providers": {}, "users": {}}
+
+
+def _today_counts():
+    now = time.time()
+    if now - _TODAY_CACHE["ts"] < 20:
+        return _TODAY_CACHE
+    providers, users = {}, {}
+    today = datetime.date.today().isoformat()
+    try:
+        if os.path.exists(USAGE_PATH):
+            with open(USAGE_PATH) as f:
+                for line in f:
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if not isinstance(e, dict) or e.get("type"):
+                        continue
+                    if str(e.get("ts", ""))[:10] != today:
+                        continue
+                    p = e.get("provider")
+                    if isinstance(p, str) and p:
+                        providers[p] = providers.get(p, 0) + 1
+                    u = e.get("user")
+                    if isinstance(u, str) and u:
+                        users[u] = users.get(u, 0) + 1
+    except Exception:
+        pass
+    _TODAY_CACHE.update({"ts": now, "providers": providers, "users": users})
+    return _TODAY_CACHE
+
+
+def _validate_settings_patch(patch):
+    """Whitelist + type-check a settings patch from the admin console.
+    Returns (clean_dict, error) — error None on success."""
+    clean = {}
+    for k, v in patch.items():
+        if k == "maintenance":
+            if not isinstance(v, bool):
+                return None, "maintenance must be true or false"
+            clean[k] = v
+        elif k == "suspended":
+            if not isinstance(v, list):
+                return None, "suspended must be a list"
+            clean[k] = [str(x)[:30] for x in v if isinstance(x, str)][:50]
+        elif k == "max_attempts":
+            if not isinstance(v, int) or not 1 <= v <= 8:
+                return None, "max_attempts must be 1-8"
+            clean[k] = v
+        elif k == "daily_cap":
+            if not isinstance(v, int) or not 0 <= v <= 100000:
+                return None, "daily_cap must be 0-100000"
+            clean[k] = v
+        elif k == "user_caps":
+            if not isinstance(v, dict):
+                return None, "user_caps must be an object"
+            clean[k] = {str(a)[:30]: max(0, min(100000, int(b)))
+                        for a, b in v.items() if isinstance(b, (int, float))}
+        elif k == "provider_order":
+            if not isinstance(v, list):
+                return None, "provider_order must be a list"
+            clean[k] = [x for x in v if x in PROVIDER_NAMES]
+        elif k == "provider_disabled":
+            if not isinstance(v, list):
+                return None, "provider_disabled must be a list"
+            clean[k] = [x for x in v if isinstance(x, str)][:64]
+        elif k == "provider_limits":
+            if not isinstance(v, dict):
+                return None, "provider_limits must be an object"
+            clean[k] = {str(a)[:64]: int(b) for a, b in v.items()
+                        if isinstance(b, (int, float)) and int(b) > 0}
+        elif k == "session_minutes":
+            if v not in (30, 60, 480, 1440):
+                return None, "session_minutes must be 30, 60, 480 or 1440"
+            clean[k] = v
+        elif k == "retention_days":
+            if v not in (7, 30, 90):
+                return None, "retention_days must be 7, 30 or 90"
+            clean[k] = v
+        elif k == "instance_name":
+            if not isinstance(v, str) or not v.strip() or len(v) > 40:
+                return None, "instance_name must be 1-40 chars"
+            clean[k] = v.strip()
+        else:
+            return None, f"unknown setting: {k}"
+    return clean, None
+
+
+def _fresh_line(line, cut_iso):
+    """Retention helper: keep a JSONL line whose ts is >= the cutoff
+    (unparseable lines are kept — never delete data on a guess)."""
+    try:
+        return str(json.loads(line).get("ts", "")) >= cut_iso
+    except Exception:
+        return True
+
+
+def _system_metrics():
+    """Real host metrics for the console's Instance card: CPU from
+    /proc/loadavg, RAM from /proc/meminfo, disk from the app volume,
+    uptime from process start. Any source may be unavailable (None)."""
+    m = {"cpu_pct": None, "ram_pct": None, "disk_pct": None,
+         "uptime_s": int(time.time() - _BOOT_TS)}
+    try:
+        with open("/proc/loadavg") as f:
+            load1 = float(f.read().split()[0])
+        cpus = os.cpu_count() or 1
+        m["cpu_pct"] = max(0, min(100, round(load1 / cpus * 100)))
+    except Exception:
+        pass
+    try:
+        info = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] in ("MemTotal:", "MemAvailable:"):
+                    info[parts[0]] = int(parts[1])
+        if info.get("MemTotal:"):
+            used = info["MemTotal:"] - info.get("MemAvailable:", 0)
+            m["ram_pct"] = round(used / info["MemTotal:"] * 100)
+    except Exception:
+        pass
+    try:
+        du = shutil.disk_usage(str(Path(__file__).parent))
+        m["disk_pct"] = round(du.used / du.total * 100) if du.total else None
+    except Exception:
+        pass
+    return m
+
 
 SESSION_EXPIRY = int(os.environ.get("NEXUS_SESSION_EXPIRY", "1800"))
 def _model_caps(provider, model):
@@ -521,9 +831,13 @@ def _append_usage(entry):
         if os.path.getsize(USAGE_PATH) > _USAGE_MAX_BYTES:
             with open(USAGE_PATH) as f:
                 lines = f.readlines()
+            _cut = (datetime.datetime.now()
+                    - datetime.timedelta(days=int(_SETTINGS.get("retention_days") or 30))).isoformat()
+            lines = [ln for ln in lines[-_USAGE_KEEP_LINES:]
+                     if _fresh_line(ln, _cut)]
             tmp = str(USAGE_PATH) + ".tmp"
             with open(tmp, "w") as f:
-                f.writelines(lines[-_USAGE_KEEP_LINES:])
+                f.writelines(lines)
             os.replace(tmp, USAGE_PATH)
     except Exception:
         pass
@@ -753,6 +1067,8 @@ def _v1_chat(messages, model, temperature=None):
     last_error = "no lane available"
     for lane, mdl in _v1_route(model):
         if _provider_down(lane):
+            continue
+        if lane in _disabled_providers():
             continue
         if lane not in RELAY_KEYLESS and getattr(Handler, "keys", None) is None:
             last_error = "vault locked"
@@ -1012,11 +1328,16 @@ class Handler(BaseHTTPRequestHandler):
                     _drop_chat_unlock(sess.get("chat_unlock"))
                     del SESSIONS[token]
                     return None
-                if now - sess["ts"] < SESSION_EXPIRY:
+                if now - sess["ts"] < _session_seconds():
+                    # Maintenance mode / suspension: a friend session
+                    # stops being valid the moment the admin flips it.
+                    if not sess.get("admin") and not sess.get("viewer") \
+                            and _friend_blocked(sess.get("label", "")):
+                        return None
                     sess["ts"] = now  # sliding window
                     _rec = _CHAT_UNLOCKS.get(sess.get("chat_unlock") or "")
                     if _rec and _rec.get("bound_token") == token:
-                        _rec["expires"] = now + SESSION_EXPIRY
+                        _rec["expires"] = now + _session_seconds()
                     return token
                 else:
                     _drop_chat_unlock(sess.get("chat_unlock"))
@@ -1029,6 +1350,9 @@ class Handler(BaseHTTPRequestHandler):
             return None
         sess = SESSIONS.get(token)
         if isinstance(sess, dict):
+            if not sess.get("admin") and not sess.get("viewer") \
+                    and _friend_blocked(sess.get("label", "")):
+                return None
             return sess
         return None
 
@@ -1202,6 +1526,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         _append_usage({"ts": datetime.datetime.now().isoformat(),
                        "type": "v1key_generated"})
+        _audit("Vault", "/v1 service key generated")
         self._set_json_headers()
         self._send_body(json.dumps({"ok": True, "key": key, "source": "generated"}).encode())
 
@@ -1809,10 +2134,16 @@ class Handler(BaseHTTPRequestHandler):
                 v1key_b64 = None
                 if V1KEY_PATH.exists():
                     v1key_b64 = _b64.b64encode(V1KEY_PATH.read_bytes()).decode()
+                # settings.enc too (admin console settings, restore-key
+                # encrypted like access.enc) so console policy survives
+                # redeploys instead of resetting with the disk.
+                settings_b64 = None
+                if SETTINGS_ENC_PATH.exists():
+                    settings_b64 = _b64.b64encode(SETTINGS_ENC_PATH.read_bytes()).decode()
             except Exception:
-                blob, vaults, chats, keys_b64, access_b64, v1key_b64 = None, {}, {}, None, None, None
+                blob, vaults, chats, keys_b64, access_b64, v1key_b64, settings_b64 = None, {}, {}, None, None, None, None
             self._set_json_headers(200)
-            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64, "access": access_b64, "v1key": v1key_b64}).encode())
+            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64, "access": access_b64, "v1key": v1key_b64, "settings": settings_b64}).encode())
             return
         if parsed.path == "/api/2fa_qr":
             # QR code for the TOTP secret (admin only) — scan with authenticator app
@@ -1875,12 +2206,13 @@ class Handler(BaseHTTPRequestHandler):
             if QUOTAS_PATH.exists():
                 with open(QUOTAS_PATH) as f:
                     base = json.load(f)
-                for name in PROVIDER_NAMES:
+                for name in _ordered_provider_names():
                     provider_data = base.get(name, {})
                     quotas["providers"].append({
                         "provider": name,
                         "display_name": provider_data.get("display_name", name.title()),
                         "reset": provider_data.get("reset", ""),
+                        "disabled": name in _disabled_providers(),
                         "history": history.get(name, {"requests": [0] * 7, "tokens": [0] * 7}),
                         "limits": {
                             "daily_requests": provider_data.get("daily_requests", {"limit": None, "notes": "", "source": ""}),
@@ -1968,6 +2300,119 @@ class Handler(BaseHTTPRequestHandler):
                         usage_data["totals"]["tokens"] += pt + ct
             self._set_json_headers()
             self._send_body(json.dumps(usage_data).encode())
+            return
+        if parsed.path == "/api/audit":
+            if not self._require_admin():
+                return
+            self._set_json_headers()
+            self._send_body(json.dumps({
+                "events": _read_audit(200),
+                "failovers_today": _audit_count_today("Failover handled", "Providers"),
+                "fails_today": _audit_count_today("Attempt failed", "Providers"),
+            }).encode())
+            return
+        if parsed.path == "/api/analytics":
+            if not self._require_admin():
+                return
+            rng = parse_qs(parsed.query).get("range", ["7d"])[0]
+            if rng not in ("24h", "7d", "30d"):
+                rng = "7d"
+            now = datetime.datetime.now()
+            if rng == "24h":
+                start = (now - datetime.timedelta(hours=23)).replace(minute=0, second=0, microsecond=0)
+                bucket_keys = [(start + datetime.timedelta(hours=i)) for i in range(24)]
+                bucket_fmt = lambda d: d.strftime("%H:00")
+                bucket_of = lambda d: d.replace(minute=0, second=0, microsecond=0)
+            else:
+                days = 30 if rng == "30d" else 7
+                start = (now - datetime.timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                bucket_keys = [(start + datetime.timedelta(days=i)) for i in range(days)]
+                bucket_fmt = lambda d: d.strftime("%d %b")
+                bucket_of = lambda d: d.replace(hour=0, minute=0, second=0, microsecond=0)
+            series = {bucket_fmt(k): 0 for k in bucket_keys}
+            per_provider, per_user = {}, {}
+            tot_r = tot_t = 0
+            ms_sum = ms_n = 0
+            try:
+                if os.path.exists(USAGE_PATH):
+                    with open(USAGE_PATH) as f:
+                        for line in f:
+                            try:
+                                e = json.loads(line)
+                            except Exception:
+                                continue
+                            if not isinstance(e, dict) or e.get("type"):
+                                continue
+                            try:
+                                ts = datetime.datetime.fromisoformat(str(e.get("ts", "")))
+                            except Exception:
+                                continue
+                            if ts < start:
+                                continue
+                            tot_r += 1
+                            tt = (e.get("prompt_tokens", 0) or 0) + (e.get("completion_tokens", 0) or 0)
+                            tot_t += tt
+                            p = e.get("provider") or "?"
+                            pp = per_provider.setdefault(p, {"requests": 0, "tokens": 0, "avg_ms": None})
+                            pp["requests"] += 1
+                            pp["tokens"] += tt
+                            if e.get("ms"):
+                                cur = pp.get("_ms_sum", 0) + e["ms"]
+                                pp["_ms_sum"] = cur
+                                pp["_ms_n"] = pp.get("_ms_n", 0) + 1
+                                pp["avg_ms"] = round(cur / pp["_ms_n"])
+                            u = e.get("user") or ("API /v1" if str(p).startswith("v1:") else None)
+                            if u:
+                                per_user[u] = per_user.get(u, 0) + 1
+                            if e.get("ms"):
+                                ms_sum += e["ms"]
+                                ms_n += 1
+                            bk = bucket_fmt(bucket_of(ts))
+                            if bk in series:
+                                series[bk] += 1
+            except OSError:
+                pass
+            fails = failovers = 0
+            try:
+                if AUDIT_PATH.exists():
+                    with open(AUDIT_PATH) as f:
+                        for line in f:
+                            try:
+                                e = json.loads(line)
+                            except Exception:
+                                continue
+                            try:
+                                ts = datetime.datetime.fromisoformat(str(e.get("ts", "")))
+                            except Exception:
+                                continue
+                            if ts < start:
+                                continue
+                            ev = str(e.get("event", ""))
+                            if ev.startswith("Attempt failed"):
+                                fails += 1
+                            elif ev.startswith("Failover handled"):
+                                failovers += 1
+            except OSError:
+                pass
+            denom = tot_r + fails
+            self._set_json_headers()
+            self._send_body(json.dumps({
+                "range": rng,
+                "totals": {"requests": tot_r, "tokens": tot_t},
+                "per_provider": sorted(
+                    ({"provider": k, "requests": v["requests"],
+                      "tokens": v["tokens"], "avg_ms": v.get("avg_ms")}
+                     for k, v in per_provider.items()),
+                    key=lambda x: -x["requests"]),
+                "per_user": sorted(
+                    ({"label": k, "requests": v} for k, v in per_user.items()),
+                    key=lambda x: -x["requests"]),
+                "series": [{"label": k, "requests": v} for k, v in series.items()],
+                "avg_ms": round(ms_sum / ms_n) if ms_n else None,
+                "fails": fails,
+                "failovers": failovers,
+                "success_rate": round(tot_r / denom * 100, 1) if denom else None,
+            }).encode())
             return
         if parsed.path == "/api/routing":
             # GET = read only. State changes go through POST /api/routing.
@@ -2313,6 +2758,7 @@ class Handler(BaseHTTPRequestHandler):
                     recent.append(now)
                     _login_attempts[ip] = recent
                     time.sleep(1)
+                    _audit("System", "Failed setup identification")
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                     return
@@ -2502,6 +2948,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # Effective keys: friend's own vault if they have one, else shared keys
             _ekeys = self._effective_keys()
+            _sinfo = self._session_info() or {}
+            _chat_label = _sinfo.get("label", "")
+            # Daily cap (admin console policy): friends only, counted
+            # from today's usage entries. Cap 0 = no cap.
+            if not _sinfo.get("admin") and _chat_label:
+                _cap = (_SETTINGS.get("user_caps") or {}).get(
+                    _chat_label, _SETTINGS.get("daily_cap", 200))
+                if _cap and _today_counts()["users"].get(_chat_label, 0) >= int(_cap):
+                    _audit("Users", f"Daily cap hit: {_chat_label} ({_cap}/day)")
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
+                    return
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
             try:
@@ -2970,6 +3428,7 @@ class Handler(BaseHTTPRequestHandler):
             # The loop below tries the chosen provider first, then fallbacks, so a
             # dead key / retired model / rate limit routes around automatically.
             def _attempt(prov, mdl, timeout, msgs=None):
+                _t0 = time.time()
                 akey = _ekeys.get(prov) if _ekeys else None
                 if not akey and prov not in RELAY_KEYLESS:
                     return (False, 400, f"no key configured for {prov}")
@@ -3032,6 +3491,9 @@ class Handler(BaseHTTPRequestHandler):
                             "provider": prov, "model": mdl,
                             "prompt_tokens": usage.get("prompt_tokens", 0),
                             "completion_tokens": usage.get("completion_tokens", 0),
+                            "user": _chat_label,
+                            "ms": int((time.time() - _t0) * 1000),
+                            "ok": True,
                         })
                         return (True, reply)
                 except HTTPError as e:
@@ -3070,6 +3532,26 @@ class Handler(BaseHTTPRequestHandler):
                         _fb.append((cand, cm))
             healthy = [(p, m) for (p, m) in _fb if not _provider_down(p)]
             _attempts += (healthy if healthy else _fb)
+            # Admin console policy: max attempts, provider order,
+            # enable/disable and per-provider daily limits.
+            _max_att = max(1, int(_SETTINGS.get("max_attempts") or 4))
+            _dis = _disabled_providers()
+            _lims = _SETTINGS.get("provider_limits") or {}
+            _pcounts = _today_counts()["providers"]
+
+            def _lane_ok(p):
+                if p in _dis:
+                    return False
+                _l = _lims.get(p)
+                return not (_l and _pcounts.get(p, 0) >= int(_l))
+
+            _kept = [(p, m) for (p, m) in _attempts if _lane_ok(p)]
+            if not _kept:
+                self._set_json_headers(503)
+                self.wfile.write(json.dumps({"error": "no providers available — the admin has disabled them or they reached today's limit"}).encode())
+                return
+            _ord = {n: i for i, n in enumerate(_SETTINGS.get("provider_order") or [])}
+            _attempts = [_kept[0]] + sorted(_kept[1:], key=lambda pm: _ord.get(pm[0], 999))
             if Handler.keys is None:
                 # Locked server: _ekeys holds ONLY the caller's own vault
                 # keys, so an attempt lane can run iff it is keyless or
@@ -3167,7 +3649,7 @@ class Handler(BaseHTTPRequestHandler):
                         "Use tools when facts may be current or external, or for exact math. One tool per reply. "
                         "When you have enough information, answer normally with the final answer (no tool block).")
                 _msgs = [{"role": "system", "content": _sys}, {"role": "user", "content": message}]
-                _agent_list = [(p, m) for (p, m) in _attempts if p != "cohere"] or _attempts
+                _agent_list = [(p, m) for (p, m) in _attempts[:_max_att] if p != "cohere"] or _attempts[:_max_att]
                 _used_tools = []
                 _final = None
                 _ap2, _am2 = _agent_list[0]
@@ -3223,13 +3705,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _last = (502, "Could not reach the provider.")
             _answered = None
-            for _i, (_ap, _am) in enumerate(_attempts[:4]):
+            for _i, (_ap, _am) in enumerate(_attempts[:_max_att]):
                 _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30)
                 if _ok:
                     _note_success(_ap)
+                    if _i > 0:
+                        _audit("Providers", f"Failover handled: {_attempts[0][0]} → {_ap}")
                     _answered = (_ap, _am, _rest[0])
                     break
                 _note_failure(_ap)
+                _audit("Providers", f"Attempt failed: {_ap} ({_rest[1]})")
                 _last = (_rest[0], _rest[1])
             if _answered:
                 self._set_json_headers(200)
@@ -3346,6 +3831,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Set-Cookie", f"session={token}; HttpOnly; Secure; SameSite=Lax; Path=/")
                 self.end_headers()
+                _audit("System", "Signed in: Rudra (admin)")
                 self.wfile.write(json.dumps({"ok": True, "admin": True, "label": "Rudra"}).encode())
                 return
             password = data.get("password")
@@ -3381,6 +3867,7 @@ class Handler(BaseHTTPRequestHandler):
                     recent.append(now)
                     _login_attempts[ip] = recent
                     time.sleep(1)
+                    _audit("System", "Failed sign-in attempt")
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                     return
@@ -3388,6 +3875,12 @@ class Handler(BaseHTTPRequestHandler):
                 # Friends may log in even before the admin unlock: their
                 # session simply can't use provider keys until then (the
                 # chat/transcribe/models endpoints say so clearly).
+                _blocked = _friend_blocked(label)
+                if _blocked:
+                    _audit("System", f"Sign-in blocked ({_blocked}): {label}")
+                    self._set_json_headers(403)
+                    self.wfile.write(json.dumps({"error": "maintenance mode is on" if _blocked == "maintenance" else "account suspended"}).encode())
+                    return
             # Successful
             _login_attempts.pop(ip, None)
             if master_ok and dec_keys.get("_totp_secret"):
@@ -3435,6 +3928,7 @@ class Handler(BaseHTTPRequestHandler):
             cookie = f"session={token}; HttpOnly; Secure; SameSite=Lax; Path=/"
             self.send_header("Set-Cookie", cookie)
             self.end_headers()
+            _audit("System", f"Signed in: {label} ({'admin' if is_admin else 'friend'})")
             self.wfile.write(json.dumps({"ok": True, "admin": is_admin, "label": label}).encode())
             return
         if parsed.path == "/api/logout":
@@ -3442,6 +3936,8 @@ class Handler(BaseHTTPRequestHandler):
             token = cookie.get("session").value if cookie.get("session") else None
             if token and token in SESSIONS:
                 _old = SESSIONS[token]
+                if isinstance(_old, dict):
+                    _audit("System", f"Signed out: {_old.get('label', '?')}")
                 _drop_chat_unlock(_old.get("chat_unlock") if isinstance(_old, dict) else None)
                 del SESSIONS[token]
             # Expire cookie
@@ -3499,11 +3995,16 @@ class Handler(BaseHTTPRequestHandler):
                 sessions = []
                 for tok, sess in SESSIONS.items():
                     if isinstance(sess, dict):
-                        sessions.append({"label": sess.get("label", "?"), "admin": sess.get("admin", False)})
+                        sessions.append({"label": sess.get("label", "?"), "admin": sess.get("admin", False), "viewer": bool(sess.get("viewer"))})
                 self._set_json_headers()
                 self.wfile.write(json.dumps({
-                    "access": [{"label": l} for l in sorted(access.keys())],
+                    "access": [{"label": l,
+                                "vault": _userkey_path(l).exists(),
+                                "suspended": _friend_blocked(l) == "suspended",
+                                "cap": (_SETTINGS.get("user_caps") or {}).get(l)} for l in sorted(access.keys())],
                     "sessions": sessions,
+                    "maintenance": bool(_SETTINGS.get("maintenance")),
+                    "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
                 }).encode())
                 return
             if action == "viewpass_create":
@@ -3533,6 +4034,7 @@ class Handler(BaseHTTPRequestHandler):
                 now = time.time()
                 _VIEW_GRANTS[hashlib.sha256(raw_token.encode()).hexdigest()] = {
                     "name": name, "created": now, "expires": now + hours * 3600}
+                _audit("Users", f"View pass created: {name} ({hours}h)")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({
                     "ok": True, "url": f"/view/{raw_token}",
@@ -3573,9 +4075,217 @@ class Handler(BaseHTTPRequestHandler):
                 for tok in [t for t, s in SESSIONS.items()
                             if isinstance(s, dict) and s.get("grant") == target]:
                     del SESSIONS[tok]
+                _audit("Users", "View pass revoked")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
+            if action == "settings_get":
+                self._set_json_headers()
+                self.wfile.write(json.dumps({
+                    "ok": True,
+                    "settings": _SETTINGS,
+                    "system": _system_metrics(),
+                    "failovers_today": _audit_count_today("Failover handled", "Providers"),
+                }).encode())
+                return
+            if action in ("settings_set", "provider_health_reset",
+                          "audit_clear", "friend_vault_clear",
+                          "friend_key_add", "friend_reset_pw",
+                          "custom_provider_save", "custom_provider_remove",
+                          "factory_reset"):
+                # All console mutations are master-password gated, the
+                # same proof the other sensitive actions use.
+                master_pw = data.get("master_pw") or ""
+                try:
+                    decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
+
+                def _stored_label(raw):
+                    want = (raw or "").strip().lower()
+                    for k in _load_access().keys():
+                        if k.lower() == want:
+                            return k
+                    return None
+
+                if action == "settings_set":
+                    patch = data.get("patch") or {}
+                    if not isinstance(patch, dict) or not patch:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "empty settings patch"}).encode())
+                        return
+                    clean, err = _validate_settings_patch(patch)
+                    if err:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": err}).encode())
+                        return
+                    _SETTINGS.update(clean)
+                    _save_settings()
+                    _audit("System", "Settings changed: " + ", ".join(sorted(clean.keys())))
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "settings": _SETTINGS}).encode())
+                    return
+                if action == "provider_health_reset":
+                    _PROVIDER_HEALTH.clear()
+                    _audit("Providers", "Provider statuses reset (circuit breaker cleared)")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "audit_clear":
+                    try:
+                        AUDIT_PATH.write_text("")
+                    except Exception:
+                        pass
+                    _audit("System", "Audit log cleared")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "friend_vault_clear":
+                    stored = _stored_label(data.get("label"))
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    vp = _userkey_path(stored)
+                    existed = vp.exists()
+                    if existed:
+                        vp.unlink()
+                    _audit("Vault", f"Personal vault cleared: {stored}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "existed": existed}).encode())
+                    return
+                if action == "friend_key_add":
+                    stored = _stored_label(data.get("label"))
+                    provider = (data.get("provider") or "").strip()
+                    key = (data.get("key") or "").strip()
+                    friend_pw = data.get("friend_pw") or ""
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    if not _re.match(r"^[a-z0-9_]+$", provider) or provider.startswith("_"):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "invalid provider name"}).encode())
+                        return
+                    if not key or len(key) > 400:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "key required (max 400 chars)"}).encode())
+                        return
+                    access = _load_access()
+                    ok_pw, needs_up = _verify_password(friend_pw, access.get(stored, ""))
+                    if not ok_pw:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong password for that friend"}).encode())
+                        return
+                    if needs_up:
+                        access[stored] = _hash_password(friend_pw)
+                        _save_access(access, master_pw)
+                    vault = _load_userkeys(stored, friend_pw) or {}
+                    vault[provider] = key
+                    _save_userkeys(stored, vault, friend_pw)
+                    _audit("Vault", f"Key added for {stored}: {provider}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "friend_reset_pw":
+                    stored = _stored_label(data.get("label"))
+                    new_pw = data.get("new_password") or ""
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    if len(new_pw) < 6:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "new password must be at least 6 characters"}).encode())
+                        return
+                    access = _load_access()
+                    access[stored] = _hash_password(new_pw)
+                    _save_access(access, master_pw)
+                    # Their vault and saved chats are encrypted under
+                    # the old password — remove them, like revoke does.
+                    for _p in (_userkey_path(stored), _chat_path(stored)):
+                        try:
+                            if _p.exists():
+                                _p.unlink()
+                        except Exception:
+                            pass
+                    for tok in [t for t, s in SESSIONS.items()
+                                if isinstance(s, dict) and s.get("label") == stored]:
+                        del SESSIONS[tok]
+                    _audit("Users", f"Password reset: {stored} (vault + saved chats removed)")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action in ("custom_provider_save", "custom_provider_remove"):
+                    cname = (data.get("name") or "").strip().lower()
+                    if not _re.match(r"^[a-z0-9_]+$", cname):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "provider name must be a-z, 0-9, _"}).encode())
+                        return
+                    key_path = Path(__file__).parent / "keys.enc"
+                    try:
+                        keys = decrypt_keys(key_path, master_pw)
+                    except Exception:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                        return
+                    if action == "custom_provider_save":
+                        curl_ = (data.get("url") or "").strip()
+                        ckey = (data.get("key") or "").strip()
+                        if not (curl_.startswith("http://") or curl_.startswith("https://")) or not ckey:
+                            self._set_json_headers(400)
+                            self.wfile.write(json.dumps({"error": "base URL (http/https) and API key required"}).encode())
+                            return
+                        keys[f"custom_relay_{cname}"] = ckey
+                        keys[f"custom_relay_{cname}_url"] = curl_
+                        _audit("Providers", f"Custom provider saved: {cname}")
+                    else:
+                        keys.pop(f"custom_relay_{cname}", None)
+                        keys.pop(f"custom_relay_{cname}_url", None)
+                        _audit("Providers", f"Custom provider removed: {cname}")
+                    encrypt_keys(keys, master_pw, key_path)
+                    os.chmod(key_path, 0o600)
+                    Handler.keys = keys
+                    register_custom_providers(keys)
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "factory_reset":
+                    if (data.get("confirm") or "") != "RESET":
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "type RESET to confirm"}).encode())
+                        return
+                    _save_access({}, master_pw)
+                    if USERKEYS_DIR.exists():
+                        for f in USERKEYS_DIR.glob("*.enc"):
+                            try:
+                                f.unlink()
+                            except Exception:
+                                pass
+                    if CHATS_DIR.exists():
+                        for f in CHATS_DIR.glob("*.enc"):
+                            try:
+                                f.unlink()
+                            except Exception:
+                                pass
+                    _VIEW_GRANTS.clear()
+                    for tok in [t for t, s in SESSIONS.items()
+                                if isinstance(s, dict) and not s.get("admin")]:
+                        del SESSIONS[tok]
+                    _SETTINGS.clear()
+                    _SETTINGS.update(_SETTINGS_DEFAULTS)
+                    _save_settings()
+                    _PROVIDER_HEALTH.clear()
+                    try:
+                        AUDIT_PATH.write_text("")
+                    except Exception:
+                        pass
+                    _audit("System", "Factory reset: friends, passes, settings and sessions cleared")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
             if action == "add":
                 label = (data.get("label") or "").strip().lower()
                 password = data.get("password") or ""
@@ -3606,6 +4316,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 access[label] = _hash_password(password)
                 _save_access(access, master_pw)
+                _audit("Users", f"Friend added: {label}")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
@@ -3651,6 +4362,7 @@ class Handler(BaseHTTPRequestHandler):
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and s.get("label") == label]:
                         del SESSIONS[tok]
+                _audit("Users", f"Friend revoked: {label}")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
@@ -3712,6 +4424,7 @@ class Handler(BaseHTTPRequestHandler):
                 SESSIONS.clear()
                 _CHAT_UNLOCKS.clear()
                 self._set_json_headers()
+                _audit("System", "Master password changed")
                 self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out" + _chats_note}).encode())
                 return
             if action == "2fa_state":
@@ -3786,6 +4499,7 @@ class Handler(BaseHTTPRequestHandler):
                     Handler.keys["_totp_secret"] = pending
                     Handler.keys.pop("_totp_pending", None)
                 self._set_json_headers()
+                _audit("System", "2FA enabled for admin")
                 self.wfile.write(json.dumps({"ok": True, "enabled": True}).encode())
                 return
             if action == "2fa_disable":
@@ -3810,6 +4524,7 @@ class Handler(BaseHTTPRequestHandler):
                 if Handler.keys is not None:
                     Handler.keys.pop("_totp_secret", None)
                     Handler.keys.pop("_totp_pending", None)
+                _audit("System", "2FA disabled for admin")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
@@ -4056,6 +4771,7 @@ def main():
     port = int(os.environ.get("PORT", "8080"))
     addr = (host, port)
     _boot_restore_access()
+    _boot_restore_settings()
     _load_v1key()
     httpd = ThreadingHTTPServer(addr, Handler)
     print(f"Serving on {addr[0]}:{addr[1]} – press Ctrl-C to stop")
