@@ -47,6 +47,50 @@ background:transparent;border:none;color:#888;cursor:pointer;display:flex;align-
 .link{margin-top:1.25rem;font-size:.875rem;color:#888}
 .link a{color:#fff;font-weight:500;text-decoration:none}
 .link a:hover{text-decoration:underline}
+/* ── CodeSlots (React Bits) — CSS ported as-is; values are the ones
+   from the integration spec Rudra supplied (2026-10-10). ── */
+.code-slots{--cs-accent:#f5f5f5;--cs-ink:#f5f5f5;--cs-slot:#27272a;--cs-digit:#18181b;
+--cs-danger:#ff3b30;--cs-size:44px;--cs-height:52px;--cs-gap:8px;--cs-radius:12px;--cs-font:22px;
+position:relative;display:flex;justify-content:center}
+.code-slots__row{position:relative;display:inline-flex;gap:var(--cs-gap);cursor:text;
+touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:opacity 200ms ease}
+.code-slots__row[data-disabled]{opacity:.5;cursor:not-allowed}
+.code-slots__input{position:absolute;inset:0;z-index:4;margin:0;padding:0;border:0;outline:0;
+background:transparent;color:transparent;caret-color:transparent;font-size:16px;opacity:0;
+cursor:inherit;-webkit-appearance:none;appearance:none;width:auto}
+.code-slots__wash{position:absolute;inset:0;z-index:1;display:grid;place-items:center;
+border-radius:var(--cs-radius);background:var(--cs-accent);color:var(--cs-digit);
+pointer-events:none;clip-path:inset(0 50% round 12px)}
+.code-slots__check{display:grid;place-items:center;opacity:0}
+.code-slots__slot{position:relative;width:var(--cs-size);height:var(--cs-height);
+border-radius:var(--cs-radius);overflow:hidden;background:var(--cs-slot);
+transition:background-color 200ms ease;user-select:none;-webkit-user-select:none}
+.code-slots__fill{position:absolute;inset:0;border-radius:inherit;background:var(--cs-accent);
+transform:scale(0);transform-origin:center;transition:background-color 200ms ease}
+@media (hover:hover) and (pointer:fine){
+.code-slots__row[data-status='idle']:hover .code-slots__slot:not([data-active]){
+background:color-mix(in srgb,var(--cs-ink) 4%,var(--cs-slot))}}
+.code-slots__slot[data-active]{background:color-mix(in srgb,var(--cs-ink) 8%,var(--cs-slot))}
+.code-slots__row[data-status='error'] .code-slots__slot{
+background:color-mix(in srgb,var(--cs-danger) 20%,var(--cs-slot))}
+.code-slots__row[data-status='error'] .code-slots__fill{background:var(--cs-danger)}
+.code-slots__digit{position:absolute;inset:0;z-index:2;display:grid;place-items:center;
+color:var(--cs-digit);font-family:inherit;font-size:var(--cs-font);font-weight:600;
+line-height:1;font-variant-numeric:tabular-nums}
+.code-slots__caret{position:absolute;z-index:3;top:25%;left:calc(var(--cs-size)/2 - .75px);
+width:1.5px;height:50%;opacity:0;pointer-events:none}
+.code-slots__caret[data-show]{opacity:1}
+.code-slots__caret-line{display:block;width:100%;height:100%;background:var(--cs-ink);
+animation:code-slots-blink 1s linear infinite}
+@keyframes code-slots-blink{0%,49.9%{opacity:1}50%,100%{opacity:0}}
+.code-slots__sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;
+overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion:reduce){
+.code-slots__digit,.code-slots__check{transform:none!important;transition:opacity 150ms ease}
+.code-slots__caret-line{animation:none}
+.code-slots__wash{clip-path:none;opacity:0;transition:opacity 200ms ease}
+.code-slots__row[data-status='success'] .code-slots__wash{opacity:1}
+.code-slots__row[data-status='success'] .code-slots__check{opacity:1}}
 </style>
 </head>
 <body>
@@ -67,7 +111,20 @@ background:transparent;border:none;color:#888;cursor:pointer;display:flex;align-
 </div>
 <div id="tfaBox" style="display:none">
 <p class="sub" style="margin-bottom:.65rem">Enter the 6-digit code from your authenticator app</p>
-<input type="text" id="tfaCode" aria-label="Two-factor authentication code" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="text-align:center;font-size:20px;letter-spacing:.3em">
+<div class="code-slots" id="tfaSlots">
+<div class="code-slots__row" id="tfaRow" data-status="idle">
+<input type="text" id="tfaCode" class="code-slots__input" aria-label="Two-factor authentication code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" value="">
+<span class="code-slots__slot"><span class="code-slots__fill"></span><span class="code-slots__digit"></span></span>
+<span class="code-slots__slot"><span class="code-slots__fill"></span><span class="code-slots__digit"></span></span>
+<span class="code-slots__slot"><span class="code-slots__fill"></span><span class="code-slots__digit"></span></span>
+<span class="code-slots__slot"><span class="code-slots__fill"></span><span class="code-slots__digit"></span></span>
+<span class="code-slots__slot"><span class="code-slots__fill"></span><span class="code-slots__digit"></span></span>
+<span class="code-slots__slot"><span class="code-slots__fill"></span><span class="code-slots__digit"></span></span>
+<span class="code-slots__wash" aria-hidden="true"><span class="code-slots__check"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg></span></span>
+<span class="code-slots__caret" aria-hidden="true"><span class="code-slots__caret-line"></span></span>
+</div>
+<span id="tfaCount" class="code-slots__sr" aria-live="polite"></span>
+</div>
 <div id="error2">Wrong code. Try again.</div>
 <button class="primary" id="loginBtn2" onclick="submit2FA()">Verify</button>
 </div>
@@ -107,24 +164,190 @@ function show2FA(tmp){
   _tmp=tmp;
   document.getElementById('pwBox').style.display='none';
   document.getElementById('tfaBox').style.display='block';
+  tfaReset();
   document.getElementById('tfaCode').focus();
 }
+let _tfaBusy=false;
 async function submit2FA(){
   const code=document.getElementById('tfaCode').value.trim();
-  if(!code||!_tmp)return;
+  if(!code||code.length<6||!_tmp||_tfaBusy||tfaStatus==='success')return;
+  _tfaBusy=true;
   btn2.disabled=true;
   try{
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tmp:_tmp,code:code})});
     const j=await r.json();
-    if(r.status===200&&j.ok){location.href='/';return;}
+    if(r.status===200&&j.ok){ tfaSuccess(); setTimeout(()=>{location.href='/';},750); return; }
     throw 0;
   }catch(e){
     err2.style.display='block';
+    tfaError();
   }
+  _tfaBusy=false;
   btn2.disabled=false;
-  document.getElementById('tfaCode').value='';
-  document.getElementById('tfaCode').focus();
 }
+/* ── CodeSlots controller — the React Bits component Rudra picked
+   (2026-10-10), ported to vanilla JS. The hidden #tfaCode input stays
+   synced with the slots, so submit2FA() reads it exactly as before.
+   Digits land with a spring fill + rise (cascading on paste), the
+   last digit auto-submits, a wrong code tints danger and drains
+   last-to-first, a right code merges into the success wash. ── */
+const tfaRow=document.getElementById('tfaRow'),
+      tfaInput=document.getElementById('tfaCode'),
+      tfaSlotEls=[...tfaRow.querySelectorAll('.code-slots__slot')],
+      tfaWash=tfaRow.querySelector('.code-slots__wash'),
+      tfaCaret=tfaRow.querySelector('.code-slots__caret'),
+      tfaCount=document.getElementById('tfaCount');
+const TFA_LEN=6,TFA_PITCH=52,TFA_CASCADE=20,TFA_SETTLE=300;
+const TFA_REDUCED=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let tfaDigits=['','','','','',''],tfaActive=0,tfaStatus='idle',tfaDraining=false,tfaFocused=false;
+function tfaSync(){
+  tfaInput.value=tfaDigits.join('');
+  tfaCount.textContent=tfaStatus==='success'?'Code accepted':
+    (tfaDigits.filter(Boolean).length+' of 6 digits entered');
+  tfaCaret.style.transform='translateX('+(tfaActive*TFA_PITCH)+'px)';
+  tfaCaret.toggleAttribute('data-show',
+    tfaFocused&&tfaStatus==='idle'&&!tfaDigits[tfaActive]);
+  tfaSlotEls.forEach((s,j)=>s.toggleAttribute('data-active',tfaFocused&&j===tfaActive));
+}
+function tfaPaint(i){
+  const slot=tfaSlotEls[i];
+  slot.querySelector('.code-slots__digit').textContent=tfaDigits[i]||'';
+  slot.querySelector('.code-slots__fill').style.transform=tfaDigits[i]?'scale(1)':'scale(0)';
+}
+function tfaLand(i,delay){
+  tfaPaint(i);
+  if(TFA_REDUCED)return;
+  const slot=tfaSlotEls[i];
+  slot.querySelector('.code-slots__fill').animate(
+    [{transform:'scale(0)'},{transform:'scale(1.06)',offset:.72},{transform:'scale(1)'}],
+    {duration:TFA_SETTLE,easing:'ease-out',delay:delay||0});
+  slot.querySelector('.code-slots__digit').animate(
+    [{transform:'translateY(8px)',opacity:0},{transform:'translateY(0)',opacity:1}],
+    {duration:TFA_SETTLE,easing:'ease-out',delay:delay||0});
+}
+function tfaDrainFill(i,delay){
+  const fill=tfaSlotEls[i].querySelector('.code-slots__fill');
+  if(TFA_REDUCED){fill.style.transform='scale(0)';return;}
+  const a=fill.animate([{transform:'scale(1)'},{transform:'scale(0)'}],
+    {duration:260,easing:'ease-in',delay:delay||0});
+  a.onfinish=()=>{fill.style.transform='scale(0)';};
+}
+function tfaCommit(){
+  tfaSync();
+  if(tfaDigits.every(Boolean)&&tfaStatus==='idle'&&!tfaDraining){
+    setTimeout(()=>submit2FA(),180);
+  }
+}
+function tfaInsert(raw,from){
+  if(tfaStatus!=='idle'||tfaDraining)return;
+  const ds=String(raw).replace(/\D/g,'');
+  if(!ds)return;
+  let i=(from===undefined?tfaActive:from),crossed=0;
+  for(const ch of ds){
+    if(i>=TFA_LEN)break;
+    tfaDigits[i]=ch;
+    tfaLand(i,crossed*TFA_CASCADE);
+    i++;crossed++;
+  }
+  if(!crossed)return;
+  tfaActive=Math.min(i,TFA_LEN-1);
+  tfaCommit();
+}
+function tfaClear(i,stepBack){
+  if(tfaStatus!=='idle'||tfaDraining)return;
+  if(!tfaDigits[i]){ if(stepBack){tfaActive=i;tfaSync();} return; }
+  tfaDigits[i]='';
+  tfaSlotEls[i].querySelector('.code-slots__digit').textContent='';
+  tfaDrainFill(i,0);
+  if(stepBack)tfaActive=i;
+  tfaSync();
+}
+function tfaSetActive(i){
+  tfaActive=Math.max(0,Math.min(i,TFA_LEN-1));
+  tfaSync();
+}
+tfaInput.addEventListener('keydown',e=>{
+  if(tfaStatus!=='idle'||tfaDraining||e.metaKey||e.ctrlKey||e.altKey)return;
+  const k=e.key;
+  if(/^[0-9]$/.test(k)){ e.preventDefault(); tfaInsert(k); }
+  else if(k==='Backspace'){ e.preventDefault();
+    if(tfaDigits[tfaActive])tfaClear(tfaActive);
+    else if(tfaActive>0)tfaClear(tfaActive-1,true); }
+  else if(k==='Delete'){ e.preventDefault(); tfaClear(tfaActive); }
+  else if(k==='ArrowLeft'){ e.preventDefault(); tfaSetActive(tfaActive-1); }
+  else if(k==='ArrowRight'){ e.preventDefault(); tfaSetActive(tfaActive+1); }
+  else if(k==='Home'){ e.preventDefault(); tfaSetActive(0); }
+  else if(k==='End'){ e.preventDefault(); tfaSetActive(TFA_LEN-1); }
+  else if(k==='Enter'){ e.preventDefault(); submit2FA(); }
+});
+tfaInput.addEventListener('paste',e=>{
+  e.preventDefault();
+  tfaInsert((e.clipboardData||window.clipboardData).getData('text'));
+});
+tfaInput.addEventListener('input',()=>{
+  /* Mobile keyboards and SMS autofill arrive here. The field holds
+     the synced code plus whatever arrived: one appended digit is
+     typing at the active slot; anything else is a fresh entry. */
+  const v=tfaInput.value.replace(/\D/g,''),cur=tfaDigits.join('');
+  if(v===cur)return;
+  if(v.length===cur.length+1&&v.startsWith(cur)){ tfaInsert(v.slice(-1)); }
+  else{ tfaDigits=['','','','','','']; tfaActive=0;
+    tfaSlotEls.forEach((_,i)=>tfaPaint(i)); tfaInsert(v,0); }
+  tfaSync();
+});
+tfaInput.addEventListener('focus',()=>{ tfaFocused=true; tfaSync(); });
+tfaInput.addEventListener('blur',()=>{ tfaFocused=false; tfaSync(); });
+tfaRow.addEventListener('mousedown',e=>{
+  if(tfaStatus==='success')return;
+  e.preventDefault();
+  const rect=tfaRow.getBoundingClientRect();
+  const idx=Math.floor((e.clientX-rect.left)/TFA_PITCH);
+  const firstEmpty=tfaDigits.indexOf('');
+  tfaSetActive(Math.max(0,Math.min(idx,firstEmpty===-1?TFA_LEN-1:firstEmpty)));
+  tfaInput.focus();
+});
+function tfaReset(){
+  tfaDigits=['','','','','','']; tfaActive=0; tfaStatus='idle'; tfaDraining=false;
+  tfaRow.dataset.status='idle';
+  tfaInput.removeAttribute('readonly'); tfaInput.removeAttribute('aria-invalid');
+  tfaSlotEls.forEach((_,i)=>tfaPaint(i));
+  tfaSync();
+}
+function tfaError(){
+  if(tfaDraining)return;
+  tfaStatus='error'; tfaRow.dataset.status='error';
+  tfaInput.setAttribute('aria-invalid','true');
+  const filled=tfaDigits.map((c,i)=>c?i:-1).filter(i=>i>=0).reverse();
+  tfaDraining=true;
+  filled.forEach((idx,k)=>tfaDrainFill(idx,k*TFA_CASCADE));
+  const total=TFA_REDUCED?80:(Math.max(filled.length-1,0)*TFA_CASCADE+300);
+  setTimeout(()=>{
+    tfaDigits=['','','','','','']; tfaActive=0; tfaStatus='idle'; tfaDraining=false;
+    tfaRow.dataset.status='idle'; tfaInput.removeAttribute('aria-invalid');
+    tfaSlotEls.forEach((_,i)=>tfaPaint(i));
+    tfaSync(); tfaInput.focus();
+  },total);
+}
+function tfaSuccess(){
+  tfaStatus='success'; tfaRow.dataset.status='success';
+  tfaInput.setAttribute('readonly','');
+  tfaCaret.removeAttribute('data-show');
+  if(!TFA_REDUCED){
+    tfaWash.animate(
+      [{clipPath:'inset(0 50% round 12px)'},{clipPath:'inset(0 0% round 12px)'}],
+      {duration:300,easing:'cubic-bezier(.23,1,.32,1)',fill:'forwards'});
+    tfaWash.querySelector('.code-slots__check').animate(
+      [{transform:'translateY(8px) scale(.85)',opacity:0},{transform:'translateY(0) scale(1)',opacity:1}],
+      {duration:350,delay:280,easing:'ease-out',fill:'forwards'});
+    tfaSlotEls.forEach((s,k)=>{
+      s.querySelector('.code-slots__digit').animate(
+        [{transform:'translateY(0)',opacity:1},{transform:'translateY(26px)',opacity:0}],
+        {duration:300,delay:60+k*30,easing:'ease-in',fill:'forwards'});
+    });
+  }
+  tfaSync();
+}
+tfaReset();
 btn.addEventListener('click',submit);
 pw.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
 </script>
