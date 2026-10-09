@@ -18,6 +18,9 @@ background:radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,.62) 1
 body::after{content:"";position:fixed;inset:-120px;z-index:61;pointer-events:none;opacity:.05;
 background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27140%27%20height%3D%27140%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.85%27%20numOctaves%3D%272%27/%3E%3C/filter%3E%3Crect%20width%3D%27140%27%20height%3D%27140%27%20filter%3D%27url%28%23n%29%27%20opacity%3D%270.55%27/%3E%3C/svg%3E");animation:grainShift 7s steps(8) infinite}
 @keyframes grainShift{0%,100%{transform:translate(0,0)}12%{transform:translate(-3%,-5%)}25%{transform:translate(-8%,3%)}37%{transform:translate(4%,-8%)}50%{transform:translate(-3%,8%)}62%{transform:translate(-8%,3%)}75%{transform:translate(6%,0)}87%{transform:translate(0,6%)}}
+/* modern-login dot-grid canvas (the design Rudra picked, 2026-10-09):
+   a WebGL shader field of twinkling dots behind everything */
+#dotBg{position:fixed;inset:0;z-index:0;pointer-events:none}
 /* bat-signal breathing glow */
 .signal{position:fixed;top:-22%;left:50%;width:1100px;height:720px;z-index:0;pointer-events:none;
 background:radial-gradient(ellipse at center, rgba(168,85,247,.11), transparent 65%);
@@ -51,8 +54,9 @@ background:linear-gradient(#ffffff,#a9a9b3);-webkit-background-clip:text;backgro
 .mc-logo .g{background:linear-gradient(#C084FC,#7C3AED);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .tagline{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.42em;color:#8a8a92;margin:10px 0 26px;text-transform:uppercase}
 .gold-div{height:2px;background:linear-gradient(90deg,transparent,rgba(168,85,247,.7),transparent);margin-bottom:26px}
-.card{background:rgba(13,13,17,.94);border:1px solid rgba(168,85,247,.18);border-radius:14px;
-box-shadow:0 24px 64px rgba(0,0,0,.65), 0 0 60px rgba(168,85,247,.05), inset 0 1px 0 rgba(255,255,255,.05);
+/* card restyled to the picked design: solid #121212, #222 edge, 12px radius */
+.card{background:#121212;border:1px solid #222;border-radius:12px;
+box-shadow:0 10px 40px rgba(0,0,0,.8);
 padding:30px 26px;text-align:left}
 .card h2{font-family:'Press Start 2P',monospace;font-size:16px;letter-spacing:.1em;color:#fff;margin:0 0 4px}
 .card p{color:#8a8a92;font-size:13px;margin:0 0 20px}
@@ -85,6 +89,7 @@ display:flex;align-items:center;justify-content:center;border-radius:8px}
 </style>
 </head>
 <body>
+<canvas id="dotBg"></canvas>
 <div class="signal"></div>
 <div class="night-sky">
 <div class="bat-fly b1"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div>
@@ -173,6 +178,106 @@ async function submit2FA(){
 }
 btn.addEventListener('click',submit);
 pw.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+</script>
+<script>
+/* Dot-grid background — the shader from the modern-login-signup design
+   Rudra picked (2026-10-09), ported to raw WebGL2 so the page needs no
+   library for it. Purely decorative: any failure leaves the page as-is. */
+(function(){
+  try{
+    const canvas=document.getElementById('dotBg');
+    const gl=canvas.getContext('webgl2',{alpha:true,antialias:false});
+    if(!gl)return;
+    const vsrc=`#version 300 es
+layout(location=0) in vec4 position;
+uniform vec2 u_resolution;
+out vec2 fragCoord;
+void main(){
+  gl_Position=position;
+  fragCoord=(position.xy+1.0)*0.5*u_resolution;
+  fragCoord.y=u_resolution.y-fragCoord.y;
+}`;
+    const fsrc=`#version 300 es
+precision mediump float;
+in vec2 fragCoord;
+uniform float u_time;
+uniform float u_opacities[10];
+uniform vec3 u_colors[6];
+uniform float u_total_size;
+uniform float u_dot_size;
+uniform vec2 u_resolution;
+uniform int u_reverse;
+out vec4 fragColor;
+float PHI=1.61803398874989484820459;
+float random(vec2 xy){return fract(tan(distance(xy*PHI,xy)*0.5)*xy.x);}
+void main(){
+  vec2 st=fragCoord.xy;
+  st.x-=abs(floor((mod(u_resolution.x,u_total_size)-u_dot_size)*0.5));
+  st.y-=abs(floor((mod(u_resolution.y,u_total_size)-u_dot_size)*0.5));
+  float opacity=step(0.0,st.x)*step(0.0,st.y);
+  vec2 st2=vec2(int(st.x/u_total_size),int(st.y/u_total_size));
+  float frequency=5.0;
+  float show_offset=random(st2);
+  float rand=random(st2*floor((u_time/frequency)+show_offset+frequency));
+  opacity*=u_opacities[int(rand*10.0)];
+  opacity*=1.0-step(u_dot_size/u_total_size,fract(st.x/u_total_size));
+  opacity*=1.0-step(u_dot_size/u_total_size,fract(st.y/u_total_size));
+  vec3 color=u_colors[int(show_offset*6.0)];
+  float animation_speed_factor=3.0;
+  vec2 center_grid=u_resolution/2.0/u_total_size;
+  float dist_from_center=distance(center_grid,st2);
+  float timing_offset_intro=dist_from_center*0.01+(random(st2)*0.15);
+  float current_timing_offset=timing_offset_intro;
+  opacity*=step(current_timing_offset,u_time*animation_speed_factor);
+  opacity*=clamp((1.0-step(current_timing_offset+0.1,u_time*animation_speed_factor))*1.25,1.0,1.25);
+  fragColor=vec4(color,opacity);
+  fragColor.rgb*=fragColor.a;
+}`;
+    function sh(type,src){
+      const s=gl.createShader(type);
+      gl.shaderSource(s,src);gl.compileShader(s);
+      if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw 0;
+      return s;
+    }
+    const prog=gl.createProgram();
+    gl.attachShader(prog,sh(gl.VERTEX_SHADER,vsrc));
+    gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fsrc));
+    gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS))return;
+    gl.useProgram(prog);
+    const buf=gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+    const uRes=gl.getUniformLocation(prog,'u_resolution');
+    const uTime=gl.getUniformLocation(prog,'u_time');
+    gl.uniform1fv(gl.getUniformLocation(prog,'u_opacities'),
+      [0.3,0.3,0.3,0.5,0.5,0.5,0.8,0.8,0.8,1.0]);
+    gl.uniform3fv(gl.getUniformLocation(prog,'u_colors'),
+      [1,1,1, 1,1,1, 1,1,1, 1,1,1, 1,1,1, 1,1,1]);
+    gl.uniform1f(gl.getUniformLocation(prog,'u_total_size'),20.0);
+    gl.uniform1f(gl.getUniformLocation(prog,'u_dot_size'),6.0);
+    gl.uniform1i(gl.getUniformLocation(prog,'u_reverse'),0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+    gl.clearColor(0,0,0,0);
+    function resize(){
+      canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+      gl.viewport(0,0,canvas.width,canvas.height);
+      gl.uniform2f(uRes,window.innerWidth*2,window.innerHeight*2);
+    }
+    window.addEventListener('resize',resize);
+    resize();
+    const start=performance.now();
+    (function frame(){
+      gl.uniform1f(uTime,(performance.now()-start)/1000.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+      requestAnimationFrame(frame);
+    })();
+  }catch(e){/* decorative only */}
+})();
 </script>
 </body>
 </html>
