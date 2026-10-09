@@ -76,10 +76,24 @@ if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.a
     <div class="kv"><span class="k">Service key</span><span class="v" id="key-hint">—</span></div>
     <div class="kv"><span class="k">Connected consumer</span><span class="v" id="consumer">—</span></div>
     <div class="kv"><span class="k">Provider vault</span><span class="v" id="vault">—</span></div>
-    <p class="note">The full key lives only in the server's environment settings and in the consumer
-    project — it is never stored in this app or shown on this page. Requests are answered by the
-    same provider lanes as Nexus chat, with failover. When the vault is locked (no admin login
-    since the last restart), only keyless lanes answer until you sign in.</p>
+    <p class="note">Requests are answered by the same provider lanes as Nexus chat, with failover —
+    the relay key set first, then the FreeLLMAPI providers. When the vault is locked (no admin
+    login since the last restart), only keyless lanes answer until you sign in.</p>
+  </div>
+
+  <div class="card">
+    <h2>Service key</h2>
+    <div class="kv"><span class="k">Source</span><span class="v" id="key-source">—</span></div>
+    <label style="display:block;color:#8b93a3;font-size:13px;margin:14px 0 6px">Full key (admin only)</label>
+    <input type="text" id="key-full" readonly value="" style="width:100%;box-sizing:border-box;background:#0a0c10;border:1px solid rgba(255,255,255,.1);border-radius:9px;color:#e6e9f0;padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px">
+    <div style="margin-top:14px">
+      <button class="ghost" onclick="copyKey()">Copy key</button>
+      <button id="gen-btn" onclick="genKey()" style="margin-left:8px">Generate new key</button>
+    </div>
+    <p class="note" style="margin-top:12px">Generating a new key replaces the current one <b>immediately</b> —
+    DSRclone stops connecting until its AI service is given the new key. A generated key is stored
+    encrypted on the server and syncs like your friend list, so it survives restarts.</p>
+    <div id="gen-result" style="margin-top:10px;font-size:14px;line-height:1.55;color:#cfd6e4;white-space:pre-wrap"></div>
   </div>
 
   <div class="card">
@@ -107,6 +121,9 @@ fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
   else{pill.textContent='NOT CONFIGURED';pill.className='pill off';}
   document.getElementById('base-url').textContent=d.base_url;
   document.getElementById('key-hint').textContent=d.enabled?('••••••••'+d.key_last4):'not set';
+  document.getElementById('key-source').textContent=d.key_source==='generated'?'generated on this page':(d.key_source==='env'?'server environment':'—');
+  document.getElementById('key-full').value=d.key_full||'';
+  if(!d.can_generate){var gb=document.getElementById('gen-btn');gb.disabled=true;gb.title='Needs the server restore key';}
   document.getElementById('consumer').textContent=d.consumer;
   document.getElementById('vault').textContent=d.vault_unlocked?'unlocked':'locked (keyless lanes only)';
   document.getElementById('lanes').innerHTML=d.lanes.map(function(l){
@@ -120,6 +137,32 @@ fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
 }).catch(function(){
   document.getElementById('status-pill').textContent='ERROR';
 });
+function copyKey(){
+  var inp=document.getElementById('key-full');
+  if(!inp.value){return;}
+  inp.select();
+  if(navigator.clipboard){navigator.clipboard.writeText(inp.value);}
+  else{document.execCommand('copy');}
+  document.getElementById('gen-result').textContent='Copied.';
+}
+function genKey(){
+  if(!confirm('Generate a NEW service key? The current key stops working immediately, and DSRclone disconnects until its AI service gets the new key.')){return;}
+  var btn=document.getElementById('gen-btn'), out=document.getElementById('gen-result');
+  btn.disabled=true; out.textContent='Generating…';
+  fetch('/api/v1-access/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+  .then(function(r){return r.json()}).then(function(d){
+    btn.disabled=false;
+    if(d.ok){
+      document.getElementById('key-full').value=d.key;
+      document.getElementById('key-source').textContent='generated on this page';
+      document.getElementById('key-hint').textContent='••••••••'+d.key.slice(-4);
+      var pill=document.getElementById('status-pill');pill.textContent='ENABLED';pill.className='pill on';
+      out.textContent='✓ New key is active. Now update DSRclone\u2019s AI service with this key so it reconnects.';
+    }else{
+      out.textContent='✗ '+(d.error||'generation failed');
+    }
+  }).catch(function(){btn.disabled=false;out.textContent='✗ Generate request failed.';});
+}
 function runTest(){
   var btn=document.getElementById('test-btn'), out=document.getElementById('test-result');
   btn.disabled=true; out.textContent='Testing — asking the lanes for a reply…';

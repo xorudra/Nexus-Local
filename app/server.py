@@ -638,24 +638,73 @@ RELAY_KEYLESS = {"relay_pollinations", "aihorde", "pollinations", "kilo", "ovh"}
 # ---------------------------------------------------------------------------
 # External API (owner order 2026-10-09): an OpenAI-compatible surface so
 # Rudra's other project (DSRclone's AI service) can be supplied by Nexus.
-# Disabled unless NEXUS_V1_API_KEY is set in the environment. The key is a
-# service credential: never stored in the repo and never shown in the UI
-# (the admin API page displays status + last 4 only). Requests ride the
-# integrated relay lanes with failover; when the shared vault is locked,
-# keyed lanes cannot run yet — exactly like the dashboard's own pre-unlock
-# behaviour — while keyless lanes keep working.
+# Disabled until a service key exists: one the admin generates on the API
+# Access page (v1key.enc, restore-key encrypted — the admin can view it
+# there; it never appears in the repo, logs or chat) or the
+# NEXUS_V1_API_KEY env var as fallback. Requests ride the integrated
+# relay lanes with failover; when the shared vault is locked, keyed lanes
+# cannot run yet — exactly like the dashboard's own pre-unlock behaviour
+# — while keyless lanes keep working.
 # ---------------------------------------------------------------------------
 _V1_LANES = [
     ("relay_gemini", "gemini-3.5-flash-lite"),
     ("relay_openrouter", "apodex/apodex-1.1-mini:free"),
     ("relay_groq", "openai/gpt-oss-20b"),
     ("relay_nvidia", "google/gemma-3-12b-it"),
+    # FreeLLMAPI provider key set (owner order 2026-10-09: "in supply lane
+    # also add FreeLLMAPI providers") — same relay, the vault's plain slots.
+    ("google", "gemini-3.8-flash"),
+    ("openrouter", "apodex/apodex-1.1-mini:free"),
+    ("groq", "openai/gpt-oss-20b"),
+    ("nvidia", "google/gemma-3-12b-it"),
     ("relay_pollinations", "openai"),
 ]
 _V1_MODELS_CACHE = {"at": 0.0, "ids": []}
 
+# The service key an admin generates on the API Access page lives in
+# v1key.enc, encrypted under the server restore key and mirrored through
+# the friend sync exactly like access.enc, so it survives redeploys. It
+# takes precedence over the NEXUS_V1_API_KEY env var, which stays as the
+# fallback for installs without a restore key.
+V1KEY_PATH = Path(__file__).parent / "v1key.enc"
+_V1KEY = {"key": ""}
+
+
+def _load_v1key():
+    if not (RESTORE_KEY and V1KEY_PATH.exists()):
+        return
+    try:
+        d = decrypt_keys(V1KEY_PATH, RESTORE_KEY)
+        if isinstance(d, dict) and d.get("key"):
+            _V1KEY["key"] = d["key"]
+    except Exception:
+        pass
+
+
+def _generate_v1key():
+    """Mint a fresh service key, persist it (restore-key encrypted), and
+    make it effective immediately. Returns the key, or None when this host
+    has no restore key to store it under."""
+    if not RESTORE_KEY:
+        return None
+    key = "nxk-" + secrets.token_hex(24)
+    encrypt_keys({"key": key, "created": int(time.time())}, RESTORE_KEY, V1KEY_PATH)
+    os.chmod(V1KEY_PATH, 0o600)
+    _V1KEY["key"] = key
+    return key
+
+
+def _v1_key_source():
+    if _V1KEY["key"]:
+        return "generated"
+    if os.environ.get("NEXUS_V1_API_KEY"):
+        return "env"
+    return "none"
+
 
 def _v1_api_key():
+    if _V1KEY["key"]:
+        return _V1KEY["key"]
     return os.environ.get("NEXUS_V1_API_KEY", "")
 
 
@@ -1109,8 +1158,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(out).encode())
 
     def _v1_access_info(self):
-        """Admin-only status for the API Access page. Never returns the
-        key itself — status, last 4 and lane readiness only."""
+        """Admin-only status for the API Access page. The admin sees the
+        full service key here (owner order 2026-10-09: "allow admin to
+        generate api key and see api key") — this endpoint is admin-gated,
+        and the key is never written to logs, chat or any other surface."""
         info = self._session_info()
         if not info or not info.get("admin"):
             self._set_json_headers(403)
@@ -1125,12 +1176,34 @@ class Handler(BaseHTTPRequestHandler):
                  for lane, mdl in _V1_LANES]
         body = {"enabled": bool(key),
                 "key_last4": key[-4:] if key else "",
+                "key_full": key,
+                "key_source": _v1_key_source(),
+                "can_generate": bool(RESTORE_KEY),
                 "base_url": f"{proto}://{host}/v1",
                 "consumer": "DSRclone AI service",
                 "vault_unlocked": unlocked,
                 "lanes": lanes}
         self._set_json_headers()
         self._send_body(json.dumps(body).encode())
+
+    def _v1_access_generate(self):
+        """Admin-only: mint a new /v1 service key (replaces the current
+        one — consumers must be given the new key). Stored restore-key
+        encrypted (v1key.enc) and synced like the friend list."""
+        info = self._session_info()
+        if not info or not info.get("admin"):
+            self._set_json_headers(403)
+            self._send_body(json.dumps({"error": "admin only"}).encode())
+            return
+        key = _generate_v1key()
+        if not key:
+            self._set_json_headers(400)
+            self._send_body(json.dumps({"error": "key generation needs the server restore key (NEXUS_RESTORE_KEY) to store the key safely; on this host, set the key via the NEXUS_V1_API_KEY environment variable instead"}).encode())
+            return
+        _append_usage({"ts": datetime.datetime.now().isoformat(),
+                       "type": "v1key_generated"})
+        self._set_json_headers()
+        self._send_body(json.dumps({"ok": True, "key": key, "source": "generated"}).encode())
 
     def _v1_access_test(self):
         """Admin-only live self-test: one tiny nexus-auto completion
@@ -1142,7 +1215,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not _v1_api_key():
             self._set_json_headers(200)
-            self.wfile.write(json.dumps({"ok": False, "error": "endpoint not enabled (NEXUS_V1_API_KEY is not set)"}).encode())
+            self.wfile.write(json.dumps({"ok": False, "error": "endpoint not enabled (no service key — generate one above or set NEXUS_V1_API_KEY)"}).encode())
             return
         started = time.time()
         code, out, lane = _v1_chat([{"role": "user", "content": "Reply with exactly: NEXUS API OK"}],
@@ -1705,10 +1778,16 @@ class Handler(BaseHTTPRequestHandler):
                 access_b64 = None
                 if ACCESS_ENC_PATH.exists():
                     access_b64 = _b64.b64encode(ACCESS_ENC_PATH.read_bytes()).decode()
+                # v1key.enc too (the admin-generated /v1 service key,
+                # restore-key encrypted like access.enc) so a generated key
+                # survives redeploys instead of dying with the disk.
+                v1key_b64 = None
+                if V1KEY_PATH.exists():
+                    v1key_b64 = _b64.b64encode(V1KEY_PATH.read_bytes()).decode()
             except Exception:
-                blob, vaults, chats, keys_b64, access_b64 = None, {}, {}, None, None
+                blob, vaults, chats, keys_b64, access_b64, v1key_b64 = None, {}, {}, None, None, None
             self._set_json_headers(200)
-            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64, "access": access_b64}).encode())
+            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64, "access": access_b64, "v1key": v1key_b64}).encode())
             return
         if parsed.path == "/api/2fa_qr":
             # QR code for the TOTP secret (admin only) — scan with authenticator app
@@ -2168,6 +2247,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/v1-access/test":
             self._v1_access_test()
+            return
+        if parsed.path == "/api/v1-access/generate":
+            self._v1_access_generate()
             return
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
@@ -3949,6 +4031,7 @@ def main():
     port = int(os.environ.get("PORT", "8080"))
     addr = (host, port)
     _boot_restore_access()
+    _load_v1key()
     httpd = ThreadingHTTPServer(addr, Handler)
     print(f"Serving on {addr[0]}:{addr[1]} – press Ctrl-C to stop")
     try:

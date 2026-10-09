@@ -7,7 +7,9 @@ Run:  python3 -m unittest discover -s tests -v
 """
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -125,6 +127,91 @@ class V1ChatTests(unittest.TestCase):
                 [{"role": "user", "content": "hi"}], "nexus-auto")
         self.assertEqual(code, 502)
         self.assertIn("error", out)
+
+
+class V1FreeLLanesTests(unittest.TestCase):
+    """FreeLLMAPI providers as supply lanes (owner order 2026-10-09)."""
+
+    def setUp(self):
+        self._orig_keys = server.Handler.keys
+        self._orig_down = dict(server._PROVIDER_HEALTH)
+
+    def tearDown(self):
+        server.Handler.keys = self._orig_keys
+        server._PROVIDER_HEALTH.clear()
+        server._PROVIDER_HEALTH.update(self._orig_down)
+
+    def test_freellmapi_lanes_in_auto_order(self):
+        lanes = [lane for lane, _m in server._V1_LANES]
+        for name in ("google", "openrouter", "groq", "nvidia"):
+            self.assertIn(name, lanes)
+        # Relay key set first, FreeLLMAPI set next, keyless lane last.
+        self.assertLess(lanes.index("relay_nvidia"), lanes.index("google"))
+        self.assertLess(lanes.index("nvidia"), lanes.index("relay_pollinations"))
+        self.assertEqual(lanes[-1], "relay_pollinations")
+
+    def test_lane_prefixed_freellmapi_model(self):
+        self.assertEqual(server._v1_route("groq/openai/gpt-oss-20b"),
+                         [("groq", "openai/gpt-oss-20b")])
+
+    def test_chat_can_answer_via_freellmapi_lane(self):
+        server.Handler.keys = {"groq": "fixture"}
+
+        def fake_call(lane, path, payload=None, timeout=90):
+            self.assertEqual(lane, "groq")
+            return _ok_payload("from freellmapi groq")
+
+        with mock.patch.object(server, "_v1_relay_call", fake_call):
+            code, out, lane = server._v1_chat(
+                [{"role": "user", "content": "hi"}], "groq/openai/gpt-oss-20b")
+        self.assertEqual((code, lane), (200, "groq"))
+        self.assertEqual(out["choices"][0]["message"]["content"],
+                         "from freellmapi groq")
+
+
+class V1GenerateKeyTests(unittest.TestCase):
+    """Admin-generated service keys (owner order 2026-10-09): stored
+    restore-key encrypted, effective immediately, env key as fallback."""
+
+    def setUp(self):
+        self._tmp = Path(tempfile.mkdtemp(prefix="nexus-v1key-"))
+        self._orig = (server.RESTORE_KEY, server.V1KEY_PATH,
+                      server._V1KEY["key"])
+        server.RESTORE_KEY = "test-restore-key"
+        server.V1KEY_PATH = self._tmp / "v1key.enc"
+        server._V1KEY["key"] = ""
+
+    def tearDown(self):
+        (server.RESTORE_KEY, server.V1KEY_PATH,
+         server._V1KEY["key"]) = self._orig
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _handler(self, auth_header=None):
+        h = server.Handler.__new__(server.Handler)
+        h.headers = {}
+        if auth_header is not None:
+            h.headers["Authorization"] = auth_header
+        return h
+
+    def test_generate_persists_and_wins_over_env(self):
+        key = server._generate_v1key()
+        self.assertTrue(key.startswith("nxk-"))
+        self.assertTrue(server.V1KEY_PATH.exists())
+        with mock.patch.dict(os.environ, {"NEXUS_V1_API_KEY": FIXTURE_KEY}):
+            self.assertEqual(server._v1_api_key(), key)
+            self.assertEqual(server._v1_key_source(), "generated")
+            self.assertTrue(self._handler(f"Bearer {key}")._v1_authorized())
+            # The old env key is replaced, not merged.
+            self.assertFalse(self._handler(f"Bearer {FIXTURE_KEY}")._v1_authorized())
+        # A fresh boot reloads the generated key from disk.
+        server._V1KEY["key"] = ""
+        server._load_v1key()
+        self.assertEqual(server._V1KEY["key"], key)
+
+    def test_generate_needs_restore_key(self):
+        server.RESTORE_KEY = ""
+        self.assertIsNone(server._generate_v1key())
+        self.assertEqual(server._v1_key_source(), "none")
 
 
 if __name__ == "__main__":
