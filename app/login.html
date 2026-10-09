@@ -5,128 +5,76 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nexus Local - Login</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden;
-background-color:#050507;
-background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.09), transparent 70%);
-font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#e8e8ea}
-/* cinematic overlays */
-body::before{content:"";position:fixed;inset:0;z-index:60;pointer-events:none;
-background:radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,.62) 100%)}
-body::after{content:"";position:fixed;inset:-120px;z-index:61;pointer-events:none;opacity:.05;
-background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27140%27%20height%3D%27140%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.85%27%20numOctaves%3D%272%27/%3E%3C/filter%3E%3Crect%20width%3D%27140%27%20height%3D%27140%27%20filter%3D%27url%28%23n%29%27%20opacity%3D%270.55%27/%3E%3C/svg%3E");animation:grainShift 7s steps(8) infinite}
-@keyframes grainShift{0%,100%{transform:translate(0,0)}12%{transform:translate(-3%,-5%)}25%{transform:translate(-8%,3%)}37%{transform:translate(4%,-8%)}50%{transform:translate(-3%,8%)}62%{transform:translate(-8%,3%)}75%{transform:translate(6%,0)}87%{transform:translate(0,6%)}}
-/* modern-login dot-grid canvas (the design Rudra picked, 2026-10-09):
-   a WebGL shader field of twinkling dots behind everything */
+background:#000;color:#fff;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
+/* dot-grid canvas (modern-login design) */
 #dotBg{position:fixed;inset:0;z-index:0;pointer-events:none}
-/* bat-signal breathing glow */
-.signal{position:fixed;top:-22%;left:50%;width:1100px;height:720px;z-index:0;pointer-events:none;
-background:radial-gradient(ellipse at center, rgba(168,85,247,.11), transparent 65%);
-animation:breathe 6s ease-in-out infinite}
-@keyframes breathe{0%,100%{opacity:.65;transform:translateX(-50%) scale(1)}50%{opacity:1;transform:translateX(-50%) scale(1.07)}}
-/* flying bats */
-.night-sky{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:1}
-.bat-fly{position:absolute;left:-160px;animation:flyAcross linear infinite}
-.bat-fly svg{display:block;animation:flap .55s ease-in-out infinite}
-.bat-fly path{fill:#17171b}
-@keyframes flyAcross{to{transform:translateX(calc(100vw + 320px))}}
-@keyframes flap{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.5)}}
-.b1{top:10%;width:74px;opacity:.55;animation-duration:24s}
-.b2{top:30%;width:48px;opacity:.4;animation-duration:33s;animation-delay:-9s}
-.b3{top:6%;width:58px;opacity:.45;animation-duration:28s;animation-delay:-17s}
-.b4{top:42%;width:36px;opacity:.3;animation-duration:40s;animation-delay:-5s}
-.b5{top:20%;width:28px;opacity:.28;animation-duration:45s;animation-delay:-22s}
-/* content */
-.wrap{text-align:center;width:100%;max-width:420px;position:relative;z-index:10}
-.wrap>*{animation:fadeUp .8s cubic-bezier(.2,.7,.3,1) both}
-.wrap>*:nth-child(1){animation-delay:.05s}.wrap>*:nth-child(2){animation-delay:.14s}
-.wrap>*:nth-child(3){animation-delay:.22s}.wrap>*:nth-child(4){animation-delay:.3s}
-.wrap>*:nth-child(5){animation-delay:.38s}
-@keyframes fadeUp{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
-.bat-emblem{width:84px;height:32px;margin:0 auto 14px;filter:drop-shadow(0 0 22px rgba(168,85,247,.5));animation:flicker 5s infinite}
-.bat-emblem path{fill:#A855F7}
-@keyframes flicker{0%,100%{opacity:1}91%{opacity:1}92%{opacity:.55}93%{opacity:1}95%{opacity:.7}96%{opacity:1}}
-.mc-logo{font-family:'Press Start 2P',monospace;font-size:clamp(28px,7vw,40px);color:#f2f2f4;
-margin:0;letter-spacing:.14em;line-height:1;
-background:linear-gradient(#ffffff,#a9a9b3);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.mc-logo .g{background:linear-gradient(#C084FC,#7C3AED);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.tagline{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.42em;color:#8a8a92;margin:10px 0 26px;text-transform:uppercase;
-/* dark halo so the dot-grid dims behind the text (owner request) */
-text-shadow:0 0 6px #050507,0 0 10px #050507,0 0 16px #050507,0 0 24px #050507,0 0 32px #050507}
-.gold-div{height:2px;background:linear-gradient(90deg,transparent,rgba(168,85,247,.7),transparent);margin-bottom:26px}
-/* card restyled to the picked design: solid #121212, #222 edge, 12px radius */
-.card{background:#121212;border:1px solid #222;border-radius:12px;
-box-shadow:0 10px 40px rgba(0,0,0,.8);
-padding:30px 26px;text-align:left}
-.card h2{font-family:'Press Start 2P',monospace;font-size:16px;letter-spacing:.1em;color:#fff;margin:0 0 4px}
-.card p{color:#8a8a92;font-size:13px;margin:0 0 20px}
-input{width:100%;background:#08080b;border:1px solid #26262c;border-radius:8px;
-color:#e8e8ea;padding:14px;font-size:15px;margin-bottom:16px;transition:border-color .2s, box-shadow .2s}
-input:focus{outline:none;border-color:#A855F7;box-shadow:0 0 0 3px rgba(168,85,247,.15), 0 0 24px rgba(168,85,247,.12)}
-button{width:100%;font-family:'Oswald',sans-serif;font-weight:600;font-size:14px;letter-spacing:.22em;text-transform:uppercase;
-color:#0a0a0a;background:linear-gradient(#C084FC,#7C3AED);border:1px solid #0a0a0a;border-radius:8px;
-box-shadow:0 0 28px rgba(168,85,247,.28), inset 0 1px 0 rgba(255,255,255,.5);
-padding:16px;cursor:pointer;transition:filter .15s, transform .1s, box-shadow .2s}
-button:hover{filter:brightness(1.06);box-shadow:0 0 44px rgba(168,85,247,.45), inset 0 1px 0 rgba(255,255,255,.5)}
-button:active{transform:translateY(1px)}
-button:disabled{opacity:.6;cursor:wait}
+/* vignette, as in the design */
+.vignette{position:fixed;inset:0;z-index:1;pointer-events:none;
+background:radial-gradient(circle at center,rgba(0,0,0,.75) 0%,rgba(0,0,0,0) 100%)}
+/* card — the picked design's spec */
+.card{position:relative;z-index:2;background:#121212;border:1px solid #222;border-radius:12px;
+box-shadow:0 10px 40px rgba(0,0,0,.8);padding:2rem;width:100%;max-width:400px;
+display:flex;flex-direction:column;align-items:center;text-align:center;
+animation:fadeUp .6s cubic-bezier(.2,.7,.3,1) both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.inner{width:100%;max-width:360px;display:flex;flex-direction:column;align-items:center}
+.logo{width:44px;height:44px;border-radius:50%;background:#111;border:1px solid #333;
+display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.15rem;margin-bottom:.75rem}
+.card h1{font-size:1.35rem;font-weight:600;letter-spacing:-.025em;margin:0 0 .25rem}
+.sub{font-size:.85rem;color:#888;line-height:1.5;margin:0 0 .85rem}
+#pwBox,#tfaBox{width:100%}
+input{width:100%;padding:.65rem .85rem;border-radius:6px;border:1px solid #333;background:#000;
+color:#fff;font-size:.875rem;outline:none;font-family:inherit}
+input:focus{border-color:#555}
+button.primary{width:100%;padding:.65rem;border-radius:6px;border:none;background:#ededed;color:#000;
+font-weight:500;font-size:.875rem;cursor:pointer;font-family:inherit;margin-top:.65rem}
+button.primary:hover{background:#fff}
+button.primary:disabled{opacity:.6;cursor:wait}
 #error{display:none;background:rgba(60,10,10,.6);border:1px solid #ff4d4d;color:#ff9a9a;font-size:13px;
-border-radius:8px;padding:10px 12px;margin-bottom:16px}
+border-radius:6px;padding:10px 12px;margin-top:.65rem;text-align:left}
+#error2{display:none;color:#fca5a5;font-size:.85rem;margin-top:.65rem;text-align:left}
 .shake{animation:shake .4s}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
-.link{margin-top:20px;color:#8a8a92;font-size:13px;
-text-shadow:0 0 6px #050507,0 0 10px #050507,0 0 16px #050507,0 0 24px #050507,0 0 32px #050507}
-.link a{color:#A855F7;text-decoration:none;font-weight:600}
-.link a:hover{text-decoration:underline}
-#pw{padding-right:48px;margin-bottom:0}
-.pw-wrap{position:relative;margin-bottom:16px}
+.pw-wrap{position:relative}
+#pw{padding-right:48px}
 #pwToggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;padding:0;
-background:transparent;border:none;box-shadow:none;color:#8a8a92;cursor:pointer;
-display:flex;align-items:center;justify-content:center;border-radius:8px}
-#pwToggle:hover{color:#A855F7;filter:none;box-shadow:none}
-#pwToggle.off{color:#4a4a52}
-@keyframes logoPulse{0%,100%{text-shadow:0 0 10px rgba(168,85,247,.5)}50%{text-shadow:0 0 30px rgba(168,85,247,.9),0 0 60px rgba(168,85,247,.4)}}
-.mc-logo{animation:logoPulse 3s ease-in-out infinite}
+background:transparent;border:none;color:#888;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:6px}
+#pwToggle:hover{color:#fff}
+#pwToggle.off{color:#444}
+.link{margin-top:1.25rem;font-size:.875rem;color:#888}
+.link a{color:#fff;font-weight:500;text-decoration:none}
+.link a:hover{text-decoration:underline}
+.foot{margin-top:.85rem;font-size:.75rem;color:#666;line-height:1.5}
 </style>
 </head>
 <body>
 <canvas id="dotBg"></canvas>
-<div class="signal"></div>
-<div class="night-sky">
-<div class="bat-fly b1"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div>
-<div class="bat-fly b2"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div>
-<div class="bat-fly b3"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div>
-<div class="bat-fly b4"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div>
-<div class="bat-fly b5"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div>
-</div>
-<div class="wrap">
-<svg class="bat-emblem" viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg>
-<h1 class="mc-logo">NEXUS<span class="g">LOCAL</span></h1>
-<p class="tagline">Your keys&ensp;·&ensp;Your city&ensp;·&ensp;Your rules</p>
-<div class="gold-div"></div>
+<div class="vignette"></div>
 <div class="card" id="card">
-<h2>Enter the cave</h2>
-<p>Your password unlocks the dashboard</p>
+<div class="inner">
+<div class="logo">N</div>
+<h1>Sign in to Nexus Local</h1>
+<p class="sub">Your password unlocks the dashboard</p>
 <div id="pwBox">
 <div class="pw-wrap">
 <input type="password" id="pw" aria-label="Password" placeholder="Password" autocomplete="current-password" autofocus>
 <button type="button" id="pwToggle" title="Show password" aria-label="Show password"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
 </div>
 <div id="error">Wrong password. Try again.</div>
-<button id="loginBtn">Login</button>
+<button class="primary" id="loginBtn">Login</button>
 </div>
 <div id="tfaBox" style="display:none">
-<p style="margin-bottom:12px">Enter the 6-digit code from your authenticator app</p>
-<div class="pw-wrap">
+<p class="sub" style="margin-bottom:.65rem">Enter the 6-digit code from your authenticator app</p>
 <input type="text" id="tfaCode" aria-label="Two-factor authentication code" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="text-align:center;font-size:20px;letter-spacing:.3em">
-</div>
-<div id="error2" style="display:none;color:#ff9a9a;font-size:13px;margin:8px 0">Wrong code. Try again.</div>
-<button id="loginBtn2" onclick="submit2FA()">Verify</button>
-</div>
+<div id="error2">Wrong code. Try again.</div>
+<button class="primary" id="loginBtn2" onclick="submit2FA()">Verify</button>
 </div>
 <p class="link">New here? <a href="/setup">Set up your keys &rarr;</a></p>
+<div class="foot">Your keys &middot; Your city &middot; Your rules</div>
+</div>
 </div>
 <script>
 const pw=document.getElementById('pw'),err=document.getElementById('error'),
