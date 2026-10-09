@@ -22,3 +22,6 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime friend-access working file (mirror lives in app/access.enc)
+app/access.json

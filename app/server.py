@@ -378,23 +378,19 @@ def _write_access_enc(d):
 
 
 def _boot_restore_access():
-    """At startup: rebuild access.json from access.enc (restore key) when
-    the disk was wiped by a redeploy. Falls back silently to the classic
-    restore-at-admin-login when no restore key/file exists."""
+    """At startup: rebuild access.json from access.enc (restore key). The
+    mirror is the source of truth at boot: access.json is a runtime working
+    file, and a stale copy baked into a deploy once shadowed the mirror and
+    hid the real friend list behind a leftover test entry (2026-10-09).
+    Falls back silently to whatever access.json holds (then the classic
+    restore-at-admin-login) when no restore key/file exists."""
     try:
-        if ACCESS_PATH.exists():
-            try:
-                existing = json.loads(ACCESS_PATH.read_text())
-                if isinstance(existing, dict) and existing:
-                    return
-            except Exception:
-                # Corrupt/unreadable access.json must not abort the boot
-                # restore — fall through and rebuild from access.enc.
-                pass
         if RESTORE_KEY and ACCESS_ENC_PATH.exists():
             d = decrypt_keys(ACCESS_ENC_PATH, RESTORE_KEY)
             if isinstance(d, dict) and d:
                 ACCESS_PATH.write_text(json.dumps(d, indent=2))
+                return
+        # No usable mirror: keep an existing valid access.json as-is.
     except Exception:
         pass
 
@@ -1279,9 +1275,13 @@ class Handler(BaseHTTPRequestHandler):
             # First-time setup (no keys yet) stays public. Read-only view
             # passes never get the form.
             info = self._session_info()
-            user_mode = bool(keys_exist and info and not info.get("admin")
-                             and not info.get("viewer"))
-            if keys_exist and (not info or info.get("viewer")):
+            # Signed-out visitors get the page in personal (guest) mode too
+            # (owner order 2026-10-09: "allow normal user in set up your
+            # key page") — their account password authenticates the save.
+            # Read-only view passes still bounce to /login.
+            user_mode = bool(keys_exist and not (info or {}).get("admin")
+                             and not (info or {}).get("viewer"))
+            if keys_exist and info and info.get("viewer"):
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.end_headers()
@@ -2050,7 +2050,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_error(404, "Not Found")
 
-    def _setup_save_user_keys(self, info):
+    def _setup_save_user_keys(self, info, form=None, fresh_token=None):
         """POST /setup for a signed-in non-admin user: the setup form saves
         into the user's OWN per-user vault (same store and rules as
         /api/mykeys) — never the shared keys.enc, never the master password.
@@ -2061,8 +2061,9 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": "invalid label"}).encode())
             return
-        length = int(self.headers.get("Content-Length", 0))
-        form = parse_qs(self.rfile.read(length).decode())
+        if form is None:
+            length = int(self.headers.get("Content-Length", 0))
+            form = parse_qs(self.rfile.read(length).decode())
         password = form.get("password", [""])[0]
         if not password:
             self._set_json_headers(400)
@@ -2118,6 +2119,10 @@ class Handler(BaseHTTPRequestHandler):
                 sess["userkeys"] = dict(vault)
         self.send_response(302)
         self.send_header("Location", "/mykeys")
+        if fresh_token:
+            # Guest save: the visitor arrived signed out; hand them the
+            # session minted by the router so they land signed in.
+            self.send_header("Set-Cookie", f"session={fresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/")
         self.end_headers()
         return
 
@@ -2172,6 +2177,43 @@ class Handler(BaseHTTPRequestHandler):
             _su = self._session_info()
             if keys_exist and _su and not _su.get("admin") and not _su.get("viewer"):
                 self._setup_save_user_keys(_su)
+                return
+            # Signed-out normal users (owner order 2026-10-09): the account
+            # password in the form identifies the friend — the same
+            # password-only rule and the same rate-limit ledger as /api/login
+            # — and the save lands in that user's OWN vault; a session is
+            # minted so they arrive signed in. The master password never
+            # matches here: admin setup stays behind a real admin session.
+            if keys_exist and not _su:
+                ip = self.client_address[0]
+                now = time.time()
+                recent = [t for t in _login_attempts.get(ip, []) if now - t < 900]
+                if len(recent) >= 10:
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
+                    return
+                length = int(self.headers.get("Content-Length", 0))
+                form = parse_qs(self.rfile.read(length).decode())
+                password = form.get("password", [""])[0]
+                label = None
+                if password:
+                    for cand, stored in _load_access().items():
+                        ok, _nu = _verify_password(password, stored)
+                        if ok:
+                            label = cand
+                            break
+                if not label:
+                    recent.append(now)
+                    _login_attempts[ip] = recent
+                    time.sleep(1)
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                    return
+                _login_attempts.pop(ip, None)
+                token = secrets.token_hex(32)
+                SESSIONS[token] = {"ts": time.time(), "label": label, "admin": False}
+                self._setup_save_user_keys({"label": label, "admin": False},
+                                           form=form, fresh_token=token)
                 return
             # If keys already set up, require admin for POST. First-time setup is public.
             if keys_exist and not (self._session_info() or {}).get("admin"):

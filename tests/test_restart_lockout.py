@@ -96,7 +96,13 @@ class RestartLockoutTests(unittest.TestCase):
                      MASTER, cls.tmp / "keys.enc")
         encrypt_keys(cls.access, MASTER, cls.tmp / "users.enc")
         encrypt_keys(cls.access, RESTORE, cls.tmp / "access.enc")
-        # NOTE: no access.json — as after a redeploy wiped the disk.
+        # A redeploy restores the REPO files, and a stale access.json once
+        # shipped in the repo (a leftover local test entry) and shadowed the
+        # mirror at boot — the panel showed only that entry and the real
+        # friends vanished (2026-10-09). Seed exactly that poisoned state:
+        # boot must let the mirror win.
+        (cls.tmp / "access.json").write_text(
+            json.dumps({"trialuser": _hash_pw("trial-user-pw-000")}))
         cls.proc = None
         cls.log = None
         cls._start(restore_key=RESTORE)
@@ -188,9 +194,11 @@ class RestartLockoutTests(unittest.TestCase):
 
     # ------------------------------------------------------------- tests
     def test_01_boot_restore_and_friend_login_pre_unlock(self):
-        # Boot rebuilt access.json from access.enc (restore key) on its own.
+        # Boot rebuilt access.json from access.enc (restore key) on its own,
+        # discarding the stale entry that shipped in the "repo" access.json.
         on_disk = json.loads((self.tmp / "access.json").read_text())
         self.assertIn(FRIEND1, on_disk)
+        self.assertNotIn("trialuser", on_disk)
         # Friend logs in BEFORE any admin login on this fresh instance.
         status, body, cookie = self._login(FRIEND1_PW)
         self.assertEqual(status, 200, body)

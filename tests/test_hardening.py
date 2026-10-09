@@ -290,9 +290,28 @@ class ApiHardeningTests(Harness, unittest.TestCase):
         # Friend GET /setup is served (200), not bounced to /login.
         status, body, _, _ = self._req("GET", "/setup", cookie=self.friend_cookie)
         self.assertEqual(status, 200)
-        status, _, _, headers = self._req("GET", "/setup")
-        self.assertEqual(status, 302)
-        self.assertEqual(headers.get("location"), "/login")
+        # Signed-out normal users get the page too (owner order 2026-10-09:
+        # "allow normal user in set up your key page") — personal mode; the
+        # account password authenticates the save.
+        status, body, _, _ = self._req("GET", "/setup")
+        self.assertEqual(status, 200, body)
+        status, body, _, _ = self._req("POST", "/setup", raw="password=not-the-password&k_groq=guest-key",
+                                       headers={"Content-Type": "application/x-www-form-urlencoded"})
+        self.assertEqual(status, 401, body)
+        status, body, _, headers = self._req(
+            "POST", "/setup",
+            raw="password=" + FRIEND1_PW + "&k_openrouter=guest-setup-key",
+            headers={"Content-Type": "application/x-www-form-urlencoded"})
+        self.assertEqual(status, 302, body)
+        self.assertEqual(headers.get("location"), "/mykeys")
+        guest_cookie = (headers.get("set-cookie") or "").split(";")[0]
+        self.assertTrue(guest_cookie.startswith("session="), headers)
+        # The guest save landed in the friend's own vault, and the minted
+        # session works.
+        status, body, _, _ = self._req("POST", "/api/mykeys", {"action": "view"},
+                                       cookie=guest_cookie)
+        self.assertEqual(status, 200, body)
+        self.assertIn("openrouter", body.get("configured", []))
         status, body, _, _ = self._req("POST", "/settings",
                                        raw="password=wrong-password",
                                        cookie=self.admin_cookie,
