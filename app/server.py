@@ -1307,6 +1307,31 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers()
             self._send_body(json.dumps({"ok": True}).encode())
             return
+        if parsed.path in ("/favicon.ico", "/favicon.svg",
+                           "/favicon-32.png", "/apple-touch-icon.png"):
+            # Public brand icons — browsers fetch them before login.
+            # Small sizes use a zoomed bat so the silhouette survives
+            # at tab size; the SVG and touch icon carry the full mark.
+            _icons = {
+                "/favicon.ico": ("favicon.ico", "image/x-icon"),
+                "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+                "/favicon-32.png": ("favicon-32.png", "image/png"),
+                "/apple-touch-icon.png": ("apple-touch-icon.png",
+                                          "image/png"),
+            }
+            _fname, _ctype = _icons[parsed.path]
+            try:
+                _data = (Path(__file__).parent / _fname).read_bytes()
+            except OSError:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", _ctype)
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", str(len(_data)))
+            self.end_headers()
+            self._send_body(_data)
+            return
         if parsed.path == "/v1/models":
             # External API (service-key auth, no session): see _V1_LANES.
             self._v1_models()
@@ -1411,7 +1436,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                    "<title>Nexus Local - Setup</title><style>@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');"
+                    "<title>Nexus Local - Setup</title><link rel='icon' href='/favicon.ico' sizes='any'><link rel='icon' type='image/svg+xml' href='/favicon.svg'><link rel='apple-touch-icon' href='/apple-touch-icon.png'><style>@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');"
                     "*{box-sizing:border-box}"
                     "body{background-color:#050507;background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.07), transparent 70%);color:#e6e9f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;margin:0;padding:0}"
                     ".wrap{max-width:600px;margin:0 auto;padding:20px 16px 40px}"
@@ -1660,7 +1685,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                    "<title>Nexus Local - Update Keys</title><style>@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');"
+                    "<title>Nexus Local - Update Keys</title><link rel='icon' href='/favicon.ico' sizes='any'><link rel='icon' type='image/svg+xml' href='/favicon.svg'><link rel='apple-touch-icon' href='/apple-touch-icon.png'><style>@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');"
                     "*{box-sizing:border-box}"
                     "body{background-color:#050507;background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.07), transparent 70%);color:#e6e9f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;margin:0;padding:0}"
                     ".wrap{max-width:600px;margin:0 auto;padding:20px 16px 40px}"
