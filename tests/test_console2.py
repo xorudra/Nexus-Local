@@ -574,5 +574,32 @@ class Console2Tests(unittest.TestCase):
         self.assertEqual(j["settings"]["allowed_ips"], [])
 
 
+    # --- 18. legal pages (reel fix: docs in place, linked) --------
+    def test_18_legal_pages(self):
+        def page(path):
+            st, _, _, payload = self._req("GET", path)
+            return st, payload.decode("utf-8", "replace")
+        for path, needle in (("/terms", "Terms of use"),
+                             ("/privacy", "Privacy at Nexus Local")):
+            st, text = page(path)
+            self.assertEqual(st, 200, path)
+            self.assertIn(needle, text)
+            self.assertIn("invite-only", text)
+        # linked from the sign-in page and the invite page
+        st, login_html = page("/login")
+        self.assertEqual(st, 200)
+        self.assertIn('href="/terms"', login_html)
+        self.assertIn('href="/privacy"', login_html)
+        st, invite_html = page("/invite")
+        self.assertEqual(st, 200)
+        self.assertIn('href="/terms"', invite_html)
+        self.assertIn('href="/privacy"', invite_html)
+        # the privacy page must disclose the real data flows
+        st, priv = page("/privacy")
+        self.assertIn("third-party AI providers", priv)
+        self.assertIn("no session recording", priv)
+        self.assertIn("not stored by default", priv)
+
+
 if __name__ == "__main__":
     unittest.main()

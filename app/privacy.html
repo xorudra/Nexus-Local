@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — Nexus Local</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0b0b10;color:#e8e8ee;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6;padding:32px 16px 48px}
+  .card{max-width:680px;margin:0 auto;background:#121218;border:1px solid #23232e;border-radius:16px;padding:32px 28px}
+  .logo{width:44px;height:44px;border-radius:50%;background:#a855f7;color:#fff;font-weight:700;font-size:22px;display:flex;align-items:center;justify-content:center;margin-bottom:14px}
+  h1{font-size:24px;font-weight:600;margin-bottom:6px}
+  .sub{color:#9a9aa5;font-size:14px;margin-bottom:22px}
+  h2{font-size:16px;font-weight:600;margin:22px 0 6px;color:#fff}
+  p,li{font-size:14.5px;color:#c9c9d4}
+  ul{padding-left:20px}
+  li{margin:4px 0}
+  a{color:#c084fc}
+  .nav{margin-top:28px;padding-top:18px;border-top:1px solid #23232e;font-size:13.5px;color:#9a9aa5;display:flex;gap:16px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="logo" aria-hidden="true">N</div>
+  <h1>Privacy at Nexus Local</h1>
+  <p class="sub">Plain language, kept honest. Last updated 10 October 2026.</p>
+
+  <h2>What this place is</h2>
+  <p>Nexus Local is a private, invite-only instance run by its owner for a small circle of people. It is not a public product, and nothing here is sold.</p>
+
+  <h2>Your account</h2>
+  <ul>
+    <li>Your account name is stored with a salted, slow-hashed password — never the plain password.</li>
+    <li>Signing in creates a session so the site can recognise you. Sessions end when you sign out or they expire.</li>
+  </ul>
+
+  <h2>Your own API keys</h2>
+  <p>If you add your own provider keys, they are stored encrypted with <strong>your</strong> password. The admin cannot read them — unlocking your vault needs your password, not the admin's.</p>
+
+  <h2>Your chats</h2>
+  <ul>
+    <li>To answer you, your messages are sent to third-party AI providers (for example Google, Groq, OpenRouter, NVIDIA — whichever the instance is configured to use). Those providers process your messages under their own policies, so don't send anything you wouldn't want an outside AI service to see.</li>
+    <li>Conversation text is <strong>not stored by default</strong>. The admin can switch on conversation logging; when it is on, prompt and reply text is kept with the usage record. It is off unless the admin turns it on.</li>
+  </ul>
+
+  <h2>Usage records</h2>
+  <p>Each request leaves a small record — time, provider, model and token counts — used for daily limits, fair use and the admin's usage analytics. The admin can see per-account usage totals and a log of admin actions. The admin cannot see inside your personal key vault.</p>
+
+  <h2>Backups</h2>
+  <p>Encrypted copies of the instance's data are kept on GitHub so the service survives restarts and redeploys. They are ciphertext — unreadable without the passwords and keys that protect them.</p>
+
+  <h2>Trackers and outside requests</h2>
+  <p>There are <strong>no analytics trackers, no session recording and no advertising</strong> on these pages — nothing watches how you use them. Some pages load fonts from Google Fonts, and the admin console loads a graphics library from a public CDN; as with any web resource, those providers receive your IP address when your browser fetches them.</p>
+
+  <h2>Your data, your call</h2>
+  <p>Ask the admin if you want your account removed. Removing an account deletes it and its key vault.</p>
+
+  <nav class="nav">
+    <a href="/terms">Terms</a>
+    <a href="/login">Back to sign in</a>
+  </nav>
+</main>
+</body>
+</html>

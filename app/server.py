@@ -2623,6 +2623,20 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_error(500, "internal error")
             return
+        # Public legal pages (plain-language terms + privacy, written
+        # for how this instance actually handles data).
+        if parsed.path in ("/terms", "/privacy"):
+            try:
+                content = (Path(__file__).parent
+                           / (parsed.path[1:] + ".html")).read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception:
+                self.send_error(500, "internal error")
+            return
         # Public login page
         if parsed.path == "/login":
             key_path = Path(__file__).parent / "keys.enc"
