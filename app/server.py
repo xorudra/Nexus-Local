@@ -4895,13 +4895,30 @@ class Handler(BaseHTTPRequestHandler):
                     "failovers_today": _audit_count_today("Failover handled", "Providers"),
                 }).encode())
                 return
+            if action == "invite_list":
+                # Read-only listing (hash prefixes only). The console
+                # calls this on page load WITHOUT the master password,
+                # so it must not sit behind the master gate: a bare 401
+                # here makes the page bounce the owner to /login.
+                out = []
+                for i in (_SETTINGS.get("invites") or []):
+                    out.append({
+                        "id": i["h"][:8], "role": i.get("role", "friend"),
+                        "created": i.get("created", 0),
+                        "expires": i.get("expires", 0),
+                        "used_by": i.get("used_by"),
+                        "expired": not i.get("used_by")
+                        and i.get("expires", 0) <= time.time()})
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "invites": out}).encode())
+                return
             # ---- User management (owner with master proof, or a
             # moderator on their own session — see _dual_master) ----
             if action in ("friend_set_cap", "friend_set_suspended",
                           "friend_role_set", "provider_health_reset",
                           "friend_vault_clear", "friend_key_add",
                           "friend_reset_pw", "invite_create",
-                          "invite_list", "invite_revoke",
+                          "invite_revoke",
                           "simulate_failure", "session_revoke",
                           "sessions_revoke_all", "friend_usage_reset"):
                 _derr = _dual_master(data)
@@ -5112,19 +5129,6 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({
                         "ok": True, "code": code,
                         "expires": time.time() + days * 86400}).encode())
-                    return
-                if action == "invite_list":
-                    out = []
-                    for i in (_SETTINGS.get("invites") or []):
-                        out.append({
-                            "id": i["h"][:8], "role": i.get("role", "friend"),
-                            "created": i.get("created", 0),
-                            "expires": i.get("expires", 0),
-                            "used_by": i.get("used_by"),
-                            "expired": not i.get("used_by")
-                            and i.get("expires", 0) <= time.time()})
-                    self._set_json_headers()
-                    self.wfile.write(json.dumps({"ok": True, "invites": out}).encode())
                     return
                 if action == "invite_revoke":
                     gid = (data.get("id") or "").strip()

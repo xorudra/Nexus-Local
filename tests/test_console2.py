@@ -443,6 +443,25 @@ class Console2Tests(unittest.TestCase):
         status, _, _, _ = self._req("GET", "/admin", cookie=c1)
         self.assertEqual(status, 302)
 
+    def test_15_console_load_sequence_no_401(self):
+        # Regression: the console's on-load calls must never answer 401
+        # for the owner — the page treats a bare 401 as "session dead"
+        # and bounces to /login (invite_list once sat in the
+        # master-gated tuple and kicked the owner out after load).
+        # Fresh login: test_14's sign-out-everywhere killed cls.admin.
+        status, body, admin = self._login(MASTER)
+        self.assertEqual(status, 200, body)
+        type(self).admin = admin
+        for action in ("list", "settings_get", "viewpass_list",
+                       "invite_list", "2fa_state"):
+            status, j = self._access(action, admin)
+            self.assertEqual(status, 200, (action, j))
+        for path in ("/api/quotas", "/api/audit",
+                     "/api/analytics?range=7d", "/api/analytics?range=24h",
+                     "/api/usage_today", "/api/v1-access"):
+            status, _, _, _ = self._req("GET", path, cookie=admin)
+            self.assertEqual(status, 200, path)
+
     # ---- allowed IPs (last: needs a restart to recover) ----
 
     def test_13_allowed_ips_lockout_and_recovery(self):
