@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus Local - Join</title>
+<link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
+.card{background:#121212;border:1px solid #222;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.8);
+padding:2rem;width:100%;max-width:400px;display:flex;flex-direction:column;align-items:center;text-align:center;
+animation:fadeUp .6s cubic-bezier(.2,.7,.3,1) both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.inner{width:100%;max-width:360px;display:flex;flex-direction:column;align-items:center}
+.logo{width:44px;height:44px;border-radius:50%;background:#111;border:1px solid #333;
+display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.15rem;margin-bottom:.75rem}
+.card h1{font-size:1.35rem;font-weight:600;letter-spacing:-.025em;margin:0 0 .25rem}
+.sub{font-size:.85rem;color:#888;line-height:1.5;margin:0 0 .85rem}
+form{width:100%;display:flex;flex-direction:column;gap:.6rem;text-align:left}
+label{font-size:.78rem;color:#aaa}
+input{width:100%;padding:.65rem .85rem;border-radius:6px;border:1px solid #333;background:#000;
+color:#fff;font-size:.875rem;outline:none;font-family:inherit}
+input:focus{border-color:#555}
+button.primary{width:100%;padding:.65rem;border-radius:6px;border:none;background:#ededed;color:#000;
+font-weight:500;font-size:.875rem;cursor:pointer;font-family:inherit;margin-top:.2rem}
+button.primary:hover{background:#fff}
+button.primary:disabled{opacity:.6;cursor:wait}
+#error{display:none;background:rgba(60,10,10,.6);border:1px solid #ff4d4d;color:#ff9a9a;font-size:13px;
+border-radius:6px;padding:10px 12px;text-align:left}
+#annc{display:none;width:100%;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.45);
+color:#e9d5ff;font-size:13px;border-radius:6px;padding:10px 12px;margin-bottom:.65rem;text-align:left}
+.link{margin-top:1rem;font-size:.85rem;color:#888}
+.link a{color:#fff;text-decoration:none;font-weight:500}
+code{font-family:ui-monospace,Menlo,monospace;letter-spacing:.12em}
+</style>
+</head>
+<body>
+<div class="card">
+<div class="inner">
+<div class="logo">N</div>
+<h1 id="ttl">Join Nexus Local</h1>
+<p class="sub" id="subt">Create your account with an invite code from the admin.</p>
+<div id="annc"></div>
+<form id="f">
+<div id="codeRow">
+<label for="code">Invite code</label>
+<input id="code" autocomplete="off" autocapitalize="characters" placeholder="e.g. K7Q2XM" style="text-transform:uppercase">
+</div>
+<div>
+<label for="label">Choose a username</label>
+<input id="label" autocomplete="username" placeholder="a-z, 0-9, underscore">
+</div>
+<div>
+<label for="pw">Choose a password</label>
+<input id="pw" type="password" autocomplete="new-password" placeholder="Password">
+</div>
+<div>
+<label for="pw2">Repeat the password</label>
+<input id="pw2" type="password" autocomplete="new-password" placeholder="Password again">
+</div>
+<div id="error"></div>
+<button class="primary" id="go" type="submit">Create my account</button>
+</form>
+<p class="link">Already have an account? <a href="/login">Sign in</a></p>
+</div>
+</div>
+<script>
+var $=function(id){return document.getElementById(id)};
+var qs=new URLSearchParams(location.search);
+if(qs.get('code')) $('code').value=qs.get('code').toUpperCase();
+var pwMin=8;
+fetch('/api/invite/info').then(function(r){return r.json()}).then(function(j){
+  if(j.instance_name) $('ttl').textContent='Join '+j.instance_name;
+  pwMin=j.pw_min||8;
+  $('pw').placeholder='At least '+pwMin+' characters';
+  if(j.registration==='open'){
+    $('subt').textContent='Signups are open — pick a username and password. An invite code works too, if you have one.';
+    $('codeRow').style.display='none';
+  } else if(j.registration==='closed'){
+    $('subt').textContent='Signups are closed right now. Ask the admin to add you directly.';
+    $('f').style.display='none';
+  }
+}).catch(function(){});
+fetch('/api/announcement').then(function(r){return r.json()}).then(function(j){
+  var parts=[];
+  if(j.announcement) parts.push(j.announcement);
+  if(j.maintenance) parts.push('Maintenance mode is on — friends are paused right now.');
+  if(parts.length){ $('annc').textContent=parts.join(' '); $('annc').style.display='block'; }
+}).catch(function(){});
+function fail(msg){ var e=$('error'); e.textContent=msg; e.style.display='block'; }
+$('f').addEventListener('submit', function(ev){
+  ev.preventDefault();
+  $('error').style.display='none';
+  var label=$('label').value.trim().toLowerCase();
+  var pw=$('pw').value, pw2=$('pw2').value;
+  var code=$('code').value.trim().toUpperCase();
+  if(!/^[a-zA-Z0-9_]{1,30}$/.test(label)) return fail('Username must be letters, numbers or underscore (max 30).');
+  if(pw.length<pwMin) return fail('Password must be at least '+pwMin+' characters.');
+  if(pw!==pw2) return fail('The two passwords do not match.');
+  $('go').disabled=true; $('go').textContent='Creating…';
+  fetch('/api/invite/redeem',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({label:label,password:pw,code:code})})
+  .then(function(r){return r.json().then(function(j){return {s:r.status,j:j}})})
+  .then(function(x){
+    if(x.s===200 && x.j.ok){ location.href='/'; return; }
+    fail(x.j.error||'Something went wrong.');
+    $('go').disabled=false; $('go').textContent='Create my account';
+  }).catch(function(){
+    fail('Network error — try again.');
+    $('go').disabled=false; $('go').textContent='Create my account';
+  });
+});
+</script>
+</body>
+</html>

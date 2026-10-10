@@ -42,9 +42,9 @@ border-radius:6px;padding:10px 12px;margin-top:.65rem;text-align:left}
 .pw-wrap{position:relative}
 #pw{padding-right:48px}
 #pwToggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;padding:0;
-background:transparent;border:none;color:#888;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:6px}
+background:transparent;border:none;color:#d8d8de;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:6px}
 #pwToggle:hover{color:#fff}
-#pwToggle.off{color:#444}
+#pwToggle.off{color:#a2a2ab}
 .link{margin-top:1.25rem;font-size:.875rem;color:#888}
 .link a{color:#fff;font-weight:500;text-decoration:none}
 .link a:hover{text-decoration:underline}
@@ -102,6 +102,7 @@ overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 <div class="logo">N</div>
 <h1>Sign in to Nexus Local</h1>
 <p class="sub">Your password unlocks the dashboard</p>
+<div id="annc" style="display:none;width:100%;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.45);color:#e9d5ff;font-size:13px;border-radius:6px;padding:10px 12px;margin-bottom:.65rem;text-align:left"></div>
 <div id="pwBox">
 <div class="pw-wrap">
 <input type="password" id="pw" aria-label="Password" placeholder="Password" autocomplete="current-password" autofocus>
@@ -454,6 +455,19 @@ void main(){
     })();
   }catch(e){/* decorative only */}
 })();
+</script>
+<script>
+// Admin announcement + maintenance notice (public endpoint, no secrets).
+fetch('/api/announcement').then(r=>r.json()).then(j=>{
+  var parts=[];
+  if(j.announcement) parts.push(j.announcement);
+  if(j.maintenance) parts.push('Maintenance mode is on — friends are paused right now.');
+  if(parts.length){
+    var el=document.getElementById('annc');
+    el.textContent=parts.join(' ');
+    el.style.display='block';
+  }
+}).catch(function(){});
 </script>
 </body>
 </html>

@@ -31,6 +31,9 @@ import hashlib
 import secrets
 import shutil
 import time
+import threading
+import ipaddress
+import urllib.parse
 from pathlib import Path
 
 QUOTAS_PATH = Path(__file__).parent / "quotas.json"
@@ -71,12 +74,22 @@ def _provider_down(p):
     return bool(h) and h.get("down_until", 0) > time.time()
 
 def _note_failure(p):
+    # Threshold + cooldown are console settings (defaults reproduce the
+    # original behaviour: down for 3 min after 2 straight failures).
+    try:
+        need = int(_SETTINGS.get("cb_failures") or 2)
+        cd = int(_SETTINGS.get("cb_cooldown_s") or 180)
+    except Exception:
+        need, cd = 2, 180
     h = _PROVIDER_HEALTH.setdefault(p, {"fails": 0, "down_until": 0.0})
     h["fails"] = h.get("fails", 0) + 1
-    if h["fails"] >= 2:
+    if h["fails"] >= need:
         if h.get("down_until", 0) <= time.time():
-            _audit("Providers", f"{p} marked down (circuit breaker, 3 min)")
-        h["down_until"] = time.time() + 180  # skip for 3 min after 2 straight failures
+            _cdtxt = f"{cd // 60} min" if cd >= 60 else f"{cd} sec"
+            _audit("Providers", f"{p} marked down (circuit breaker, {_cdtxt})")
+            _alert("provider_down", "provider_down",
+                   {"provider": p, "cooldown_s": cd})
+        h["down_until"] = time.time() + cd
 
 def _note_success(p):
     _PROVIDER_HEALTH.pop(p, None)
@@ -104,6 +117,39 @@ _SETTINGS_DEFAULTS = {
     "session_minutes": None,  # None = follow NEXUS_SESSION_EXPIRY env
     "retention_days": 30,
     "instance_name": "Nexus Local",
+    # Console v2 (owner design 2026-10-10): every default below
+    # reproduces the pre-v2 behaviour until the admin changes it.
+    "global_cap": 0,            # instance-wide friend requests/day; 0 = off
+    "chain_mode": "priority",   # priority | fastest | round_robin
+    "provider_timeouts": {},    # provider -> per-attempt timeout seconds
+    "cb_failures": None,        # failures before the breaker trips (def 2)
+    "cb_cooldown_s": None,      # breaker cooldown seconds (default 180)
+    "chat_rate": None,          # chat messages/min per session (def 40; 0=off)
+    "webhook_url": "",          # alert webhook (http/https, public hosts)
+    "alert_email": "",          # alert contact of record (rides webhooks)
+    "alerts": {"provider_down": True, "cap": True, "signup": True},
+    "digest_daily": False,      # webhook digest of yesterday's usage
+    "digest_weekly": False,     # webhook digest of last week's usage
+    "announcement": "",         # banner shown to every user at sign-in
+    "allowed_ips": [],          # sign-in + console allowlist (CIDRs)
+    "registration": "invite",   # open | invite | closed — self-signup mode
+    "signup_role": "friend",    # role open-mode signups receive
+    "pw_min": 8,                # min password length for new friend passwords
+    "latency_alert_s": 0,       # console alert when a provider avg exceeds
+    "quota_alert_pct": 90,      # console alert when a friend nears their cap
+    "skip_failing": True,       # failover skips breaker-down providers
+    "login_lockout": True,      # throttle repeated failed sign-ins per IP
+    "audit_ips": True,          # record client IPs in the audit log
+    "log_prompts": False,       # keep a short prompt snippet in usage rows
+    "friends_byok": True,       # friends may keep their own key vaults
+    "auto_backup": "off",       # off | daily | weekly config snapshots
+    # Internal state (never patchable through settings_set):
+    "roles": {},                # label -> moderator | viewer (default friend)
+    "invites": [],              # {h, role, created, expires, used_by}
+    "vault_meta": {},           # label -> [{provider, last4}] (metadata only)
+    "backup_snapshot": None,    # last auto-backup {ts, config}
+    "last_digest": "",          # date/week stamp of the last digest sent
+    "last_backup": "",          # date stamp of the last auto-backup
 }
 _SETTINGS = dict(_SETTINGS_DEFAULTS)
 _BOOT_TS = time.time()
@@ -181,6 +227,248 @@ def _disabled_providers():
     return set(_SETTINGS.get("provider_disabled") or [])
 
 
+def _friend_role(label):
+    """Console role for a friend account: 'moderator' or 'viewer' when
+    the admin granted one, else 'friend' (chat only, no console)."""
+    r = (_SETTINGS.get("roles") or {}).get(label or "")
+    return r if r in ("moderator", "viewer") else "friend"
+
+
+def _client_ip(headers, fallback=""):
+    """The client address the platform edge actually observed: the LAST
+    X-Forwarded-For entry (earlier entries are client-supplied)."""
+    try:
+        xff = (headers.get("X-Forwarded-For") or "") if headers else ""
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    except Exception:
+        pass
+    return fallback or ""
+
+
+def _ip_allowed(ip):
+    """Sign-in/console allowlist. Empty list = anywhere. Entries may be
+    plain IPs or CIDR ranges."""
+    lst = _SETTINGS.get("allowed_ips") or []
+    if not lst:
+        return True
+    try:
+        addr = ipaddress.ip_address((ip or "").strip())
+    except Exception:
+        return False
+    for entry in lst:
+        try:
+            if addr in ipaddress.ip_network(str(entry).strip(), strict=False):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _webhook_url_ok(url):
+    """Alert webhooks must be http(s) to a public host: no loopback,
+    private, link-local or literal-IP-internal targets (SSRF guard for
+    an admin-configured URL)."""
+    try:
+        u = urllib.parse.urlparse(url or "")
+        if u.scheme not in ("http", "https") or not u.hostname:
+            return False
+        host = u.hostname.lower()
+        if host in ("localhost",) or host.endswith(".local"):
+            return False
+        try:
+            addr = ipaddress.ip_address(host)
+            if addr.is_private or addr.is_loopback or addr.is_link_local \
+                    or addr.is_reserved or addr.is_multicast:
+                return False
+        except ValueError:
+            pass  # a DNS name, not a literal IP — allowed
+        return True
+    except Exception:
+        return False
+
+
+def _fire_webhook(event, data=None):
+    """POST an alert event to the configured webhook, off-thread so a
+    slow receiver never blocks a request. Best-effort: failures are
+    silent (the audit log is the record of truth)."""
+    url = (_SETTINGS.get("webhook_url") or "").strip()
+    if not url or not _webhook_url_ok(url):
+        return False
+    payload = {"event": event, "ts": datetime.datetime.now().isoformat(),
+               "instance": _SETTINGS.get("instance_name", "Nexus Local"),
+               "alert_email": _SETTINGS.get("alert_email", "")}
+    if data:
+        payload.update(data)
+
+    def _send():
+        try:
+            req = Request(url, data=json.dumps(payload).encode(),
+                          headers={"Content-Type": "application/json",
+                                   "User-Agent": "NexusLocal/1.0"},
+                          method="POST")
+            with urlopen(req, timeout=5) as resp:
+                resp.read(512)
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
+    return True
+
+
+def _alert(event, gate_key, data=None):
+    """Fire a webhook for an alert event when its toggle is on."""
+    try:
+        if (_SETTINGS.get("alerts") or {}).get(gate_key, True):
+            return _fire_webhook(event, data)
+    except Exception:
+        pass
+    return False
+
+
+# Recent per-provider latency (avg ms over the newest usage rows),
+# cached for a minute — drives the failover chain's "fastest" mode.
+_LAT_CACHE = {"ts": 0.0, "map": {}}
+
+
+def _provider_latency():
+    now = time.time()
+    if now - _LAT_CACHE["ts"] < 60:
+        return _LAT_CACHE["map"]
+    sums, counts = {}, {}
+    try:
+        if os.path.exists(USAGE_PATH):
+            with open(USAGE_PATH) as f:
+                lines = f.readlines()[-2000:]
+            for line in lines:
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(e, dict) or e.get("type"):
+                    continue
+                p, ms = e.get("provider"), e.get("ms")
+                if isinstance(p, str) and isinstance(ms, (int, float)) and ms > 0:
+                    sums[p] = sums.get(p, 0) + ms
+                    counts[p] = counts.get(p, 0) + 1
+    except Exception:
+        pass
+    _LAT_CACHE.update({"ts": now,
+                       "map": {p: sums[p] / counts[p] for p in sums}})
+    return _LAT_CACHE["map"]
+
+
+_RR_COUNTER = {"i": 0}  # round-robin rotation for the failover chain
+
+
+def _usage_stats(days_back=1):
+    """Aggregate usage.jsonl for the digest: totals + top provider for
+    the window ending today (days_back=1 → yesterday only)."""
+    today = datetime.date.today()
+    if days_back == 1:
+        want = {(today - datetime.timedelta(days=1)).isoformat()}
+    else:
+        want = {(today - datetime.timedelta(days=i)).isoformat()
+                for i in range(7)}
+    tot_r = tot_t = 0
+    per_p = {}
+    try:
+        if os.path.exists(USAGE_PATH):
+            with open(USAGE_PATH) as f:
+                for line in f:
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if not isinstance(e, dict) or e.get("type"):
+                        continue
+                    if str(e.get("ts", ""))[:10] not in want:
+                        continue
+                    tot_r += 1
+                    tot_t += (e.get("prompt_tokens", 0) or 0) \
+                        + (e.get("completion_tokens", 0) or 0)
+                    p = e.get("provider") or "?"
+                    per_p[p] = per_p.get(p, 0) + 1
+    except Exception:
+        pass
+    top = max(per_p.items(), key=lambda kv: kv[1])[0] if per_p else None
+    return {"requests": tot_r, "tokens": tot_t, "top_provider": top}
+
+
+def _public_settings_snapshot():
+    """The settings an auto-backup snapshot keeps: policy only — never
+    invites, vault metadata or anything secret-shaped."""
+    keys = ("maintenance", "suspended", "max_attempts", "daily_cap",
+            "global_cap", "user_caps", "provider_order",
+            "provider_disabled", "provider_limits", "provider_timeouts",
+            "chain_mode", "session_minutes", "retention_days",
+            "instance_name", "roles", "registration", "signup_role",
+            "pw_min", "chat_rate", "cb_failures", "cb_cooldown_s")
+    return {k: _SETTINGS.get(k) for k in keys}
+
+
+def _housekeeper():
+    """Hourly background chores (console v2): webhook usage digests and
+    config auto-backups. Everything here is opt-in via settings and
+    best-effort; the loop must never die on a bad tick."""
+    while True:
+        try:
+            time.sleep(3600)
+            today = datetime.date.today()
+            iso = today.isoformat()
+            changed = False
+            if _SETTINGS.get("digest_daily") \
+                    and _SETTINGS.get("last_digest") != iso:
+                stats = _usage_stats(1)
+                if _fire_webhook("digest_daily", stats):
+                    _SETTINGS["last_digest"] = iso
+                    changed = True
+                    _audit("System", "Daily usage digest sent "
+                           f"({stats['requests']} requests yesterday)")
+            wk = f"{today.isocalendar()[0]}-W{today.isocalendar()[1]}"
+            if _SETTINGS.get("digest_weekly") \
+                    and _SETTINGS.get("last_digest") != wk:
+                stats = _usage_stats(7)
+                if _fire_webhook("digest_weekly", stats):
+                    _SETTINGS["last_digest"] = wk
+                    changed = True
+                    _audit("System", "Weekly usage digest sent "
+                           f"({stats['requests']} requests in 7 days)")
+            ab = _SETTINGS.get("auto_backup", "off")
+            due = (ab == "daily"
+                   and _SETTINGS.get("last_backup") != iso) or \
+                  (ab == "weekly"
+                   and _SETTINGS.get("last_backup") != wk)
+            if due:
+                _SETTINGS["backup_snapshot"] = {
+                    "ts": datetime.datetime.now().isoformat(),
+                    "config": _public_settings_snapshot()}
+                _SETTINGS["last_backup"] = iso if ab == "daily" else wk
+                changed = True
+                _audit("System", f"Auto-backup completed ({ab})")
+            if changed:
+                _save_settings()
+        except Exception:
+            pass
+
+
+def _ua_short(ua):
+    """'Chrome · Android' style device label for the sessions list."""
+    u = (ua or "")
+    os_ = ("Android" if "Android" in u else
+           "iPhone" if "iPhone" in u else
+           "iPad" if "iPad" in u else
+           "Windows" if "Windows" in u else
+           "macOS" if "Macintosh" in u or "Mac OS" in u else
+           "Linux" if "Linux" in u else "")
+    br = ("Edge" if "Edg/" in u else
+          "Firefox" if "Firefox" in u else
+          "Chrome" if "Chrome" in u else
+          "Safari" if "Safari" in u else "")
+    out = " · ".join(x for x in (br, os_) if x)
+    return out or "Unknown device"
+
+
 # ---- Audit log (admin console) ----
 # Append-only JSONL of admin + system events: sign-ins, friend and
 # view-pass changes, settings changes, provider downs and failovers.
@@ -190,14 +478,19 @@ def _disabled_providers():
 AUDIT_PATH = Path(__file__).parent / "audit.jsonl"
 
 
-def _audit(category, event):
+def _audit(category, event, ip=None):
     try:
+        row = {
+            "ts": datetime.datetime.now().isoformat(),
+            "cat": str(category)[:24],
+            "event": str(event)[:300],
+        }
+        # Client IPs are recorded only when the admin keeps the
+        # "record IPs in audit log" toggle on (console v2 setting).
+        if ip and _SETTINGS.get("audit_ips", True):
+            row["ip"] = str(ip)[:45]
         with open(AUDIT_PATH, "a") as f:
-            f.write(json.dumps({
-                "ts": datetime.datetime.now().isoformat(),
-                "cat": str(category)[:24],
-                "event": str(event)[:300],
-            }) + "\n")
+            f.write(json.dumps(row) + "\n")
         if os.path.getsize(AUDIT_PATH) > 512 * 1024:
             with open(AUDIT_PATH) as f:
                 lines = f.readlines()
@@ -341,6 +634,97 @@ def _validate_settings_patch(patch):
             if not isinstance(v, str) or not v.strip() or len(v) > 40:
                 return None, "instance_name must be 1-40 chars"
             clean[k] = v.strip()
+        elif k == "global_cap":
+            if not isinstance(v, int) or not 0 <= v <= 1000000:
+                return None, "global_cap must be 0-1000000"
+            clean[k] = v
+        elif k == "chain_mode":
+            if v not in ("priority", "fastest", "round_robin"):
+                return None, "chain_mode must be priority, fastest or round_robin"
+            clean[k] = v
+        elif k == "provider_timeouts":
+            if not isinstance(v, dict):
+                return None, "provider_timeouts must be an object"
+            clean[k] = {str(a)[:64]: max(5, min(600, int(b)))
+                        for a, b in v.items() if isinstance(b, (int, float))}
+        elif k == "cb_failures":
+            if v is not None and (not isinstance(v, int) or not 1 <= v <= 10):
+                return None, "cb_failures must be 1-10"
+            clean[k] = v
+        elif k == "cb_cooldown_s":
+            if v not in (None, 30, 120, 180, 600):
+                return None, "cb_cooldown_s must be 30, 120, 180 or 600"
+            clean[k] = v
+        elif k == "chat_rate":
+            if v not in (None, 0, 10, 30, 40, 60):
+                return None, "chat_rate must be 10, 30, 40, 60 or 0 (off)"
+            clean[k] = v
+        elif k == "webhook_url":
+            if not isinstance(v, str) or len(v) > 300:
+                return None, "webhook_url must be a string up to 300 chars"
+            v = v.strip()
+            if v and not _webhook_url_ok(v):
+                return None, "webhook_url must be http(s) to a public host"
+            clean[k] = v
+        elif k == "alert_email":
+            if not isinstance(v, str) or len(v) > 120:
+                return None, "alert_email must be a string up to 120 chars"
+            clean[k] = v.strip()
+        elif k == "alerts":
+            if not isinstance(v, dict):
+                return None, "alerts must be an object"
+            clean[k] = {a: bool(b) for a, b in v.items()
+                        if a in ("provider_down", "cap", "signup")}
+        elif k in ("digest_daily", "digest_weekly"):
+            if not isinstance(v, bool):
+                return None, f"{k} must be true or false"
+            clean[k] = v
+        elif k == "announcement":
+            if not isinstance(v, str) or len(v) > 160:
+                return None, "announcement must be a string up to 160 chars"
+            clean[k] = v.strip()
+        elif k == "allowed_ips":
+            if not isinstance(v, list) or len(v) > 20:
+                return None, "allowed_ips must be a list of up to 20 entries"
+            out = []
+            for x in v:
+                if not isinstance(x, str) or len(x) > 50:
+                    return None, "allowed_ips entries must be IPs or CIDRs"
+                try:
+                    ipaddress.ip_network(x.strip(), strict=False)
+                except Exception:
+                    return None, f"invalid IP or CIDR: {x}"
+                out.append(x.strip())
+            clean[k] = out
+        elif k == "registration":
+            if v not in ("open", "invite", "closed"):
+                return None, "registration must be open, invite or closed"
+            clean[k] = v
+        elif k == "signup_role":
+            if v not in ("friend", "viewer"):
+                return None, "signup_role must be friend or viewer"
+            clean[k] = v
+        elif k == "pw_min":
+            if v not in (8, 12, 16):
+                return None, "pw_min must be 8, 12 or 16"
+            clean[k] = v
+        elif k == "latency_alert_s":
+            if v not in (0, 1, 2, 5):
+                return None, "latency_alert_s must be 0, 1, 2 or 5"
+            clean[k] = v
+        elif k == "quota_alert_pct":
+            if v not in (80, 90, 95):
+                return None, "quota_alert_pct must be 80, 90 or 95"
+            clean[k] = v
+        elif k in ("skip_failing", "login_lockout", "audit_ips",
+                   "log_prompts", "friends_byok"):
+            if not isinstance(v, bool):
+                return None, f"{k} must be true or false"
+            clean[k] = v
+        elif k == "auto_backup":
+            if v not in ("off", "daily", "weekly"):
+                return None, "auto_backup must be off, daily or weekly"
+            clean[k] = v
         else:
             return None, f"unknown setting: {k}"
     return clean, None
@@ -389,6 +773,31 @@ def _system_metrics():
 
 
 SESSION_EXPIRY = int(os.environ.get("NEXUS_SESSION_EXPIRY", "1800"))
+
+# What each provider can actually serve in this app (chat / image /
+# voice / video), from the routes the chat handler implements. Drives
+# the admin console's capability filters and mesh-health groups.
+_PROVIDER_CAPS = {
+    "aihorde": ["image"],
+    "pollinations": ["chat", "image"],
+    "relay_pollinations": ["chat", "image"],
+    "google": ["chat", "image"],
+    "relay_gemini": ["chat", "image"],
+    "huggingface": ["chat", "image", "video"],
+    "groq": ["chat", "voice"],
+    "relay_groq": ["chat", "voice"],
+    "cloudflare": ["chat", "image", "voice"],
+    "openrouter": ["chat", "image"],
+    "relay_openrouter": ["chat", "image"],
+}
+
+
+def _provider_caps(name):
+    if name.startswith("custom_"):
+        return ["chat"]
+    return _PROVIDER_CAPS.get(name, ["chat"])
+
+
 def _model_caps(provider, model):
     """Capability tags for a model: chat, image, tts, stt, video, embedding, utility.
     Every model is used for what it's good at — the UI filters per mode."""
@@ -454,6 +863,30 @@ def _save_userkeys(label, keys_dict, password):
     p = _userkey_path(label)
     encrypt_keys(keys_dict, password, p)
     os.chmod(p, 0o600)
+    # Vault metadata for the admin console (provider + last-4 only —
+    # never key material): lets the owner see whose vault holds what
+    # without anyone decrypting a friend's vault.
+    try:
+        meta = [{"provider": str(k), "last4": str(v)[-4:]}
+                for k, v in sorted((keys_dict or {}).items())
+                if isinstance(v, str) and len(v) >= 8
+                and not str(k).endswith("_url")]
+        vm = dict(_SETTINGS.get("vault_meta") or {})
+        vm[label] = meta
+        _SETTINGS["vault_meta"] = vm
+        _save_settings()
+    except Exception:
+        pass
+
+
+def _session_meta(headers, fallback_ip=""):
+    """Bookkeeping stamped onto a new session: a short id (safe to show
+    and revoke by — never the token), the client IP and a device label."""
+    return {
+        "sid": secrets.token_hex(4),
+        "ip": _client_ip(headers, fallback_ip),
+        "ua": _ua_short(headers.get("User-Agent", "") if headers else ""),
+    }
 
 # Per-user saved chats: app/chats/<label>.enc, encrypted with the user's own
 # login password (master password for the admin). Synced to GitHub through
@@ -1391,6 +1824,46 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _console_kind(self):
+        """Who is calling the admin console: (kind, label) with kind in
+        admin | moderator | viewer | None. View-pass grants and
+        viewer-role friends are both read-only 'viewer'."""
+        info = self._session_info()
+        if not info:
+            return None, ""
+        label = info.get("label", "")
+        if info.get("admin"):
+            return "admin", label
+        if info.get("viewer"):
+            return "viewer", label
+        role = _friend_role(label)
+        if role in ("moderator", "viewer"):
+            return role, label
+        return None, label
+
+    def _ip_gate(self):
+        """Allowed-IPs gate for sign-in + console surfaces. Returns True
+        when the request may proceed; otherwise answers 403 itself."""
+        if _ip_allowed(_client_ip(self.headers, self.client_address[0])):
+            return True
+        _audit("System", "Console/sign-in blocked by IP allowlist",
+               ip=_client_ip(self.headers, self.client_address[0]))
+        self._set_json_headers(403)
+        self.wfile.write(json.dumps({
+            "error": "this instance only accepts sign-ins from allowed networks"}).encode())
+        return False
+
+    def _master_ok(self, data):
+        """The console's master-password proof: decrypting keys.enc."""
+        pw = (data or {}).get("master_pw") or ""
+        if not pw:
+            return False
+        try:
+            decrypt_keys(Path(__file__).parent / "keys.enc", pw)
+            return True
+        except Exception:
+            return False
+
     def _require_session(self):
         if not self._get_session():
             self.send_response(401)
@@ -1681,6 +2154,7 @@ class Handler(BaseHTTPRequestHandler):
                 "viewer": True,
                 "grant": hashlib.sha256(raw_token.encode()).hexdigest(),
                 "ts": time.time(), "hard_expires": grant["expires"],
+                **_session_meta(self.headers, self.client_address[0]),
             }
             self.send_response(302)
             self.send_header("Location", "/")
@@ -1950,6 +2424,36 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self._send_body(page.encode())
             return
+        # Public announcement (login + invite pages render the banner;
+        # carries no secrets — just the admin's notice + mode flags).
+        if parsed.path == "/api/announcement":
+            self._set_json_headers()
+            self._send_body(json.dumps({
+                "announcement": _SETTINGS.get("announcement", ""),
+                "maintenance": bool(_SETTINGS.get("maintenance")),
+                "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
+            }).encode())
+            return
+        if parsed.path == "/api/invite/info":
+            self._set_json_headers()
+            self._send_body(json.dumps({
+                "registration": _SETTINGS.get("registration", "invite"),
+                "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
+                "pw_min": int(_SETTINGS.get("pw_min") or 8),
+            }).encode())
+            return
+        # Public invite signup page (the redeem POST does the real work).
+        if parsed.path == "/invite":
+            try:
+                content = (Path(__file__).parent / "invite.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception:
+                self.send_error(500, "internal error")
+            return
         # Public login page
         if parsed.path == "/login":
             key_path = Path(__file__).parent / "keys.enc"
@@ -2211,6 +2715,7 @@ class Handler(BaseHTTPRequestHandler):
                     quotas["providers"].append({
                         "provider": name,
                         "display_name": provider_data.get("display_name", name.title()),
+                        "caps": _provider_caps(name),
                         "reset": provider_data.get("reset", ""),
                         "disabled": name in _disabled_providers(),
                         "history": history.get(name, {"requests": [0] * 7, "tokens": [0] * 7}),
@@ -2232,6 +2737,8 @@ class Handler(BaseHTTPRequestHandler):
                         quotas["providers"].append({
                             "provider": k,
                             "display_name": f"Relay: {cname.title()} (Custom)",
+                            "caps": ["chat"],
+                            "disabled": k in _disabled_providers(),
                             "reset": "",
                             "history": {"requests": [0] * 7, "tokens": [0] * 7},
                             "limits": {},
@@ -2245,6 +2752,8 @@ class Handler(BaseHTTPRequestHandler):
                         quotas["providers"].append({
                             "provider": k,
                             "display_name": f"FreeLLMAPI: {cname.title()} (Custom)",
+                            "caps": ["chat"],
+                            "disabled": k in _disabled_providers(),
                             "reset": "",
                             "history": {"requests": [0] * 7, "tokens": [0] * 7},
                             "limits": {},
@@ -2302,7 +2811,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(json.dumps(usage_data).encode())
             return
         if parsed.path == "/api/audit":
-            if not self._require_admin():
+            # Readable by every console role (owner, moderator, viewer) —
+            # the design's permission table gives viewers the audit log.
+            if self._console_kind()[0] is None:
+                return self._require_admin()
+            if not self._ip_gate():
                 return
             self._set_json_headers()
             self._send_body(json.dumps({
@@ -2312,7 +2825,9 @@ class Handler(BaseHTTPRequestHandler):
             }).encode())
             return
         if parsed.path == "/api/analytics":
-            if not self._require_admin():
+            if self._console_kind()[0] is None:
+                return self._require_admin()
+            if not self._ip_gate():
                 return
             rng = parse_qs(parsed.query).get("range", ["7d"])[0]
             if rng not in ("24h", "7d", "30d"):
@@ -2330,6 +2845,8 @@ class Handler(BaseHTTPRequestHandler):
                 bucket_fmt = lambda d: d.strftime("%d %b")
                 bucket_of = lambda d: d.replace(hour=0, minute=0, second=0, microsecond=0)
             series = {bucket_fmt(k): 0 for k in bucket_keys}
+            series_ms = {bucket_fmt(k): [0, 0] for k in bucket_keys}
+            all_ms = []
             per_provider, per_user = {}, {}
             tot_r = tot_t = 0
             ms_sum = ms_n = 0
@@ -2367,9 +2884,13 @@ class Handler(BaseHTTPRequestHandler):
                             if e.get("ms"):
                                 ms_sum += e["ms"]
                                 ms_n += 1
+                                all_ms.append(e["ms"])
                             bk = bucket_fmt(bucket_of(ts))
                             if bk in series:
                                 series[bk] += 1
+                                if e.get("ms"):
+                                    series_ms[bk][0] += e["ms"]
+                                    series_ms[bk][1] += 1
             except OSError:
                 pass
             fails = failovers = 0
@@ -2407,12 +2928,72 @@ class Handler(BaseHTTPRequestHandler):
                 "per_user": sorted(
                     ({"label": k, "requests": v} for k, v in per_user.items()),
                     key=lambda x: -x["requests"]),
-                "series": [{"label": k, "requests": v} for k, v in series.items()],
+                "series": [{"label": k, "requests": v,
+                            "avg_ms": round(series_ms[k][0] / series_ms[k][1]) if series_ms[k][1] else None}
+                           for k, v in series.items()],
                 "avg_ms": round(ms_sum / ms_n) if ms_n else None,
+                "p95_ms": (sorted(all_ms)[min(len(all_ms) - 1, int(len(all_ms) * 0.95))] if all_ms else None),
                 "fails": fails,
                 "failovers": failovers,
                 "success_rate": round(tot_r / denom * 100, 1) if denom else None,
             }).encode())
+            return
+        if parsed.path == "/api/usage_today":
+            # Per-friend usage for the console's Friends view: today's
+            # requests/tokens, top provider, a 7-day strip and (only when
+            # the admin enabled prompt logging) the latest prompt snippet.
+            _k, _me = self._console_kind()
+            if _k not in ("admin", "moderator"):
+                return self._require_admin()
+            if not self._ip_gate():
+                return
+            today = datetime.date.today()
+            days = [(today - datetime.timedelta(days=i)).isoformat()
+                    for i in range(6, -1, -1)]
+            users = {}
+            try:
+                if os.path.exists(USAGE_PATH):
+                    with open(USAGE_PATH) as f:
+                        for line in f:
+                            try:
+                                e = json.loads(line)
+                            except Exception:
+                                continue
+                            if not isinstance(e, dict) or e.get("type"):
+                                continue
+                            u = e.get("user")
+                            if not isinstance(u, str) or not u:
+                                continue
+                            d = str(e.get("ts", ""))[:10]
+                            if d not in days:
+                                continue
+                            rec = users.setdefault(u, {
+                                "requests": 0, "tokens": 0, "days": [0] * 7,
+                                "providers": {}, "last_prompt": None})
+                            rec["days"][days.index(d)] += 1
+                            if d == days[-1]:
+                                rec["requests"] += 1
+                                rec["tokens"] += (e.get("prompt_tokens", 0) or 0) \
+                                    + (e.get("completion_tokens", 0) or 0)
+                                p = e.get("provider")
+                                if isinstance(p, str) and p:
+                                    rec["providers"][p] = rec["providers"].get(p, 0) + 1
+                                if e.get("p"):
+                                    rec["last_prompt"] = str(e["p"])[:120]
+            except OSError:
+                pass
+            out = []
+            for u, rec in users.items():
+                top = max(rec["providers"].items(), key=lambda kv: kv[1])[0] \
+                    if rec["providers"] else None
+                out.append({"label": u, "requests": rec["requests"],
+                            "tokens": rec["tokens"], "days": rec["days"],
+                            "top_provider": top,
+                            "last_prompt": rec["last_prompt"]
+                            if _SETTINGS.get("log_prompts") else None})
+            out.sort(key=lambda x: -x["requests"])
+            self._set_json_headers()
+            self._send_body(json.dumps({"users": out}).encode())
             return
         if parsed.path == "/api/routing":
             # GET = read only. State changes go through POST /api/routing.
@@ -2527,10 +3108,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/admin":
             _ainfo = self._session_info()
-            if not _ainfo or not (_ainfo.get("admin") or _ainfo.get("viewer")):
+            _role = _friend_role(_ainfo.get("label", "")) if _ainfo else "friend"
+            if not _ainfo or not (_ainfo.get("admin") or _ainfo.get("viewer")
+                                  or _role in ("moderator", "viewer")):
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.end_headers()
+                return
+            if not _ip_allowed(_client_ip(self.headers, self.client_address[0])):
+                self.send_response(403)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>This instance only accepts sign-ins from allowed networks.</h1>")
                 return
             try:
                 content = (Path(__file__).parent / "admin.html").read_text(encoding="utf-8")
@@ -2609,6 +3198,10 @@ class Handler(BaseHTTPRequestHandler):
         if not _LABEL_RE.match(label):
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": "invalid label"}).encode())
+            return
+        if not _SETTINGS.get("friends_byok", True):
+            self._set_json_headers(403)
+            self.wfile.write(json.dumps({"error": "personal key vaults are disabled by the admin"}).encode())
             return
         if form is None:
             length = int(self.headers.get("Content-Length", 0))
@@ -2764,7 +3357,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 _login_attempts.pop(ip, None)
                 token = secrets.token_hex(32)
-                SESSIONS[token] = {"ts": time.time(), "label": label, "admin": False}
+                SESSIONS[token] = {"ts": time.time(), "label": label, "admin": False,
+                                   **_session_meta(self.headers, self.client_address[0])}
                 self._setup_save_user_keys({"label": label, "admin": False},
                                            form=form, fresh_token=token)
                 return
@@ -2942,7 +3536,9 @@ class Handler(BaseHTTPRequestHandler):
             # so keyless providers and BYOK lanes keep working; a per-lane
             # gate at dispatch returns the locked 503 only when NO attempt
             # lane can run without the owner's key.
-            if not _rl_ok("chat", self._get_session(), 40, 60):
+            _crate = _SETTINGS.get("chat_rate")
+            _crate = 40 if _crate is None else int(_crate)
+            if _crate and not _rl_ok("chat", self._get_session(), _crate, 60):
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "you're sending messages too fast — give it a few seconds"}).encode())
                 return
@@ -2957,8 +3553,16 @@ class Handler(BaseHTTPRequestHandler):
                     _chat_label, _SETTINGS.get("daily_cap", 200))
                 if _cap and _today_counts()["users"].get(_chat_label, 0) >= int(_cap):
                     _audit("Users", f"Daily cap hit: {_chat_label} ({_cap}/day)")
+                    _alert("cap_hit", "cap", {"label": _chat_label, "cap": int(_cap)})
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
+                    return
+                _gcap = int(_SETTINGS.get("global_cap") or 0)
+                if _gcap and sum(_today_counts()["users"].values()) >= _gcap:
+                    _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
+                    _alert("cap_hit", "cap", {"label": _chat_label, "cap": _gcap, "scope": "instance"})
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": f"the instance reached today's limit ({_gcap} requests/day)"}).encode())
                     return
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
@@ -2971,6 +3575,7 @@ class Handler(BaseHTTPRequestHandler):
             provider = data.get("provider")
             model = data.get("model")
             message = data.get("message")
+            _user_msg = message if isinstance(message, str) else ""
             mode = data.get("mode", "text")  # text, code, search, auto
             image = data.get("image")  # base64 data URI, optional
             file_data = data.get("file")  # {name, text/data, type}, optional
@@ -3428,6 +4033,10 @@ class Handler(BaseHTTPRequestHandler):
             # The loop below tries the chosen provider first, then fallbacks, so a
             # dead key / retired model / rate limit routes around automatically.
             def _attempt(prov, mdl, timeout, msgs=None):
+                # Per-provider timeout override (console setting).
+                _pto = (_SETTINGS.get("provider_timeouts") or {}).get(prov)
+                if _pto:
+                    timeout = int(_pto)
                 _t0 = time.time()
                 akey = _ekeys.get(prov) if _ekeys else None
                 if not akey and prov not in RELAY_KEYLESS:
@@ -3486,7 +4095,7 @@ class Handler(BaseHTTPRequestHandler):
                         resp_data = json.loads(resp.read().decode())
                         reply = resp_data["choices"][0]["message"]["content"]
                         usage = resp_data.get("usage", {})
-                        _append_usage({
+                        _urow = {
                             "ts": datetime.datetime.now().isoformat(),
                             "provider": prov, "model": mdl,
                             "prompt_tokens": usage.get("prompt_tokens", 0),
@@ -3494,7 +4103,10 @@ class Handler(BaseHTTPRequestHandler):
                             "user": _chat_label,
                             "ms": int((time.time() - _t0) * 1000),
                             "ok": True,
-                        })
+                        }
+                        if _SETTINGS.get("log_prompts") and _user_msg:
+                            _urow["p"] = _user_msg[:120]
+                        _append_usage(_urow)
                         return (True, reply)
                 except HTTPError as e:
                     if e.code == 503:
@@ -3531,7 +4143,10 @@ class Handler(BaseHTTPRequestHandler):
                     if cm and ((_ekeys or {}).get(cand) or cand in RELAY_KEYLESS):
                         _fb.append((cand, cm))
             healthy = [(p, m) for (p, m) in _fb if not _provider_down(p)]
-            _attempts += (healthy if healthy else _fb)
+            if _SETTINGS.get("skip_failing", True):
+                _attempts += (healthy if healthy else _fb)
+            else:
+                _attempts += _fb
             # Admin console policy: max attempts, provider order,
             # enable/disable and per-provider daily limits.
             _max_att = max(1, int(_SETTINGS.get("max_attempts") or 4))
@@ -3552,6 +4167,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _ord = {n: i for i, n in enumerate(_SETTINGS.get("provider_order") or [])}
             _attempts = [_kept[0]] + sorted(_kept[1:], key=lambda pm: _ord.get(pm[0], 999))
+            # Chain mode (console v2): the chosen provider always goes
+            # first; the fallback tail follows the instance's strategy.
+            _cmode = _SETTINGS.get("chain_mode", "priority")
+            if _cmode == "fastest" and len(_attempts) > 2:
+                _lat = _provider_latency()
+                _attempts = [_attempts[0]] + sorted(
+                    _attempts[1:], key=lambda pm: _lat.get(pm[0], 1e9))
+            elif _cmode == "round_robin" and len(_attempts) > 2:
+                _tail = _attempts[1:]
+                _k = _RR_COUNTER["i"] % len(_tail)
+                _RR_COUNTER["i"] += 1
+                _attempts = [_attempts[0]] + _tail[_k:] + _tail[:_k]
             if Handler.keys is None:
                 # Locked server: _ekeys holds ONLY the caller's own vault
                 # keys, so an attempt lane can run iff it is keyless or
@@ -3758,11 +4385,96 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": True, "status": status,
                 "refreshed_at": datetime.datetime.now().isoformat()}).encode())
             return
+        if parsed.path == "/api/invite/redeem":
+            # Self-service signup: an invite code (or open registration)
+            # creates a friend account and signs the new user in. Uses
+            # the same per-IP ledger as /api/login against brute force.
+            if not _rl_ok("invite", self.client_address[0], 10, 900):
+                self._set_json_headers(429)
+                self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(content_length) if content_length else b"{}"
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            mode_reg = _SETTINGS.get("registration", "invite")
+            if mode_reg == "closed":
+                self._set_json_headers(403)
+                self.wfile.write(json.dumps({"error": "signups are closed — ask the admin to add you"}).encode())
+                return
+            if _SETTINGS.get("maintenance"):
+                self._set_json_headers(403)
+                self.wfile.write(json.dumps({"error": "maintenance mode is on — try again later"}).encode())
+                return
+            label = (data.get("label") or "").strip().lower()
+            password = data.get("password") or ""
+            code = (data.get("code") or "").strip().upper()
+            if not _LABEL_RE.match(label) or label == "rudra":
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "username must be a-z, 0-9, _ (max 30 chars)"}).encode())
+                return
+            if len(password) < int(_SETTINGS.get("pw_min") or 8):
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": f"password must be at least {int(_SETTINGS.get('pw_min') or 8)} characters"}).encode())
+                return
+            access = _load_access()
+            if label in access:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "that username is taken"}).encode())
+                return
+            role = _SETTINGS.get("signup_role", "friend")
+            invite = None
+            if code:
+                h = hashlib.sha256(code.encode()).hexdigest()
+                for inv in (_SETTINGS.get("invites") or []):
+                    if inv.get("h") == h and not inv.get("used_by") \
+                            and inv.get("expires", 0) > time.time():
+                        invite = inv
+                        break
+                if not invite:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "invite code is invalid, used or expired"}).encode())
+                    return
+                role = invite.get("role", "friend")
+            elif mode_reg == "invite":
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "an invite code is required"}).encode())
+                return
+            access[label] = _hash_password(password)
+            _save_access(access)
+            if invite is not None:
+                invite["used_by"] = label
+                _save_settings()
+            if role in ("moderator", "viewer"):
+                roles = dict(_SETTINGS.get("roles") or {})
+                roles[label] = role
+                _SETTINGS["roles"] = roles
+                _save_settings()
+            _audit("Users", f"Signed up via invite: {label} ({role})",
+                   ip=_client_ip(self.headers, self.client_address[0]))
+            _alert("signup", "signup", {"label": label, "role": role})
+            token = secrets.token_hex(32)
+            sess = {"ts": time.time(), "label": label, "admin": False,
+                    "chat_pw": password}
+            sess.update(_session_meta(self.headers, self.client_address[0]))
+            SESSIONS[token] = sess
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Set-Cookie", f"session={token}; HttpOnly; Secure; SameSite=Lax; Path=/")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, "label": label, "role": role}).encode())
+            return
         if parsed.path == "/api/login":
+            if not self._ip_gate():
+                return
             ip = self.client_address[0]
             now = time.time()
             recent = [t for t in _login_attempts.get(ip, []) if now - t < 900]
-            if len(recent) >= 10:
+            if _SETTINGS.get("login_lockout", True) and len(recent) >= 10:
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                 return
@@ -3818,6 +4530,7 @@ class Handler(BaseHTTPRequestHandler):
                 _login_attempts.pop(ip, None)
                 token = secrets.token_hex(32)
                 sess = {"ts": time.time(), "label": "Rudra", "admin": True}
+                sess.update(_session_meta(self.headers, self.client_address[0]))
                 # Chat authorization travels as the opaque unlock handle
                 # minted at the password step — never the password itself.
                 _uid = pend.get("chat_unlock")
@@ -3867,7 +4580,8 @@ class Handler(BaseHTTPRequestHandler):
                     recent.append(now)
                     _login_attempts[ip] = recent
                     time.sleep(1)
-                    _audit("System", "Failed sign-in attempt")
+                    _audit("System", "Failed sign-in attempt",
+                           ip=_client_ip(self.headers, ip))
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                     return
@@ -3904,6 +4618,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             token = secrets.token_hex(32)
             sess = {"ts": time.time(), "label": label, "admin": is_admin}
+            sess.update(_session_meta(self.headers, self.client_address[0]))
             if is_admin:
                 # Same wrapped-DEK chat unlock as the 2FA path: the master
                 # password itself is never stored in an admin session.
@@ -3928,8 +4643,10 @@ class Handler(BaseHTTPRequestHandler):
             cookie = f"session={token}; HttpOnly; Secure; SameSite=Lax; Path=/"
             self.send_header("Set-Cookie", cookie)
             self.end_headers()
-            _audit("System", f"Signed in: {label} ({'admin' if is_admin else 'friend'})")
-            self.wfile.write(json.dumps({"ok": True, "admin": is_admin, "label": label}).encode())
+            _audit("System", f"Signed in: {label} ({'admin' if is_admin else 'friend'})",
+                   ip=_client_ip(self.headers, ip))
+            self.wfile.write(json.dumps({"ok": True, "admin": is_admin, "label": label,
+                                         "role": "owner" if is_admin else _friend_role(label)}).encode())
             return
         if parsed.path == "/api/logout":
             cookie = SimpleCookie(self.headers.get("Cookie", ""))
@@ -3980,31 +4697,85 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(data, dict):
                 data = {}
             action = data.get("action", "list")
-            _ainfo = self._session_info()
-            if _ainfo and _ainfo.get("viewer"):
+            # Console roles (owner design v2): the admin is the owner;
+            # friends the owner promoted sign in as moderator (manage
+            # users + vaults, no settings/danger zone) or viewer
+            # (read-only, like a view pass). Everyone else keeps the
+            # historical behaviour: admin or nothing.
+            _kind, _clabel = self._console_kind()
+            if _kind is None:
+                if not self._require_admin():
+                    return
+            if not self._ip_gate():
+                return
+            if _kind == "viewer":
                 # Viewers may only READ here: the friend list / sessions
                 # and the 2FA state line the admin page renders.
                 if action not in ("list", "2fa_state"):
                     self._set_json_headers(403)
                     self.wfile.write(json.dumps({"error": "read-only access"}).encode())
                     return
-            elif not self._require_admin():
+            if _kind == "moderator" and action in (
+                    "revoke", "change_master", "viewpass_create",
+                    "viewpass_list", "viewpass_revoke", "2fa_status",
+                    "2fa_enable", "2fa_confirm", "2fa_disable",
+                    "settings_set", "audit_clear", "custom_provider_save",
+                    "custom_provider_remove", "factory_reset",
+                    "webhook_test"):
+                self._set_json_headers(403)
+                self.wfile.write(json.dumps({"error": "owner only"}).encode())
                 return
+            _actor = f" (by moderator {_clabel})" if _kind == "moderator" else ""
+
+            def _stored_label2(raw):
+                want = (raw or "").strip().lower()
+                for k in _load_access().keys():
+                    if k.lower() == want:
+                        return k
+                return None
+
+            def _dual_master(data):
+                """Owner-or-moderator authorisation for user-management
+                actions: the owner proves the master password (as
+                always); a moderator's own signed-in session is their
+                credential. Returns an error string or None."""
+                if _kind == "moderator":
+                    return None
+                if _kind == "admin":
+                    return None if self._master_ok(data) \
+                        else "wrong master password"
+                return "not allowed"
             if action == "list":
                 access = _load_access()
                 sessions = []
                 for tok, sess in SESSIONS.items():
                     if isinstance(sess, dict):
-                        sessions.append({"label": sess.get("label", "?"), "admin": sess.get("admin", False), "viewer": bool(sess.get("viewer"))})
+                        sessions.append({
+                            "label": sess.get("label", "?"),
+                            "admin": sess.get("admin", False),
+                            "viewer": bool(sess.get("viewer")),
+                            "sid": sess.get("sid"),
+                            "ip": sess.get("ip", ""),
+                            "ua": sess.get("ua", ""),
+                            "ts": sess.get("ts", 0),
+                        })
+                _my_tok = self._get_session()
+                _my_sid = (SESSIONS.get(_my_tok) or {}).get("sid") \
+                    if _my_tok else None
+                _vm = _SETTINGS.get("vault_meta") or {}
                 self._set_json_headers()
                 self.wfile.write(json.dumps({
                     "access": [{"label": l,
                                 "vault": _userkey_path(l).exists(),
                                 "suspended": _friend_blocked(l) == "suspended",
+                                "role": _friend_role(l),
+                                "keys": len(_vm.get(l) or []),
                                 "cap": (_SETTINGS.get("user_caps") or {}).get(l)} for l in sorted(access.keys())],
                     "sessions": sessions,
                     "maintenance": bool(_SETTINGS.get("maintenance")),
                     "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
+                    "announcement": _SETTINGS.get("announcement", ""),
+                    "you": {"kind": _kind, "label": _clabel, "sid": _my_sid},
                 }).encode())
                 return
             if action == "viewpass_create":
@@ -4080,6 +4851,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
             if action == "settings_get":
+                if _kind == "moderator":
+                    # Moderators see the console's status, never the
+                    # owner's full settings (no webhook, allowlist, caps
+                    # policy or danger-zone configuration).
+                    _lite = {k: _SETTINGS.get(k) for k in (
+                        "maintenance", "instance_name", "announcement",
+                        "daily_cap", "global_cap", "quota_alert_pct",
+                        "latency_alert_s", "vault_meta", "roles")}
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({
+                        "ok": True, "lite": True, "settings": _lite,
+                        "system": _system_metrics(),
+                        "failovers_today": _audit_count_today("Failover handled", "Providers"),
+                    }).encode())
+                    return
                 self._set_json_headers()
                 self.wfile.write(json.dumps({
                     "ok": True,
@@ -4088,11 +4874,344 @@ class Handler(BaseHTTPRequestHandler):
                     "failovers_today": _audit_count_today("Failover handled", "Providers"),
                 }).encode())
                 return
-            if action in ("settings_set", "provider_health_reset",
-                          "audit_clear", "friend_vault_clear",
-                          "friend_key_add", "friend_reset_pw",
+            # ---- User management (owner with master proof, or a
+            # moderator on their own session — see _dual_master) ----
+            if action in ("friend_set_cap", "friend_set_suspended",
+                          "friend_role_set", "provider_health_reset",
+                          "friend_vault_clear", "friend_key_add",
+                          "friend_reset_pw", "invite_create",
+                          "invite_list", "invite_revoke",
+                          "simulate_failure", "session_revoke",
+                          "sessions_revoke_all", "friend_usage_reset"):
+                _derr = _dual_master(data)
+                if _derr:
+                    self._set_json_headers(
+                        401 if _derr == "wrong master password" else 403)
+                    self.wfile.write(json.dumps({"error": _derr}).encode())
+                    return
+                master_pw = data.get("master_pw") or ""
+                if action == "friend_set_cap":
+                    stored = _stored_label2(data.get("label"))
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    caps = dict(_SETTINGS.get("user_caps") or {})
+                    if data.get("cap") is None:
+                        caps.pop(stored, None)
+                    else:
+                        try:
+                            _c = int(data.get("cap"))
+                        except Exception:
+                            _c = -1
+                        if not 0 <= _c <= 100000:
+                            self._set_json_headers(400)
+                            self.wfile.write(json.dumps({"error": "cap must be 0-100000"}).encode())
+                            return
+                        caps[stored] = _c
+                    _SETTINGS["user_caps"] = caps
+                    _save_settings()
+                    _audit("Users", f"Daily cap set: {stored} → {caps.get(stored, 'default')}{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "friend_set_suspended":
+                    stored = _stored_label2(data.get("label"))
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    susp = [x for x in (_SETTINGS.get("suspended") or [])
+                            if x != stored]
+                    if data.get("on"):
+                        susp.append(stored)
+                    _SETTINGS["suspended"] = susp
+                    _save_settings()
+                    _audit("Users", f"{stored} {'suspended' if data.get('on') else 'restored'}{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "friend_role_set":
+                    stored = _stored_label2(data.get("label"))
+                    role = (data.get("role") or "").strip()
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    if role not in ("friend", "moderator", "viewer"):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "role must be friend, moderator or viewer"}).encode())
+                        return
+                    if _kind == "moderator" and (role == "moderator"
+                                                 or stored == _clabel):
+                        # No privilege escalation, no self-demotion games.
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "moderators cannot grant or change moderator roles"}).encode())
+                        return
+                    roles = dict(_SETTINGS.get("roles") or {})
+                    if role == "friend":
+                        roles.pop(stored, None)
+                    else:
+                        roles[stored] = role
+                    _SETTINGS["roles"] = roles
+                    _save_settings()
+                    _audit("Users", f"Role set: {stored} → {role}{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "provider_health_reset":
+                    _PROVIDER_HEALTH.clear()
+                    _audit("Providers", f"Provider statuses reset (circuit breaker cleared){_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "friend_vault_clear":
+                    stored = _stored_label2(data.get("label"))
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    vp = _userkey_path(stored)
+                    existed = vp.exists()
+                    if existed:
+                        vp.unlink()
+                    vm = dict(_SETTINGS.get("vault_meta") or {})
+                    if stored in vm:
+                        del vm[stored]
+                        _SETTINGS["vault_meta"] = vm
+                        _save_settings()
+                    _audit("Vault", f"Personal vault cleared: {stored}{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "existed": existed}).encode())
+                    return
+                if action == "friend_key_add":
+                    stored = _stored_label2(data.get("label"))
+                    provider = (data.get("provider") or "").strip()
+                    key = (data.get("key") or "").strip()
+                    friend_pw = data.get("friend_pw") or ""
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    if not _re.match(r"^[a-z0-9_]+$", provider) or provider.startswith("_"):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "invalid provider name"}).encode())
+                        return
+                    if not key or len(key) > 400:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "key required (max 400 chars)"}).encode())
+                        return
+                    if not _SETTINGS.get("friends_byok", True):
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "personal key vaults are disabled by the admin"}).encode())
+                        return
+                    access = _load_access()
+                    ok_pw, needs_up = _verify_password(friend_pw, access.get(stored, ""))
+                    if not ok_pw:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong password for that friend"}).encode())
+                        return
+                    if needs_up:
+                        access[stored] = _hash_password(friend_pw)
+                        _save_access(access, master_pw)
+                    vault = _load_userkeys(stored, friend_pw) or {}
+                    vault[provider] = key
+                    _save_userkeys(stored, vault, friend_pw)
+                    _audit("Vault", f"Key added for {stored}: {provider}{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "friend_reset_pw":
+                    stored = _stored_label2(data.get("label"))
+                    new_pw = data.get("new_password") or ""
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    if len(new_pw) < 6:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "new password must be at least 6 characters"}).encode())
+                        return
+                    access = _load_access()
+                    access[stored] = _hash_password(new_pw)
+                    _save_access(access, master_pw)
+                    # Their vault and saved chats are encrypted under
+                    # the old password — remove them, like revoke does.
+                    for _p in (_userkey_path(stored), _chat_path(stored)):
+                        try:
+                            if _p.exists():
+                                _p.unlink()
+                        except Exception:
+                            pass
+                    vm = dict(_SETTINGS.get("vault_meta") or {})
+                    if stored in vm:
+                        del vm[stored]
+                        _SETTINGS["vault_meta"] = vm
+                        _save_settings()
+                    for tok in [t for t, s in SESSIONS.items()
+                                if isinstance(s, dict) and s.get("label") == stored]:
+                        del SESSIONS[tok]
+                    _audit("Users", f"Password reset: {stored} (vault + saved chats removed){_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "invite_create":
+                    role = (data.get("role") or "friend").strip()
+                    days = data.get("days")
+                    if role not in ("friend", "moderator", "viewer"):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "role must be friend, moderator or viewer"}).encode())
+                        return
+                    if _kind == "moderator" and role == "moderator":
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "moderators cannot invite moderators"}).encode())
+                        return
+                    if days not in (1, 7, 30):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "expiry must be 1, 7 or 30 days"}).encode())
+                        return
+                    invites = [i for i in (_SETTINGS.get("invites") or [])
+                               if not i.get("used_by")
+                               and i.get("expires", 0) > time.time()]
+                    if len(invites) >= 10:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "too many active invites (max 10) — revoke one first"}).encode())
+                        return
+                    _alpha = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+                    code = "".join(secrets.choice(_alpha) for _ in range(6))
+                    h = hashlib.sha256(code.encode()).hexdigest()
+                    invites.append({"h": h, "role": role,
+                                    "created": time.time(),
+                                    "expires": time.time() + days * 86400,
+                                    "used_by": None})
+                    _SETTINGS["invites"] = invites
+                    _save_settings()
+                    _audit("Users", f"Invite created: {code[:2]}••• ({role}, {days}d){_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({
+                        "ok": True, "code": code,
+                        "expires": time.time() + days * 86400}).encode())
+                    return
+                if action == "invite_list":
+                    out = []
+                    for i in (_SETTINGS.get("invites") or []):
+                        out.append({
+                            "id": i["h"][:8], "role": i.get("role", "friend"),
+                            "created": i.get("created", 0),
+                            "expires": i.get("expires", 0),
+                            "used_by": i.get("used_by"),
+                            "expired": not i.get("used_by")
+                            and i.get("expires", 0) <= time.time()})
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "invites": out}).encode())
+                    return
+                if action == "invite_revoke":
+                    gid = (data.get("id") or "").strip()
+                    invites = _SETTINGS.get("invites") or []
+                    keep = [i for i in invites
+                            if not (len(gid) >= 6 and i["h"].startswith(gid))]
+                    if len(keep) == len(invites):
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "invite not found"}).encode())
+                        return
+                    _SETTINGS["invites"] = keep
+                    _save_settings()
+                    _audit("Users", f"Invite revoked{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "simulate_failure":
+                    want = (data.get("provider") or "").strip()
+                    dis = _disabled_providers()
+                    cand = [p for p in _ordered_provider_names()
+                            if p not in dis and not _provider_down(p)]
+                    target = want if want in cand else (cand[0] if cand else None)
+                    if not target:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "no healthy provider to simulate against"}).encode())
+                        return
+                    _PROVIDER_HEALTH[target] = {
+                        "fails": 99, "down_until": time.time() + 60,
+                        "sim": True}
+                    _audit("Providers", f"Simulated failure: {target} marked down for 60s{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "provider": target}).encode())
+                    return
+                if action == "session_revoke":
+                    sid = (data.get("sid") or "").strip()
+                    my_tok = self._get_session()
+                    hit = None
+                    for tok, s in SESSIONS.items():
+                        if isinstance(s, dict) and s.get("sid") == sid:
+                            hit = tok
+                            break
+                    if not hit:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "session not found"}).encode())
+                        return
+                    if hit == my_tok:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "use sign out for your own session"}).encode())
+                        return
+                    _lbl = SESSIONS[hit].get("label", "?")
+                    _drop_chat_unlock(SESSIONS[hit].get("chat_unlock"))
+                    del SESSIONS[hit]
+                    _audit("Users", f"Session revoked: {_lbl}{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "sessions_revoke_all":
+                    my_tok = self._get_session()
+                    n = 0
+                    for tok in [t for t, s in SESSIONS.items()
+                                if isinstance(s, dict)
+                                and not s.get("admin") and t != my_tok]:
+                        _drop_chat_unlock(SESSIONS[tok].get("chat_unlock"))
+                        del SESSIONS[tok]
+                        n += 1
+                    _audit("Users", f"All other sessions signed out ({n}){_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "revoked": n}).encode())
+                    return
+                if action == "friend_usage_reset":
+                    stored = _stored_label2(data.get("label"))
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    today = datetime.date.today().isoformat()
+                    n = 0
+                    try:
+                        if os.path.exists(USAGE_PATH):
+                            with open(USAGE_PATH) as f:
+                                lines = f.readlines()
+                            keep = []
+                            for line in lines:
+                                try:
+                                    e = json.loads(line)
+                                except Exception:
+                                    keep.append(line)
+                                    continue
+                                if isinstance(e, dict) \
+                                        and e.get("user") == stored \
+                                        and str(e.get("ts", ""))[:10] == today:
+                                    n += 1
+                                    continue
+                                keep.append(line)
+                            tmp = str(USAGE_PATH) + ".tmp"
+                            with open(tmp, "w") as f:
+                                f.writelines(keep)
+                            os.replace(tmp, USAGE_PATH)
+                    except Exception:
+                        pass
+                    _TODAY_CACHE["ts"] = 0.0
+                    _audit("Users", f"Usage reset for {stored} ({n} rows today){_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "removed": n}).encode())
+                    return
+            if action in ("settings_set", "audit_clear",
                           "custom_provider_save", "custom_provider_remove",
-                          "factory_reset"):
+                          "factory_reset", "webhook_test"):
                 # All console mutations are master-password gated, the
                 # same proof the other sensitive actions use.
                 master_pw = data.get("master_pw") or ""
@@ -4124,12 +5243,23 @@ class Handler(BaseHTTPRequestHandler):
                     _SETTINGS.update(clean)
                     _save_settings()
                     _audit("System", "Settings changed: " + ", ".join(sorted(clean.keys())))
+                    if "maintenance" in clean:
+                        _fire_webhook("maintenance",
+                                      {"on": bool(clean["maintenance"])})
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True, "settings": _SETTINGS}).encode())
                     return
-                if action == "provider_health_reset":
-                    _PROVIDER_HEALTH.clear()
-                    _audit("Providers", "Provider statuses reset (circuit breaker cleared)")
+                if action == "webhook_test":
+                    url = (_SETTINGS.get("webhook_url") or "").strip()
+                    if not url:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "no webhook URL configured"}).encode())
+                        return
+                    if not _fire_webhook("test", {"note": "Nexus Local webhook test"}):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "webhook URL is not a public http(s) address"}).encode())
+                        return
+                    _audit("System", "Webhook test sent")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
                     return
@@ -4139,82 +5269,6 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                     _audit("System", "Audit log cleared")
-                    self._set_json_headers()
-                    self.wfile.write(json.dumps({"ok": True}).encode())
-                    return
-                if action == "friend_vault_clear":
-                    stored = _stored_label(data.get("label"))
-                    if not stored:
-                        self._set_json_headers(404)
-                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
-                        return
-                    vp = _userkey_path(stored)
-                    existed = vp.exists()
-                    if existed:
-                        vp.unlink()
-                    _audit("Vault", f"Personal vault cleared: {stored}")
-                    self._set_json_headers()
-                    self.wfile.write(json.dumps({"ok": True, "existed": existed}).encode())
-                    return
-                if action == "friend_key_add":
-                    stored = _stored_label(data.get("label"))
-                    provider = (data.get("provider") or "").strip()
-                    key = (data.get("key") or "").strip()
-                    friend_pw = data.get("friend_pw") or ""
-                    if not stored:
-                        self._set_json_headers(404)
-                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
-                        return
-                    if not _re.match(r"^[a-z0-9_]+$", provider) or provider.startswith("_"):
-                        self._set_json_headers(400)
-                        self.wfile.write(json.dumps({"error": "invalid provider name"}).encode())
-                        return
-                    if not key or len(key) > 400:
-                        self._set_json_headers(400)
-                        self.wfile.write(json.dumps({"error": "key required (max 400 chars)"}).encode())
-                        return
-                    access = _load_access()
-                    ok_pw, needs_up = _verify_password(friend_pw, access.get(stored, ""))
-                    if not ok_pw:
-                        self._set_json_headers(401)
-                        self.wfile.write(json.dumps({"error": "wrong password for that friend"}).encode())
-                        return
-                    if needs_up:
-                        access[stored] = _hash_password(friend_pw)
-                        _save_access(access, master_pw)
-                    vault = _load_userkeys(stored, friend_pw) or {}
-                    vault[provider] = key
-                    _save_userkeys(stored, vault, friend_pw)
-                    _audit("Vault", f"Key added for {stored}: {provider}")
-                    self._set_json_headers()
-                    self.wfile.write(json.dumps({"ok": True}).encode())
-                    return
-                if action == "friend_reset_pw":
-                    stored = _stored_label(data.get("label"))
-                    new_pw = data.get("new_password") or ""
-                    if not stored:
-                        self._set_json_headers(404)
-                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
-                        return
-                    if len(new_pw) < 6:
-                        self._set_json_headers(400)
-                        self.wfile.write(json.dumps({"error": "new password must be at least 6 characters"}).encode())
-                        return
-                    access = _load_access()
-                    access[stored] = _hash_password(new_pw)
-                    _save_access(access, master_pw)
-                    # Their vault and saved chats are encrypted under
-                    # the old password — remove them, like revoke does.
-                    for _p in (_userkey_path(stored), _chat_path(stored)):
-                        try:
-                            if _p.exists():
-                                _p.unlink()
-                        except Exception:
-                            pass
-                    for tok in [t for t, s in SESSIONS.items()
-                                if isinstance(s, dict) and s.get("label") == stored]:
-                        del SESSIONS[tok]
-                    _audit("Users", f"Password reset: {stored} (vault + saved chats removed)")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
                     return
@@ -4275,7 +5329,7 @@ class Handler(BaseHTTPRequestHandler):
                                 if isinstance(s, dict) and not s.get("admin")]:
                         del SESSIONS[tok]
                     _SETTINGS.clear()
-                    _SETTINGS.update(_SETTINGS_DEFAULTS)
+                    _SETTINGS.update(json.loads(json.dumps(_SETTINGS_DEFAULTS)))
                     _save_settings()
                     _PROVIDER_HEALTH.clear()
                     try:
@@ -4290,15 +5344,22 @@ class Handler(BaseHTTPRequestHandler):
                 label = (data.get("label") or "").strip().lower()
                 password = data.get("password") or ""
                 master_pw = data.get("master_pw") or ""
-                if not label or not password or len(password) < 6:
+                # A moderator adds users on their own session (the
+                # account still persists via the access.enc mirror; the
+                # legacy users.enc refresh happens at the owner's next
+                # master-password save). Their password rule is the
+                # console's pw_min policy; the owner's stays min 6.
+                _mod_add = _kind == "moderator"
+                _min_pw = int(_SETTINGS.get("pw_min") or 8) if _mod_add else 6
+                if not label or not password or len(password) < _min_pw:
                     self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "label and password (min 6 chars) required"}).encode())
+                    self.wfile.write(json.dumps({"error": f"label and password (min {_min_pw} chars) required"}).encode())
                     return
                 if not _LABEL_RE.match(label):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "label must be a-z, 0-9, _ (max 30 chars)"}).encode())
                     return
-                if not master_pw:
+                if not _mod_add and not master_pw:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "master password required to persist"}).encode())
                     return
@@ -4307,16 +5368,31 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "label already exists"}).encode())
                     return
-                # Verify master password by decrypting keys.enc
-                try:
-                    decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
-                except Exception:
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
-                    return
+                if not _mod_add:
+                    # Verify master password by decrypting keys.enc
+                    try:
+                        decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
+                    except Exception:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                        return
                 access[label] = _hash_password(password)
-                _save_access(access, master_pw)
-                _audit("Users", f"Friend added: {label}")
+                _save_access(access, None if _mod_add else master_pw)
+                # Optional role + cap straight from the add-user dialog.
+                _nrole = (data.get("role") or "friend").strip()
+                if _nrole in ("moderator", "viewer") \
+                        and not (_mod_add and _nrole == "moderator"):
+                    roles = dict(_SETTINGS.get("roles") or {})
+                    roles[label] = _nrole
+                    _SETTINGS["roles"] = roles
+                    _save_settings()
+                if isinstance(data.get("cap"), (int, float)) \
+                        and 0 <= int(data["cap"]) <= 100000:
+                    caps = dict(_SETTINGS.get("user_caps") or {})
+                    caps[label] = int(data["cap"])
+                    _SETTINGS["user_caps"] = caps
+                    _save_settings()
+                _audit("Users", f"Friend added: {label}{_actor}")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
@@ -4345,6 +5421,15 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     del access[label]
                     _save_access(access, master_pw)
+                    # Drop their console role + vault metadata too
+                    _roles = dict(_SETTINGS.get("roles") or {})
+                    _vm = dict(_SETTINGS.get("vault_meta") or {})
+                    if label in _roles or label in _vm:
+                        _roles.pop(label, None)
+                        _vm.pop(label, None)
+                        _SETTINGS["roles"] = _roles
+                        _SETTINGS["vault_meta"] = _vm
+                        _save_settings()
                     # Delete their personal key vault too
                     try:
                         vp = _userkey_path(label)
@@ -4708,6 +5793,10 @@ class Handler(BaseHTTPRequestHandler):
                 }).encode())
                 return
             if action == "save":
+                if not _SETTINGS.get("friends_byok", True):
+                    self._set_json_headers(403)
+                    self.wfile.write(json.dumps({"error": "personal key vaults are disabled by the admin"}).encode())
+                    return
                 password = data.get("password") or ""
                 if not password:
                     self._set_json_headers(400)
@@ -4773,6 +5862,7 @@ def main():
     _boot_restore_access()
     _boot_restore_settings()
     _load_v1key()
+    threading.Thread(target=_housekeeper, daemon=True).start()
     httpd = ThreadingHTTPServer(addr, Handler)
     print(f"Serving on {addr[0]}:{addr[1]} – press Ctrl-C to stop")
     try:

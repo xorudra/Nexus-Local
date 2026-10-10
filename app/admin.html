@@ -13,11 +13,9 @@
 :root[data-theme="dark"]{--bg:#050505;--panel:rgba(14,14,14,.58);--line:rgba(255,255,255,.14);--tx:#f2f2f2;--mu:#8e8e8e;--wire:#fff}
 *{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 "Space Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
-.mono,h2,code,.dock b,small{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.mono,h2,code,small{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
 #bg{position:fixed;inset:0;width:100%;height:100%;z-index:0}
 .stage{position:relative;z-index:1;max-width:1560px;margin:auto;padding:16px 16px 56px;display:grid;--l:232px;--r:268px;grid-template-columns:var(--l) minmax(0,1fr) var(--r);gap:16px;align-items:start;transition:grid-template-columns .3s}main{min-width:0}
-.dock{position:sticky;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:20;display:flex;align-items:center;gap:12px;padding:7px 8px 7px 16px;margin-top:10px;border-radius:999px;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
-.dock b{font-size:12px;letter-spacing:.22em;display:flex;align-items:center;gap:9px}.dock b i{width:13px;height:13px;background:var(--tx);transform:rotate(45deg)}
 nav{display:flex;gap:2px;margin:0 auto;overflow-x:auto;scrollbar-width:none}
 nav button,.ib{all:unset;cursor:pointer;padding:7px 14px;border-radius:999px;color:var(--mu);white-space:nowrap;font-size:13px}
 nav button:hover,.ib:hover{color:var(--tx)}nav button.on,.ib.on{background:var(--tx);color:var(--bg)}
@@ -49,68 +47,68 @@ input:focus,textarea:focus,select:focus{border-color:var(--tx)}
 .bar{height:5px;background:var(--line);border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;background:var(--tx)}
 .rw{display:flex;align-items:center;gap:8px;padding:5px 0}.rw>.bar{flex:1}.rw .mono{margin-left:auto}
 .log{font:11.5px "JetBrains Mono",monospace;color:var(--mu);max-height:200px;overflow:auto}
-.msgs{height:380px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:2px 2px 14px}
-.m{max-width:78%;padding:9px 13px;border-radius:14px;background:var(--line)}.m.u{align-self:flex-end;background:var(--tx);color:var(--bg)}
-.m small{display:block;color:var(--mu);margin-bottom:2px}
-.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
-.tile{border:1px solid var(--line);border-radius:14px;padding:8px;overflow:hidden}.tile svg,.vid{width:100%;aspect-ratio:1;display:block;color:var(--tx)}
-.vid{position:relative;overflow:hidden;border-radius:8px;display:grid;place-items:center}.vid::before{content:"";position:absolute;inset:-50%;background:conic-gradient(var(--line),transparent,var(--line));animation:rot 6s linear infinite}.vid span{position:relative}
-@keyframes rot{to{transform:rotate(1turn)}}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
 .av{width:38px;height:38px;border-radius:12px;background:var(--tx);color:var(--bg);display:grid;place-items:center;font-weight:700}
-.vr{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.vr code{margin-left:auto;color:var(--mu)}.lb{position:fixed;z-index:30;pointer-events:none;padding:4px 10px;border-radius:8px;background:var(--tx);color:var(--bg);font:11px "JetBrains Mono",monospace;transform:translate(14px,-50%);white-space:nowrap}.lb[hidden]{display:none}[hidden]{display:none!important}.sbf .tools{grid-template-columns:repeat(4,1fr)}#lg{align-items:center;padding-top:0;background:rgba(0,0,0,.3);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}#lg .box{align-self:center;text-align:center}.ov{position:fixed;inset:0;z-index:50;display:flex;justify-content:center;padding-top:12vh;background:rgba(0,0,0,.4)}.ov[hidden]{display:none}.ov .box{width:min(460px,92vw);align-self:flex-start;border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:18px}.ov label{display:block;font-size:12px;color:var(--mu);margin-bottom:4px}.mt{margin:10px auto 0;width:max-content;max-width:100%;padding:6px 16px;border-radius:999px;border:1px dashed var(--tx);font:11px "JetBrains Mono",monospace;text-align:center}.mt[hidden]{display:none}
+.vr{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.vr code{margin-left:auto;color:var(--mu)}
+.lb{position:fixed;z-index:30;pointer-events:none;padding:4px 10px;border-radius:8px;background:var(--tx);color:var(--bg);font:11px "JetBrains Mono",monospace;transform:translate(14px,-50%);white-space:nowrap}.lb[hidden]{display:none}[hidden]{display:none!important}
+.ov{position:fixed;inset:0;z-index:50;display:flex;justify-content:center;padding-top:12vh;background:rgba(0,0,0,.4)}.ov[hidden]{display:none}.ov .box{width:min(460px,92vw);align-self:flex-start;border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:18px}.ov label{display:block;font-size:12px;color:var(--mu);margin-bottom:4px}
+.mt{margin:10px auto 0;width:max-content;max-width:100%;padding:6px 16px;border-radius:999px;border:1px dashed var(--tx);font:11px "JetBrains Mono",monospace;text-align:center}.mt[hidden]{display:none}
 .side{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);height:calc(100vh - 32px);display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:20px;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);overflow:auto;scrollbar-width:none}
-.side .logo{display:flex;align-items:center;gap:10px;font:500 12px "JetBrains Mono",monospace;letter-spacing:.22em;margin:4px 6px 10px}.side .logo i{width:13px;height:13px;background:var(--tx);transform:rotate(45deg);flex:none}
 .side nav{flex-direction:column;margin:0;gap:2px;overflow:visible}
-.side nav button{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;border-radius:12px;padding:10px 12px}
-.side i{font-style:normal;width:18px;text-align:center;flex:none}
+.side nav button{position:relative;display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;border-radius:12px;padding:10px 12px}
 .side nav em{margin-left:auto;font:500 10px "JetBrains Mono",monospace;font-style:normal;padding:1px 7px;border-radius:99px;background:var(--line)}.side nav em:empty{display:none}
-.nl{font:500 10px "JetBrains Mono",monospace;letter-spacing:.16em;color:var(--mu);margin:14px 8px 4px}
-.sbf{margin-top:auto;display:grid;gap:6px}.sbf .ib{display:flex;align-items:center;gap:10px;border-radius:12px;padding:8px 12px}
+.sbf{margin-top:auto;display:grid;gap:6px}
 .side.r h2{margin:14px 0 6px}.side.r h2:first-child{margin-top:2px}.side .rw{flex-wrap:wrap}.side .btn{display:block;width:100%;box-sizing:border-box}
-.stage.c{--l:70px}.stage.c .side.l span,.stage.c .side.l em,.stage.c .nl,.stage.c .who>div:last-child{display:none}.stage.c .side.l nav button{justify-content:center;padding:10px 0}.stage.c .side.l .ib{justify-content:center;padding:8px 0}.stage.c .logo{justify-content:center}
-.stage.nr,.stage.nr.c{grid-template-columns:var(--l) minmax(0,1fr)}.stage.nr .side.r{display:none}
-.side.l{padding:12px 10px;gap:4px}
 .ws{display:flex;align-items:center;gap:10px;padding:6px 8px;margin-bottom:10px}.ws .lg{width:34px;height:34px;border-radius:11px;background:var(--tx);color:var(--bg);display:grid;place-items:center;flex:none}.ws b{display:block;font:600 13px "Space Grotesk",sans-serif;line-height:1.2}.ws small{color:var(--mu);display:flex;align-items:center}
+.side.l{padding:12px 10px;gap:4px}
 .side.l svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .side nav button{color:var(--mu);transition:color .15s,background .15s}.side nav button:hover{background:var(--line);color:var(--tx)}
-.side.l nav button span{flex:1;text-align:left}.side nav button kbd{border-color:transparent;opacity:.45}
+.side.l nav button span{flex:1;text-align:left}
 .side nav button.on{background:var(--line);color:var(--tx);box-shadow:inset 0 0 0 1px var(--line)}
 .side nav button.on::before{content:"";position:absolute;left:-10px;top:22%;bottom:22%;width:3px;border-radius:3px;background:var(--tx);box-shadow:0 0 10px var(--tx)}
-.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.tl{all:unset;cursor:pointer;display:grid;place-items:center;height:34px;border-radius:10px;border:1px solid var(--line);color:var(--mu)}.tl:hover{color:var(--tx);border-color:var(--mu)}
-.stage.c #sc svg{transform:rotate(180deg)}.stage.c .ws .wt,.stage.c .sq span,.stage.c .sq kbd,.stage.c .sub-nav,.stage.c kbd,.stage.c .wi,.stage.c .chev,.stage.c .menu{display:none}
-.stage.c .sq,.stage.c .who{justify-content:center;padding-left:0;padding-right:0}.stage.c .tools{grid-template-columns:1fr}.stage.c .ws{justify-content:center;padding:6px}
+.tools{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.tl{all:unset;cursor:pointer;display:grid;place-items:center;height:34px;border-radius:10px;border:1px solid var(--line);color:var(--mu)}.tl:hover{color:var(--tx);border-color:var(--mu)}
+.stage.c{--l:70px}.stage.c .side.l .wt,.stage.c .side.l nav span,.stage.c .side.l nav em{display:none}.stage.c .side.l nav button{justify-content:center;padding:10px 0}.stage.c .ws{justify-content:center;padding:6px}.stage.c .tools{grid-template-columns:1fr}.stage.c #sc svg{transform:rotate(180deg)}
 @media(max-width:1180px){.stage{grid-template-columns:var(--l) minmax(0,1fr)}.side.r{display:none}}
-@media(max-width:900px){.stage{display:block;padding:12px 12px 96px}.side.l{position:fixed;left:10px;right:10px;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);height:auto;flex-direction:row;align-items:center;padding:6px 8px;z-index:40;border-radius:999px}.side.l .ws,.side.l .sq,.side.l .nl,.side.l .who,.side.l nav kbd,.tools>:not(#th),.sub-nav{display:none}.side.l nav{flex-direction:row;flex:1;justify-content:space-around;overflow-x:auto}.side.l nav button{flex-direction:column;gap:2px;padding:6px 8px;font-size:10px;width:auto}.sbf{margin:0}}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}th{color:var(--mu);font:500 11px "JetBrains Mono",monospace;letter-spacing:.1em;text-transform:uppercase}.rw>span:first-child{min-width:42px}input[type=range]{padding:0;accent-color:var(--tx)}
+.mbar,.scrim{display:none}
+@media(max-width:900px){.stage{display:block;padding:10px 12px 28px}
+.mbar{display:flex;position:sticky;top:calc(env(safe-area-inset-top,0px) + 8px);z-index:30;align-items:center;gap:10px;padding:6px 16px 6px 6px;border-radius:999px;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.mbar .tl{width:38px;height:38px;border-radius:999px;flex:none}.mbar svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}.mbar b{font-weight:600;font-size:15px}
+.side.l{position:fixed;inset:0 auto 0 0;width:min(300px,86vw);height:auto;border-radius:0 22px 22px 0;padding:calc(env(safe-area-inset-top,0px) + 14px) 12px calc(env(safe-area-inset-bottom,0px) + 14px);z-index:40;background:var(--bg);visibility:hidden;transform:translateX(-105%);transition:transform .28s ease,visibility 0s .28s}
+.stage.nav-open .side.l{visibility:visible;transform:none;transition:transform .28s ease}
+.scrim{display:block;position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .28s}.stage.nav-open .scrim{opacity:1;pointer-events:auto}
+.side.l #sc{display:none}.sbf .tools{grid-template-columns:repeat(3,1fr)}.side.l nav button{padding:12px 14px;font-size:15px}
+.bento>*{grid-column:1/-1}.hero{min-height:36vh}}
+@media(prefers-reduced-motion:reduce){.view.on .p{animation:none}.p{transition:none;transform:none!important}.uf{transition:none!important}.stage .side.l,.stage .scrim{transition:none!important}}
+.uc{display:grid;perspective:800px}
+.uf{grid-area:1/1;padding:12px;border:1px solid var(--line);border-radius:14px;transition:transform .28s ease .28s,opacity .28s .28s,visibility 0s .28s}
+.uf.bk{transform:rotateY(-90deg);opacity:0;visibility:hidden;pointer-events:none;transition:transform .28s ease,opacity .28s,visibility 0s .28s}
+.uc.fl .front{transform:rotateY(90deg);opacity:0;visibility:hidden;pointer-events:none;transition:transform .28s ease,opacity .28s,visibility 0s .28s}
+.uc.fl .bk{transform:none;opacity:1;visibility:visible;pointer-events:auto;transition:transform .28s ease .28s,opacity .28s .28s,visibility 0s .28s}
+.uc.sx .front{border-style:dashed}.uc.sx .front b{opacity:.6}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}th{color:var(--mu);font:500 11px "JetBrains Mono",monospace;letter-spacing:.1em;text-transform:uppercase}
+.rw>span:first-child{min-width:42px}input[type=range]{padding:0;accent-color:var(--tx);width:100%}
 .pal{position:fixed;inset:0;z-index:50;display:flex;justify-content:center;padding-top:16vh;background:rgba(0,0,0,.4)}.pal[hidden]{display:none}
 .pal .box{width:min(520px,92vw);align-self:flex-start;border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:10px}
-.pal button{all:unset;display:block;box-sizing:border-box;width:100%;padding:9px 12px;border-radius:10px;cursor:pointer}.pal button:hover{background:var(--line)}
+.pal button{all:unset;display:block;box-sizing:border-box;width:100%;padding:9px 12px;border-radius:10px;cursor:pointer}.pal button:hover,.pal button.on{background:var(--line)}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);transform:translate(-50%,20px);padding:10px 18px;border-radius:999px;background:var(--tx);color:var(--bg);opacity:0;transition:.3s;z-index:60;pointer-events:none}#toast.on{opacity:1;transform:translate(-50%,0)}
-@media(max-width:900px){.bento>*{grid-column:1/-1}.dock b span{display:none}.hero{min-height:36vh}}
-@media(prefers-reduced-motion:reduce){.view.on .p,.vid::before{animation:none}.p{transition:none}}
+button:focus-visible,.ib:focus-visible,.tl:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
+.empty{padding:22px 8px;text-align:center;color:var(--mu)}.srch{max-width:240px;margin-bottom:14px}
 
 /* === Nexus console additions === */
 .ro [data-mut]{display:none!important}
 .qrbox{display:none;margin-top:12px;padding:14px;border:1px solid var(--line);border-radius:12px}
 .qrbox img{display:block;width:200px;height:200px;margin:0 auto 12px;background:#fff;border-radius:8px;padding:8px}
-code.mono{word-break:break-all}
 .tag{font:500 10px "JetBrains Mono",monospace;padding:1px 7px;border-radius:99px;background:var(--line);letter-spacing:.08em;text-transform:uppercase}
-select{background:var(--line);border:1px solid var(--line);color:var(--tx);border-radius:12px;padding:9px 12px;font:inherit}
 .msg{min-height:20px;font-size:13px;margin-top:8px}
 .okc{color:#3fae6a}body[data-theme="dark"] .okc{color:#7dff9a}
 .badc{color:#d33}body[data-theme="dark"] .badc{color:#ff9a9a}
-input[type=range]{width:100%}
-.kbd{font:500 10px "JetBrains Mono",monospace;opacity:.45}
-.chain .chip.x{opacity:.4;text-decoration:line-through}
-#sess .vr code{margin-left:auto}
-.spin{opacity:.5;pointer-events:none}
-
 </style>
 </head>
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
 <div class="stage">
-<aside class="side l">
+<div class="mbar"><button class="tl" id="mm" aria-label="Open menu" aria-controls="sb" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><b id="mtt">Overview</b></div><div class="scrim" id="scrim"></div>
+<aside class="side l" id="sb">
 <div class="ws"><div class="lg"><svg viewBox="0 0 100 36" style="width:21px;height:auto;fill:currentColor;stroke:none"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div><div class="wt"><b id="wn">Nexus Local</b><small><span class="dot" id="wd" style="width:6px;height:6px;margin-right:5px"></span><span id="wsub">Admin console</span></small></div></div>
 <nav id="nav"></nav>
 <div class="sbf"><div class="tools"><button class="tl" id="k" data-tip="Search (Ctrl+K)" aria-label="Open command palette"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button><button class="tl" id="sc" data-tip="Collapse sidebar" aria-label="Collapse sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg></button><button class="tl" id="so" data-tip="Sign out" aria-label="Sign out"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg></button><button class="tl" id="th" data-tip="Theme" aria-label="Toggle theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button></div></div></aside>
@@ -118,54 +116,70 @@ input[type=range]{width:100%}
 <section class="view on" id="ov">
 <div class="hero"><div><div class="mono sub" style="letter-spacing:.22em">ADMIN CONSOLE</div><h1 id="heroName">Nexus<br>Local</h1><div class="sub" id="hl" style="margin-top:16px;font-size:14px"></div></div></div>
 <div class="bento">
-<div class="p s6"><h2 class="lift">Requests today</h2><div class="num lift" id="rq">—</div><svg id="spark" viewBox="0 0 600 110" preserveAspectRatio="none" style="width:100%;height:90px;display:block;margin-top:12px" role="img" aria-label="Requests per day, last 7 days"></svg><div class="sub" style="margin-top:6px">per day · last 7 days</div></div>
+<div class="p s12" id="bn" hidden><div class="row" style="align-items:center;justify-content:space-between"><span id="bnTx"></span><button class="ib" data-x="bnc" data-mut>Clear</button></div></div>
+<div class="p s6"><h2 class="lift">Requests today</h2><div class="num lift" id="rq">—</div><svg id="spark" viewBox="0 0 600 110" preserveAspectRatio="none" style="width:100%;height:90px;display:block;margin-top:12px" role="img" aria-label="Requests per hour, last 24 hours"></svg><div class="sub" style="margin-top:6px" id="sparkSub">per hour · last 24 hours</div></div>
 <div class="p s3"><h2 class="lift">Failovers handled</h2><div class="num lift" id="fo">—</div><div class="sub">today · from the audit log</div></div>
-<div class="p s3"><h2 class="lift">Active sessions</h2><div class="num lift" id="mg">—</div><div class="sub" id="mgSub">of — accounts</div></div>
-<div class="p s4"><h2>Provider chain</h2><div class="chain row" style="flex-wrap:wrap;align-items:center"></div><div class="row" style="margin-top:16px"><button class="btn" data-x="rc" data-mut>Re-check status</button><button class="btn g" data-x="pv">Providers</button></div></div>
+<div class="p s3"><h2 class="lift">Active users</h2><div class="num lift" id="mg">—</div><div class="sub" id="mgSub">of — accounts</div></div>
+<div class="p s4"><h2>Failover chain</h2><div class="chain row" style="flex-wrap:wrap;align-items:center"></div><div class="row" style="margin-top:16px"><button class="btn" data-x="sim" data-mut>Simulate failure</button><button class="btn g" data-x="pv">Providers</button></div></div>
 <div class="p s4"><h2>Mesh health</h2><div id="th2"></div></div>
-<div class="p s4"><h2>Instance</h2><div class="rw"><span>CPU</span><div class="bar"><i id="cpu" style="width:0%"></i></div><span class="mono" id="cpv">—</span></div><div class="rw"><span>RAM</span><div class="bar"><i id="ram" style="width:0%"></i></div><span class="mono" id="rmv">—</span></div><div class="rw"><span>Disk</span><div class="bar"><i id="dsk" style="width:0%"></i></div><span class="mono" id="dsv">—</span></div><div class="sub" style="margin-top:8px" id="uptime">—</div></div>
+<div class="p s4"><h2>Server</h2><div class="rw"><span>CPU</span><div class="bar"><i id="cpu" style="width:0%"></i></div><span class="mono" id="cpv">—</span></div><div class="rw"><span>RAM</span><div class="bar"><i id="ram" style="width:0%"></i></div><span class="mono" id="rmv">—</span></div><div class="rw"><span>Disk</span><div class="bar"><i id="dsk" style="width:0%"></i></div><span class="mono" id="dsv">—</span></div><div class="sub" style="margin-top:8px" id="uptime">—</div></div>
 </div></section>
 
 <section class="view" id="an"><div class="head"><div class="sub mono">REQUESTS · LATENCY · RELIABILITY</div><h1>Analytics</h1></div><div class="row" id="arg" style="margin-bottom:14px"></div><div class="bento"><div id="ank" style="display:contents"></div>
 <div class="p s7"><h2>Requests by provider</h2><div id="anp"></div></div>
 <div class="p s5"><h2>Top friends</h2><div id="anf"></div></div>
-<div class="p s12"><h2>Requests over time</h2><svg id="anl" viewBox="0 0 600 140" preserveAspectRatio="none" style="width:100%;height:140px;display:block" role="img" aria-label="Requests over the selected range"></svg><div class="sub mono" id="anc" style="margin-top:8px"></div></div></div></section>
+<div class="p s12"><h2>Latency over time</h2><svg id="anl" viewBox="0 0 600 140" preserveAspectRatio="none" style="width:100%;height:140px;display:block" role="img" aria-label="Average latency over time"></svg><div class="sub mono" id="anc" style="margin-top:8px"></div></div></div></section>
 
-<section class="view" id="au"><div class="head"><div class="sub mono">EVERY ADMIN &amp; SYSTEM EVENT</div><h1>Audit log</h1></div><div class="bento"><div class="p s12"><div class="row" id="af" style="margin-bottom:14px;flex-wrap:wrap"></div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr><th>Time</th><th>Category</th><th>Event</th></tr></thead><tbody id="at"></tbody></table></div><div class="sub" style="margin-top:10px">Stored on the server (audit.jsonl) — resets on redeploy, like sessions. Newest first, last 200.</div></div></div></section>
+<section class="view" id="au"><div class="head"><div class="sub mono">EVERY ADMIN &amp; SYSTEM EVENT</div><h1>Audit log</h1></div><div class="bento"><div class="p s12"><div class="row" id="af" style="margin-bottom:14px;flex-wrap:wrap"></div><input id="aq" class="srch" type="search" placeholder="Search events" aria-label="Search audit log"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr><th>Time</th><th>Category</th><th>Event</th></tr></thead><tbody id="at"></tbody></table></div><div class="sub" style="margin-top:10px">Stored on the server (audit.jsonl) — resets on redeploy, like sessions. Newest first, last 200.</div></div></div></section>
 
-<section class="view" id="pv"><div class="head"><div class="sub mono">FAILOVER ORDER · TOP TO BOTTOM</div><h1>Providers</h1><button class="btn" data-x="ap" data-mut style="display:inline-block;margin-top:14px">+ Add provider</button></div><div class="row" id="pfl" style="margin-bottom:14px;flex-wrap:wrap"></div><div class="pgrid" id="pgrid"></div></section>
+<section class="view" id="pv"><div class="head"><div class="sub mono">FAILOVER ORDER · TOP TO BOTTOM</div><h1>Providers</h1><button class="btn" data-x="ap" data-mut style="display:inline-block;margin-top:14px">+ Add provider</button></div><div class="row" id="pfl" style="margin-bottom:14px;flex-wrap:wrap"></div><div class="row" style="margin-bottom:14px;flex-wrap:wrap;align-items:center"><input id="ps" class="srch" style="margin:0" type="search" placeholder="Search providers" aria-label="Search providers"><button class="ib" data-x="pta" data-mut>Test all</button><button class="ib" data-x="pea" data-mut>Enable all</button><button class="ib" data-x="pda" data-mut>Disable all</button></div><div class="pgrid" id="pgrid"></div></section>
 
-<section class="view" id="fr"><div class="head"><div class="sub mono">PER-USER ENCRYPTED VAULTS</div><h1>Friends</h1></div><div class="bento">
-<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px"><h2 style="margin:0">Accounts</h2><button class="btn" data-x="addf" data-mut>Add friend</button></div><div class="pgrid" id="ug"></div></div>
-<div class="p s12"><h2>Active invites — view passes</h2><div id="vpControls" data-mut><div class="row" style="flex-wrap:wrap;margin-bottom:10px"><input id="vpName" aria-label="View pass name" placeholder="Name (e.g. For review)" maxlength="24" style="flex:1;min-width:150px"><select id="vpHours" aria-label="View pass duration"><option value="1">1 hour</option><option value="6">6 hours</option><option value="24" selected>24 hours</option></select><input id="vpMaster" type="password" aria-label="Your master password" placeholder="Your master password" style="flex:1;min-width:150px"><button class="btn" id="vpBtn">Create view pass</button></div><div id="vpResult" style="display:none;margin-bottom:10px"><div class="sub" style="margin-bottom:6px">Copy this link now — it is shown only once:</div><input id="vpLink" aria-label="View pass link" readonly style="width:100%;font-family:monospace;font-size:13px"></div><div class="msg" id="vpMsg"></div></div><div id="iv"></div></div>
-<div class="p s7"><h2>Key vault</h2><div id="vl"></div><div class="sub" style="margin-top:12px">Keys are encrypted per user. Admins only ever see masked values.</div></div>
-<div class="p s5"><h2>Add key</h2><form id="kf" style="display:grid;gap:10px"><select id="ku" aria-label="Friend"></select><select id="kp" aria-label="Provider"></select><input id="kfp" type="password" placeholder="Friend's account password" aria-label="Friend's account password"><input id="kk" type="password" placeholder="Paste API key" aria-label="API key"><input id="kfm" type="password" placeholder="Your master password" aria-label="Your master password"><button class="btn" data-mut>Encrypt &amp; save</button><div class="sub">Written into their personal vault, encrypted with their password. Takes effect at their next sign-in.</div><div class="msg" id="kfMsg"></div></form></div>
+<section class="view" id="fr"><div class="head"><div class="sub mono">PER-USER ENCRYPTED VAULTS</div><h1>Users &amp; Vaults</h1></div><div class="bento">
+<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px"><h2 style="margin:0">Accounts</h2><div class="row"><button class="btn g" data-x="nu" data-mut>Add user</button><button class="btn" data-x="inv" data-mut>Invite friend</button></div></div><input id="us" class="srch" type="search" placeholder="Search users or roles" aria-label="Search users"><div class="pgrid" id="ug"></div></div>
+<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Usage today</h2><button class="btn g" data-x="ucv">Copy CSV</button></div><div id="uu"></div></div>
+<div class="p s12"><h2>Active sessions</h2><div id="ss"></div></div>
+<div class="p s12"><h2>Roles &amp; permissions</h2><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr><th>Permission</th><th>Owner</th><th>Moderator</th><th>Viewer</th></tr></thead><tbody>
+<tr><td>View dashboards, usage and audit log</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Test providers</td><td>✓</td><td>✓</td><td>–</td></tr>
+<tr><td>Suspend, edit and reset users</td><td>✓</td><td>✓</td><td>–</td></tr>
+<tr><td>Invite and add users</td><td>✓</td><td>✓</td><td>–</td></tr>
+<tr><td>Add and clear vault keys</td><td>✓</td><td>✓</td><td>–</td></tr>
+<tr><td>Reorder, enable and configure providers</td><td>✓</td><td>–</td><td>–</td></tr>
+<tr><td>Remove users</td><td>✓</td><td>–</td><td>–</td></tr>
+<tr><td>Settings and danger zone</td><td>✓</td><td>–</td><td>–</td></tr>
+</tbody></table></div><div class="sub" style="margin-top:10px">Friends without a console role only use chat — they never see this console. The owner grants Moderator or Viewer per account (Edit on a user card). View passes are separate one-link guests with the Viewer column's rights.</div></div>
+<div class="p s12"><h2>Active invites</h2><div id="iv"></div></div>
+<div class="p s12"><h2>Temporary view passes</h2><div id="vpControls" data-mut><div class="row" style="flex-wrap:wrap;margin-bottom:10px"><input id="vpName" aria-label="View pass name" placeholder="Name (e.g. For review)" maxlength="24" style="flex:1;min-width:150px"><select id="vpHours" aria-label="View pass duration"><option value="1">1 hour</option><option value="6">6 hours</option><option value="24" selected>24 hours</option></select><input id="vpMaster" type="password" aria-label="Your master password" placeholder="Your master password" style="flex:1;min-width:150px"><button class="btn" id="vpBtn">Create view pass</button></div><div id="vpResult" style="display:none;margin-bottom:10px"><div class="sub" style="margin-bottom:6px">Copy this link now — it is shown only once:</div><input id="vpLink" aria-label="View pass link" readonly style="width:100%;font-family:monospace;font-size:13px"></div><div class="msg" id="vpMsg"></div></div><div id="gv"></div></div>
+<div class="p s7"><h2>Key vault</h2><div id="vl"></div><div class="sub" style="margin-top:12px">Keys are encrypted per user — the console only ever sees provider names and last-4s. A friend's individual keys are removed in their own My Keys page; here you can clear a whole vault.</div></div>
+<div class="p s5"><h2>Add key</h2><form id="kf" style="display:grid;gap:10px"><select id="ku" aria-label="User"></select><select id="kp" aria-label="Provider"></select><input id="kfp" type="password" placeholder="Friend's account password" aria-label="Friend's account password"><input id="kk" type="password" placeholder="Paste API key" aria-label="API key"><input id="kfm" type="password" placeholder="Your master password" aria-label="Your master password"><button class="btn" data-mut>Encrypt &amp; save</button><div class="sub">Written into their personal vault, encrypted with their password. Takes effect at their next sign-in.</div><div class="msg" id="kfMsg"></div></form></div>
 </div></section>
 
 <section class="view" id="se"><div class="head"><div class="sub mono">POLICY · SECURITY · BACKUP</div><h1>Settings</h1></div><div class="bento">
-<div class="p s6"><h2>Failover policy</h2><div class="sub" style="margin-bottom:8px">Routing mode (applies to your sessions)</div><div id="sm" class="row" style="margin-bottom:16px;flex-wrap:wrap"></div><label class="sub" for="rg">Max attempts per request: <b id="rv">4</b></label><input type="range" id="rg" min="1" max="8" value="4" data-mut><label class="sub" for="cg" style="display:block;margin-top:16px">Daily cap per friend: <b id="cv">200</b> requests <span class="sub">(0 = no cap)</span></label><input type="range" id="cg" min="0" max="1000" step="25" value="200" data-mut><div class="msg" id="polMsg"></div></div>
+<div class="p s6"><h2>Failover policy</h2><div id="sm" class="row" style="margin-bottom:16px;flex-wrap:wrap"></div><label class="sub" for="rg">Max failovers per request: <b id="rv">4</b></label><input type="range" id="rg" min="1" max="6" value="4" data-mut><label class="sub" for="cg" style="display:block;margin-top:16px">Daily cap per friend: <b id="cv">200</b> requests</label><input type="range" id="cg" min="0" max="1000" step="25" value="200" data-mut><label class="sub" for="gg" style="display:block;margin-top:16px">Instance-wide cap: <b id="gv">off</b></label><input type="range" id="gg" min="0" max="20000" step="250" value="0" data-mut><div class="msg" id="polMsg"></div></div>
 <div class="p s6"><h2>Security, alerts &amp; maintenance</h2><div id="sw"></div></div>
-<div class="p s12"><h2>General &amp; performance</h2><label class="sub" for="nm">Instance name</label><input id="nm" value="Nexus Local" style="margin-bottom:6px" data-mut><div id="sg"></div></div>
-<div class="p s12"><h2>Active sessions</h2><div id="sess"></div></div>
+<div class="p s12"><h2>General &amp; performance</h2><label class="sub" for="nm">Instance name</label><input id="nm" value="Nexus Local" style="margin-bottom:6px" data-mut><label class="sub" for="ae" style="display:block;margin-top:10px">Alert email (contact of record — alerts are delivered to the webhook below)</label><input id="ae" type="email" placeholder="you@example.com" style="margin-bottom:6px" data-mut><label class="sub" for="anm" style="display:block;margin-top:10px">Announcement for all users (shown on the sign-in and invite pages)</label><div class="row"><input id="anm" placeholder="e.g. Maintenance tonight at 22:00" data-mut><button class="btn g" data-x="bnp" data-mut>Publish</button></div><label class="sub" for="wh" style="display:block;margin-top:10px">Webhook URL (alerts: provider down, cap hits, signups, digests)</label><div class="row"><input id="wh" type="url" placeholder="https://example.com/hook" data-mut><button class="btn g" data-x="wht" data-mut>Test</button></div><label class="sub" for="ip" style="display:block;margin-top:10px">Allowed IPs for sign-in &amp; console (comma-separated, blank = anywhere)</label><input id="ip" placeholder="203.0.113.0/24, 198.51.100.7" style="margin-bottom:6px" data-mut><div id="sg"></div></div>
 <div class="p s12" id="tfaCard"><h2>Two-factor auth (admin)</h2><div class="sub" style="margin-bottom:10px">Protect your admin login with an authenticator app. Friends are not affected.</div><div id="tfaStatus" style="margin-bottom:12px;font-size:14px">Checking…</div><div class="row" style="flex-wrap:wrap" data-mut><input id="tfaMaster" type="password" aria-label="Your master password" placeholder="Your master password" style="flex:1;min-width:180px"><button class="btn" id="tfaBtn">Enable 2FA</button></div><div class="qrbox" id="tfaSecret"><p class="sub" style="margin-bottom:8px">Scan this QR with your authenticator app:</p><img id="tfaQR" src="" alt="2FA QR code"><p class="sub" style="margin-bottom:8px">Or enter the key manually:</p><p id="tfaKey" style="font-family:monospace;font-size:16px;letter-spacing:.1em;word-break:break-all"></p><p class="sub" style="margin-top:8px">Then enter a code from the app to confirm:</p><div class="row" style="margin-top:8px;flex-wrap:wrap"><input id="tfaConfirm" aria-label="Two-factor code" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="text-align:center;letter-spacing:.3em;flex:1"><button class="btn" id="tfaConfirmBtn">Confirm</button></div></div><div class="msg" id="tfaMsg"></div></div>
 <div class="p s12" id="mpCard"><h2>Master password</h2><div class="sub" style="margin-bottom:10px">Change the password that encrypts all your provider keys. At least 10 characters. You'll be signed out everywhere and must log in with the new password.</div><div class="row" style="flex-wrap:wrap" data-mut><input id="mpCur" type="password" aria-label="Current master password" placeholder="Current master password" style="flex:1;min-width:180px"><input id="mpNew" type="password" aria-label="New master password" placeholder="New master password (10+ chars)" style="flex:1;min-width:180px"><button class="btn" id="mpBtn">Change password</button></div><div class="msg" id="mpMsg"></div></div>
-<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap"><div><h2 style="margin:0 0 4px">Backup &amp; keys</h2><div class="sub">Download providers, order and policy as JSON. Keys are never included.</div></div><div class="row" style="flex-wrap:wrap"><button class="btn" data-x="bk">Backup now</button><button class="btn g" data-x="exp">Copy config</button><button class="btn g" data-x="rk" data-mut>Rotate master key</button></div></div></div>
-<div class="p s12"><h2>Danger zone</h2><div class="row" style="flex-wrap:wrap" data-mut><button class="btn g" data-x="cl">Clear audit log</button><button class="btn g" data-x="rs">Reset provider statuses</button><button class="btn g" data-x="rva">Revoke all view passes</button><button class="btn g" data-x="fx">Factory reset</button></div><div class="msg" id="dzMsg"></div></div>
+<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap"><div><h2 style="margin:0 0 4px">Backup &amp; keys</h2><div class="sub">Download providers, order and policy as JSON. Keys are never included.</div><div class="sub" id="bkLine" style="margin-top:4px"></div></div><div class="row" style="flex-wrap:wrap"><button class="btn" data-x="bk">Backup now</button><button class="btn g" data-x="exp">Copy config</button><button class="btn g" data-x="rk" data-mut>Rotate master key</button></div></div></div>
+<div class="p s12"><h2>Danger zone</h2><div class="row" style="flex-wrap:wrap" data-mut><button class="btn g" data-x="cl">Clear audit log</button><button class="btn g" data-x="sa">Sign out all users</button><button class="btn g" data-x="rs">Reset provider statuses</button><button class="btn g" data-x="rva">Revoke all view passes</button><button class="btn g" data-x="fx">Factory reset</button></div><div class="msg" id="dzMsg"></div></div>
 </div></section>
-</main><aside class="side r"><h2>Status</h2><div id="rss"></div><h2>Alerts</h2><div id="ral"></div><h2>Recent</h2><div id="rac" class="log" style="max-height:none"></div><div style="margin-top:auto"><button class="btn g" data-x="rc" data-mut>Re-check providers</button></div></aside>
+</main><aside class="side r"><h2>Status</h2><div id="rss"></div><h2>Alerts</h2><div id="ral"></div><h2>Recent</h2><div id="rac" class="log" style="max-height:none"></div><div style="margin-top:auto"><button class="btn g" data-x="sim" data-mut>Simulate failure</button></div></aside>
 </div>
-<div class="pal" id="pal" hidden><div class="box"><input id="cq" placeholder="Type a command…" aria-label="Command"><div id="cl" style="margin-top:6px"></div></div></div>
+<div class="pal" id="pal" hidden><div class="box" role="dialog" aria-modal="true" aria-label="Command palette"><input id="cq" placeholder="Type a command…" aria-label="Command"><div id="cl" style="margin-top:6px"></div></div></div>
 <div id="toast" role="status"></div><div id="lb" class="lb" hidden></div><div id="tip" class="lb" hidden></div>
-<div class="ov" id="md" hidden><div class="box"><h2 id="mh"></h2><div id="mb" style="display:grid;gap:10px"></div><div class="row" style="margin-top:16px"><button class="btn" id="ms">Save</button><button class="btn g" id="mc">Cancel</button></div></div></div>
+<div class="ov" id="md" hidden><div class="box" role="dialog" aria-modal="true" aria-labelledby="mh"><h2 id="mh"></h2><div id="mb" style="display:grid;gap:10px"></div><div class="row" style="margin-top:16px"><button class="btn" id="ms">Save</button><button class="btn g" id="mc">Cancel</button></div></div></div>
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=n=>Number(n||0).toLocaleString();
-let S=null,SYS=null,L=null,Q=null,AU=[],V1=null,AN7=null,FO=0,VIEWER=false,_mpw='',RG='7d',AF='All',PF='All',GRANTS=[];
+const LS={g:k=>{try{return localStorage.getItem(k)}catch(e){return null}},s:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+let S=null,SYS=null,L=null,Q=null,AU=[],V1=null,AN7=null,AN24=null,UT=null,FO=0,_mpw='',RG='7d',AF='All',PF='All',PS='',UF='',AQ='',GRANTS=[],INVITES=[];
+let ME={kind:'admin',label:'Rudra'};
+const ADMIN=()=>ME.kind==='admin', MOD=()=>ME.kind==='moderator', VIEWER=()=>ME.kind==='viewer';
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove("on"),2600)}
 async function apiS(action,extra){
   const r=await fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action},extra||{}))});
-  if(r.status===401){location.href='/login';return{status:401,j:null}}
+  if(r.status===401&&!(extra&&extra.master_pw)){location.href='/login';return{status:401,j:null}}
   const j=await r.json().catch(()=>null);
   if(r.status===403&&j&&j.error==='read-only access')toast('Read-only access — viewers cannot make changes');
   return{status:r.status,j};
@@ -188,7 +202,6 @@ function dlg(t,fields){
   });
 }
 $("#md").onclick=e=>{if(e.target.id==="md")$("#md").hidden=true};
-$("#mc").onclick=()=>{$("#md").hidden=true};
 async function askMaster(title){
   const v=await dlg(title||'Master password required',[['Your master password','pw','','password']]);
   return v?v[0]:null;
@@ -203,6 +216,12 @@ async function withMaster(fn){
   toast('Wrong master password');
   return null;
 }
+/* User-management mutation: the owner proves the master password, a
+   moderator acts on their own session (the server enforces both). */
+async function mut(action,body){
+  if(MOD())return apiS(action,body||{});
+  return withMaster(mpw=>apiS(action,Object.assign({},body||{},{master_pw:mpw})));
+}
 async function setSettings(patch,okMsg){
   const r=await withMaster(mpw=>apiS('settings_set',{master_pw:mpw,patch}));
   if(r&&r.j&&r.j.ok){S=r.j.settings;if(okMsg)toast(okMsg);renderAll();return true}
@@ -213,19 +232,38 @@ const KEYLESS=new Set(['aihorde','kilo','ovh','pollinations','relay_pollinations
 const laneOf=p=>p.provider.startsWith('relay_')||p.provider.startsWith('custom_relay_')?'Relay':(KEYLESS.has(p.provider)?'Keyless':'Direct');
 const stOf=p=>p.down?['b','Down']:(p.disabled?['w','Disabled']:['','Online']);
 function upCount(){return Q?Q.providers.filter(p=>!p.down&&!p.disabled).length:0}
+function capOf(label){const a=(L.access||[]).find(x=>x.label===label);if(a&&a.cap!=null)return a.cap;return S?S.daily_cap||0:0}
 async function loadAll(){
   const [l,q]=await Promise.all([api('list'),jget('/api/quotas')]);
   if(l)L=l;
   if(q)Q=q;
+  if(L&&L.you&&L.you.kind)ME=L.you;
+  if(VIEWER()){document.body.classList.add('ro');$("#wsub").textContent=(ME.label&&ME.label.startsWith('viewer:')?'View pass':'Viewer')+' · read-only'}
+  else if(MOD()){$("#wsub").textContent=ME.label+' · Moderator'}
+  else{$("#wsub").textContent='Admin console'}
   const sg=await apiS('settings_get');
-  if(sg.status===403){VIEWER=true;document.body.classList.add('ro');$("#wsub").textContent='View pass · read-only'}
-  else if(sg.j&&sg.j.ok){S=sg.j.settings;SYS=sg.j.system;FO=sg.j.failovers_today||0}
+  if(sg.j&&sg.j.ok){S=sg.j.settings;SYS=sg.j.system;FO=sg.j.failovers_today||0}
   const au=await jget('/api/audit');
   if(au){AU=au.events||[];FO=au.failovers_today||0}
   V1=await jget('/api/v1-access');
   if(!AN7)AN7=await jget('/api/analytics?range=7d');
+  if(!AN24)AN24=await jget('/api/analytics?range=24h');
+  if(!VIEWER())UT=await jget('/api/usage_today');
   await loadViewPasses();
+  await loadInvites();
+  applyRoleChrome();
   renderAll();
+}
+async function loadAllSoft(){
+  const l=await api('list');if(l)L=l;
+  const sg=await apiS('settings_get');if(sg.j&&sg.j.ok){S=sg.j.settings;SYS=sg.j.system;FO=sg.j.failovers_today||0}
+  if(!VIEWER())UT=await jget('/api/usage_today');
+  renderAll();
+}
+function applyRoleChrome(){
+  const seBtn=$('#nav [data-v="se"]');
+  if(seBtn)seBtn.style.display=ADMIN()?'':'none';
+  if(!ADMIN()){const kfm=$("#kfm");if(kfm)kfm.style.display='none'}
 }
 function renderAll(){
   if(!L||!Q)return;
@@ -233,7 +271,10 @@ function renderAll(){
   $("#wn").textContent=name;
   $("#heroName").innerHTML=esc(name).replace(' ','<br>');
   $("#mt").hidden=!(S&&S.maintenance);
-  renderOverview();renderSide();renderProviders();renderFriends();renderSettings();renderAudit();
+  const ann=(S&&S.announcement)||L.announcement||'';
+  $("#bn").hidden=!ann;
+  if(ann)$("#bnTx").textContent='📢 '+ann;
+  renderOverview();renderSide();renderProviders();renderFriends();if(ADMIN())renderSettings();renderAudit();
   window._P=Q.providers.map(p=>({n:p.display_name,s:p.down?'b':(p.disabled?'w':'ok'),req:p.history.requests[6]}));
   window._halo=Q.providers.map(p=>p.history.requests[6]);
 }
@@ -246,18 +287,25 @@ function renderOverview(){
   $("#hl").innerHTML=`<span class="dot${bad?' w':''}"></span>${ups} / ${tot} providers online`;
   $("#wd").className='dot'+(bad?' w':'');
   $("#rq").textContent=fmt(Q.history.requests[6]);
-  const hist=Q.history.requests;
-  $("#spark").innerHTML=`<path d="${sparkPath(hist,110)}L600 110L0 110Z" style="fill:var(--line)"/><path d="${sparkPath(hist,110)}" style="fill:none;stroke:var(--tx);stroke-width:2" vector-effect="non-scaling-stroke"/>`;
+  if(AN24&&AN24.series&&AN24.series.length){
+    const ser=AN24.series.map(s2=>s2.requests);
+    $("#spark").innerHTML=`<path d="${sparkPath(ser,110)}L600 110L0 110Z" style="fill:var(--line)"/><path d="${sparkPath(ser,110)}" style="fill:none;stroke:var(--tx);stroke-width:2" vector-effect="non-scaling-stroke"/>`;
+    $("#sparkSub").textContent='per hour · last 24 hours';
+  }else{
+    const hist=Q.history.requests;
+    $("#spark").innerHTML=`<path d="${sparkPath(hist,110)}L600 110L0 110Z" style="fill:var(--line)"/><path d="${sparkPath(hist,110)}" style="fill:none;stroke:var(--tx);stroke-width:2" vector-effect="non-scaling-stroke"/>`;
+    $("#sparkSub").textContent='per day · last 7 days';
+  }
   $("#fo").textContent=fmt(FO);
+  const onlineLabels=new Set(L.sessions.map(s=>s.label));
   $("#mg").textContent=L.sessions.length;
-  $("#mgSub").textContent='of '+(L.access.length+1)+' accounts';
-  const top=[...Q.providers].sort((a,b)=>b.history.requests[6]-a.history.requests[6]).slice(0,6);
-  const firstUp=top.findIndex(p=>!p.down&&!p.disabled);
-  $(".chain").innerHTML=top.map((p,i)=>`<span class="chip ${i===firstUp?'on':(p.down||p.disabled)?'x':''}">${esc(p.display_name)}</span>`).join('<span class="sub">→</span>');
-  const groups=[['Relay','Relay'],['Direct','Direct'],['Keyless','Keyless']];
-  $("#th2").innerHTML=groups.map(([lbl,lane])=>{
-    const a=Q.providers.filter(p=>laneOf(p)===lane),o=a.filter(p=>!p.down&&!p.disabled).length;
-    return `<div class="rw"><span>${lbl}</span><div class="bar"><i style="width:${a.length?o/a.length*100:0}%"></i></div><span class="mono">${o}/${a.length}</span></div>`;
+  $("#mgSub").textContent='sessions · of '+(L.access.length+1)+' accounts';
+  const chain=Q.providers.filter(p=>(p.caps||['chat']).includes('chat')).slice(0,6);
+  const firstUp=chain.findIndex(p=>!p.down&&!p.disabled);
+  $(".chain").innerHTML=chain.map((p,i)=>`<span class="chip ${i===firstUp?'on':(p.down||p.disabled)?'x':''}">${esc(p.display_name)}</span>`).join('<span class="sub">→</span>');
+  $("#th2").innerHTML=['Chat','Image','Voice','Video'].map(k=>{
+    const a=Q.providers.filter(p=>(p.caps||['chat']).includes(k.toLowerCase())),o=a.filter(p=>!p.down&&!p.disabled).length;
+    return `<div class="rw"><span>${k}</span><div class="bar"><i style="width:${a.length?o/a.length*100:0}%"></i></div><span class="mono">${o}/${a.length}</span></div>`;
   }).join('');
   if(SYS){
     const pct=(id,vid,v)=>{$(id).style.width=(v==null?0:v)+'%';$(vid).textContent=v==null?'—':v+'%'};
@@ -266,47 +314,76 @@ function renderOverview(){
     $("#uptime").textContent=`Uptime ${d?d+'d ':''}${h}h ${m}m · ${location.host}`;
   }
 }
+function alertsList(){
+  const out=[];
+  if(!Q)return out;
+  Q.providers.forEach(p=>{
+    if(p.down)out.push({dot:'b',name:p.display_name,note:'down',retry:!VIEWER()});
+    else if(p.disabled)out.push({dot:'w',name:p.display_name,note:'disabled'});
+  });
+  const th=S&&S.latency_alert_s?S.latency_alert_s*1000:0;
+  if(th&&AN7)AN7.per_provider.forEach(x=>{
+    if(x.avg_ms&&x.avg_ms>th){const p=Q.providers.find(y=>y.provider===x.provider);out.push({dot:'w',name:p?p.display_name:x.provider,note:'slow · '+fmt(x.avg_ms)+'ms avg'})}
+  });
+  const pct=S&&S.quota_alert_pct?S.quota_alert_pct:90;
+  if(UT)UT.users.forEach(u=>{
+    const cap=capOf(u.label);
+    if(cap&&u.requests>=cap)out.push({dot:'b',name:u.label,note:'over daily cap'});
+    else if(cap&&u.requests>=cap*pct/100)out.push({dot:'w',name:u.label,note:Math.round(u.requests/cap*100)+'% of daily cap'});
+  });
+  return out;
+}
 function renderSide(){
   const tot=Q.providers.length,up=upCount(),bad=Q.providers.filter(p=>p.down||p.disabled);
   $("#rss").innerHTML=`<div class="row" style="align-items:center;gap:14px"><svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" fill="none" stroke="var(--line)" stroke-width="6"/><circle cx="32" cy="32" r="26" fill="none" stroke="var(--tx)" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(163.4*up/tot).toFixed(1)} 163.4" transform="rotate(-90 32 32)" style="transition:stroke-dasharray .6s"/></svg><div><b style="font-size:22px;letter-spacing:-.03em">${up}/${tot}</b><div class="sub">${bad.length?bad.length+' degraded':'All systems normal'}</div></div></div>`;
-  $("#ral").innerHTML=bad.length?bad.map(p=>`<div class="rw"><span class="dot ${p.down?'b':'w'}"></span>${esc(p.display_name)}<span class="mono sub">${p.down?'down':'disabled'}</span></div>`).join(''):'<div class="sub">No active alerts</div>';
-  $("#rac").innerHTML=AU.slice(0,5).map(e=>`<div class="rw" style="align-items:flex-start"><span class="mono sub">${esc(String(e.ts).slice(11,19))}</span><span>${esc(e.event)}</span></div>`).join('')||'<div class="sub">No events yet</div>';
+  const al=alertsList();
+  $("#ral").innerHTML=al.length?al.map((a,i)=>`<div class="rw"><span class="dot ${a.dot}"></span>${esc(a.name)}<span class="mono sub">${esc(a.note)}</span>${a.retry?`<button class="ib" data-rt="${i}" style="margin-left:auto">Retry</button>`:''}</div>`).join(''):'<div class="sub">No active alerts</div>';
+  $("#rac").innerHTML=AU.slice(0,5).map(e=>`<div class="rw" style="align-items:flex-start"><span class="mono sub">${esc(fmtTs(e.ts).slice(11,19))}</span><span>${esc(e.event)}</span></div>`).join('')||'<div class="sub">No events yet</div>';
   const nb=$('#nav [data-v="pv"] em');
   if(nb)nb.textContent=bad.length||'';
 }
+$("#ral").addEventListener('click',async e=>{
+  const b=e.target.closest('[data-rt]');if(!b)return;
+  const r=await mut('provider_health_reset',{});
+  if(r&&r.j&&r.j.ok){toast('Circuit breaker cleared — providers retry on the next request');Q=await jget('/api/quotas');renderAll()}
+  else if(r&&r.j)toast(r.j.error||'Failed');
+});
 async function recheck(){
-  toast('Re-checking providers…');
+  toast('Testing providers…');
   const r=await fetch('/api/refresh',{method:'POST'});
   if(r.status===401){location.href='/login';return}
-  if(!r.ok){toast('Re-check failed');return}
+  if(!r.ok){toast('Test failed');return}
   const j=await r.json().catch(()=>null);
   Q=await jget('/api/quotas');
+  AN7=await jget('/api/analytics?range=7d');
   renderAll();
   if(j&&j.status){const off=Object.entries(j.status).filter(([k,v])=>!v).map(([k])=>k);toast(off.length?('Still unreachable: '+off.join(', ')):'All checked providers responded')}
 }
 function renderProviders(){
   const lat={};
   if(AN7)AN7.per_provider.forEach(p=>lat[p.provider]=p.avg_ms);
-  $("#pfl").innerHTML=['All','Online','Down','Disabled','Relay','Direct'].map(t=>`<button class="ib ${t===PF?'on':''}" data-pf="${t}">${t}</button>`).join('');
+  $("#pfl").innerHTML=['All','Chat','Image','Voice','Video'].map(t=>`<button class="ib ${t===PF?'on':''}" data-pf="${t}">${t}</button>`).join('');
   const names=Q.providers.map(p=>p.provider);
-  const mx=Math.max(...Q.providers.map(p=>p.history.requests[6]),1);
+  const lims=(S&&S.provider_limits)||{},tos=(S&&S.provider_timeouts)||{};
   $("#pgrid").innerHTML=Q.providers.map((p,i)=>{
-    if(PF==='Online'&&(p.down||p.disabled))return'';
-    if(PF==='Down'&&!p.down)return'';
-    if(PF==='Disabled'&&!p.disabled)return'';
-    if(PF==='Relay'&&laneOf(p)!=='Relay')return'';
-    if(PF==='Direct'&&laneOf(p)==='Relay')return'';
+    const caps=p.caps||['chat'];
+    if(PF!=='All'&&!caps.includes(PF.toLowerCase()))return'';
+    if(PS&&!(p.display_name+' '+p.provider).toLowerCase().includes(PS))return'';
     const s=stOf(p),custom=p.provider.startsWith('custom_relay_');
-    return `<div class="p" style="--i:${i}"><div class="lift"><b>${esc(p.display_name)}</b> <span class="sub mono">#${i+1}</span></div><div class="sub lift" style="margin:2px 0 12px">${laneOf(p)==='Keyless'?'Keyless':laneOf(p)+' · '+(p.key_configured?'key set':'no key')}</div><div class="lift"><span class="dot ${s[0]}"></span>${s[1]}<span class="sub mono" style="float:right">${lat[p.provider]!=null?lat[p.provider]+'ms':''}</span></div><div class="bar" style="margin:12px 0"><i style="width:${p.history.requests[6]/mx*100}%"></i></div><div class="sub mono" style="margin:-6px 0 10px">${fmt(p.history.requests[6])} requests today · ${fmt(p.history.tokens[6])} tokens</div><div class="row" style="flex-wrap:wrap" data-mut><button class="ib" data-a="up" data-i="${i}" aria-label="Move up">▲</button><button class="ib" data-a="dn" data-i="${i}" aria-label="Move down">▼</button><button class="ib" data-a="ping" data-i="${i}">Test</button><button class="ib" data-a="cfg" data-i="${i}">Config</button>${custom?`<button class="ib" data-a="del" data-i="${i}">Remove</button>`:''}<button class="ib ${p.disabled?'':'on'}" data-a="en" data-i="${i}" style="margin-left:auto">${p.disabled?'OFF':'ON'}</button></div></div>`;
-  }).join('');
+    const lim=lims[p.provider],today=p.history.requests[6];
+    const usageLine=lim?`${Math.min(999,Math.round(today/lim*100))}% of ${fmt(lim)}/day · ${tos[p.provider]?tos[p.provider]+'s timeout':'default timeout'}`:`${fmt(today)} requests today · ${fmt(p.history.tokens[6])} tokens`;
+    return `<div class="p" style="--i:${i}"><div class="lift"><b>${esc(p.display_name)}</b> <span class="sub mono">#${i+1}</span></div><div class="sub lift" style="margin:2px 0 12px">${caps.map(c=>c[0].toUpperCase()+c.slice(1)).join(' · ')}${p.key_configured?'':' · no key'}</div><div class="lift"><span class="dot ${s[0]}"></span>${s[1]}<span class="sub mono" style="float:right">${lat[p.provider]!=null?fmt(lat[p.provider])+'ms':''}</span></div><div class="bar" style="margin:12px 0"><i style="width:${lim?Math.min(100,today/lim*100):Math.min(100,today/Math.max(...Q.providers.map(x=>x.history.requests[6]),1)*100)}%"></i></div><div class="sub mono" style="margin:-6px 0 10px">${usageLine}</div><div class="row" style="flex-wrap:wrap" data-mut><button class="ib" data-a="up" data-i="${i}" aria-label="Move up">▲</button><button class="ib" data-a="dn" data-i="${i}" aria-label="Move down">▼</button><button class="ib" data-a="ping" data-i="${i}">Test</button><button class="ib" data-a="cfg" data-i="${i}">Config</button>${custom?`<button class="ib" data-a="del" data-i="${i}">Remove</button>`:''}<button class="ib ${p.disabled?'':'on'}" data-a="en" data-i="${i}" style="margin-left:auto">${p.disabled?'OFF':'ON'}</button></div></div>`;
+  }).join('')||'<div class="empty">No providers match.</div>';
   $("#pgrid").dataset.names=JSON.stringify(names);
 }
 $("#pfl").onclick=e=>{const b=e.target.closest('button');if(b){PF=b.dataset.pf;renderProviders()}};
+$("#ps").addEventListener('input',e=>{PS=e.target.value.trim().toLowerCase();renderProviders()});
 $("#pgrid").onclick=async e=>{
   const b=e.target.closest('button');if(!b)return;
   const i=+b.dataset.i,a=b.dataset.a,p=Q.providers[i];
   const names=JSON.parse($("#pgrid").dataset.names||'[]');
   if(a==='ping'){await recheck();const q2=(Q.providers.find(x=>x.provider===p.provider)||{});toast(p.display_name+': '+(q2.down?'still down':(q2.disabled?'disabled':'online')));return}
+  if(!ADMIN()){toast('Providers are configured by the owner');return}
   if(a==='up'||a==='dn'){
     const j=a==='up'?i-1:i+1;
     if(j<0||j>=names.length)return;
@@ -321,16 +398,18 @@ $("#pgrid").onclick=async e=>{
     return;
   }
   if(a==='cfg'){
-    const cur=(S.provider_limits||{})[p.provider]||'';
-    const v=await dlg('Configure '+p.display_name,[['Daily request limit (blank = no limit)','lim',cur,'number'],['Your master password','pw','','password']]);
+    const curLim=(S.provider_limits||{})[p.provider]||'';
+    const curTo=(S.provider_timeouts||{})[p.provider]||'';
+    const v=await dlg('Configure '+p.display_name,[['Daily request limit (blank = no limit)','lim',curLim,'number'],['Timeout in seconds (blank = default)','to',curTo,'number'],['Your master password','pw','','password']]);
     if(!v)return;
-    const lims=Object.assign({},S.provider_limits||{});
-    const n=parseInt(v[0],10);
+    const lims=Object.assign({},S.provider_limits||{}),tos=Object.assign({},S.provider_timeouts||{});
+    const n=parseInt(v[0],10),t2=parseInt(v[1],10);
     if(n>0)lims[p.provider]=n;else delete lims[p.provider];
-    _mpw=v[1];
-    const r=await apiS('settings_set',{master_pw:_mpw,patch:{provider_limits:lims}});
+    if(t2>=5&&t2<=600)tos[p.provider]=t2;else delete tos[p.provider];
+    _mpw=v[2];
+    const r=await apiS('settings_set',{master_pw:_mpw,patch:{provider_limits:lims,provider_timeouts:tos}});
     if(r.status===401)_mpw='';
-    if(r.j&&r.j.ok){S=r.j.settings;toast('Limit '+(n>0?('set: '+n+'/day'):'cleared')+' for '+p.display_name);renderAll()}
+    if(r.j&&r.j.ok){S=r.j.settings;toast('Config saved for '+p.display_name);renderAll()}
     else toast((r.j&&r.j.error)||'Failed');
     return;
   }
@@ -346,13 +425,184 @@ $("#pgrid").onclick=async e=>{
 };
 </script>
 <script>
-let RT='quality',TFA_ON=false;
+let TFA_ON=false;
+function fmtTs(ts){
+  try{
+    const d=new Date(String(ts).endsWith('Z')?ts:ts+'Z');
+    if(LS.g('nexus-tz')==='UTC')return d.toISOString().slice(0,19).replace('T',' ');
+    return d.toLocaleString();
+  }catch(e){return String(ts).replace('T',' ').slice(0,19)}
+}
+function ago(ts){
+  const s=Math.max(0,(Date.now()-ts*1000)/1000);
+  if(s<90)return'now';
+  if(s<3600)return Math.round(s/60)+' min ago';
+  if(s<86400)return Math.round(s/3600)+'h ago';
+  return Math.round(s/86400)+'d ago';
+}
+function utOf(label){return UT?UT.users.find(u=>u.label===label):null}
+function renderFriends(){
+  const online=new Set(L.sessions.map(s=>s.label));
+  const roleName=r=>r==='moderator'?'Moderator':r==='viewer'?'Viewer':'Friend';
+  const cards=[{label:'Rudra',owner:true}].concat(L.access);
+  $("#ug").innerHTML=cards.map(a=>{
+    if(a.owner){
+      return `<div style="padding:12px;border:1px solid var(--line);border-radius:14px"><div class="row" style="align-items:center"><div class="av">R</div><div><b>Rudra</b> <span class="tag">Owner</span><div class="sub">Admin · this is the owner account</div></div></div></div>`;
+    }
+    const u=utOf(a.label),cap=capOf(a.label);
+    const req=u?u.requests:0,days=u?u.days:[0,0,0,0,0,0,0];
+    const pctv=cap?Math.min(100,req/cap*100):0;
+    const top=u&&u.top_provider?u.top_provider:'—';
+    const dnames='SMTWTFS';const today=new Date().getDay();
+    const bars=days.map((v,j)=>{const h=Math.max(8,v/Math.max(...days,1)*38);return `<rect x="${j*22}" y="${38-h}" width="16" height="${h}" rx="3" fill="currentColor" opacity="${j===6?1:.4}"/><text x="${j*22+8}" y="50" font-size="9" text-anchor="middle" fill="currentColor" opacity=".6">${dnames[(today+1+j)%7]}</text>`}).join('');
+    const hide=(UF&&!(a.label+' '+roleName(a.role)).toLowerCase().includes(UF))?'display:none':'';
+    return `<div class="uc${a.suspended?' sx':''}" data-card="${esc(a.label)}" style="${hide}"><div class="uf front"><div class="row" style="align-items:center"><div class="av">${esc(a.label[0].toUpperCase())}</div><div><b>${esc(a.label)}</b>${a.suspended?' <span class="chip on" style="padding:2px 8px;font-size:11px">Suspended</span>':''}<div class="sub">${roleName(a.role)} · ${a.keys||0} keys · ${online.has(a.label)?'online now':'offline'}</div></div></div><div class="rw" style="margin-top:10px"><span class="sub">${fmt(req)}/${cap?fmt(cap):'∞'}</span><div class="bar"><i style="width:${pctv}%"></i></div></div><div class="row" style="margin-top:8px;flex-wrap:wrap"><button class="ib" data-u="fl" data-l="${esc(a.label)}">Usage ⟳</button><span data-mut style="display:contents"><button class="ib" data-u="sus" data-l="${esc(a.label)}">${a.suspended?'Restore':'Suspend'}</button><button class="ib" data-u="ed" data-l="${esc(a.label)}">Edit</button><button class="ib" data-u="rst" data-l="${esc(a.label)}">Reset pw</button>${ADMIN()?`<button class="ib" data-u="del" data-l="${esc(a.label)}">Remove</button>`:''}</span></div></div><div class="uf bk"><div class="row" style="justify-content:space-between;align-items:center"><b>${esc(a.label)} · usage</b><button class="ib" data-u="fl" data-l="${esc(a.label)}">Back ⟲</button></div><div class="sub mono" style="margin:6px 0 2px">${fmt(req)}/${cap?fmt(cap):'∞'} today</div><div class="sub">${u?fmt(u.tokens):0} tokens today · top: ${esc(top)}</div>${u&&u.last_prompt?`<div class="sub" style="margin-top:4px">Last prompt: “${esc(u.last_prompt)}”</div>`:''}<svg viewBox="0 0 154 52" style="width:100%;height:56px;margin:6px 0;color:var(--tx)" role="img" aria-label="Requests, last 7 days">${bars}</svg><span data-mut style="display:contents"><button class="ib" data-u="ru" data-l="${esc(a.label)}">Reset usage</button></span></div></div>`;
+  }).join('')||'<div class="empty">No users match.</div>';
+  renderUsagePanel();renderSessions();renderVaultPanel();
+  $("#ku").innerHTML=L.access.map(a=>`<option value="${esc(a.label)}">${esc(a.label)}</option>`).join('')||'<option value="">No friends yet</option>';
+  $("#kp").innerHTML=Q.providers.map(p=>`<option value="${esc(p.provider)}">${esc(p.display_name)}</option>`).join('');
+}
+function renderUsagePanel(){
+  const el=$("#uu");if(!el)return;
+  if(!UT){el.innerHTML='<div class="sub">Usage detail is available to the owner and moderators.</div>';return}
+  const rows=UT.users;
+  const T=rows.reduce((a,x)=>a+x.requests,0),Tk=rows.reduce((a,x)=>a+x.tokens,0);
+  const hot=rows.filter(x=>{const c=capOf(x.label);return c&&x.requests>=c*.8}).length;
+  el.innerHTML=`<div class="sub mono" style="margin-bottom:6px">${fmt(T)} requests · ${fmt(Tk)} tokens · ${hot} near or over cap</div>`+(rows.length?rows.map(u=>{
+    const a=(L.access||[]).find(x=>x.label===u.label)||{};
+    const cap=capOf(u.label),p=cap?u.requests/cap*100:0;
+    const days=u.days||[0,0,0,0,0,0,0],mxd=Math.max(...days,1);
+    return `<div class="vr"><div class="av" style="width:30px;height:30px;border-radius:10px;font-size:13px">${esc(u.label[0].toUpperCase())}</div><div style="min-width:84px"><b>${esc(u.label)}</b>${a.suspended?' <span class="sub">suspended</span>':''}<div class="sub">${a.role&&a.role!=='friend'?a.role:'Friend'} · top: ${esc(u.top_provider||'—')}</div></div><div class="rw" style="flex:1;min-width:150px"><div class="bar"><i style="width:${Math.min(100,p)}%"></i></div><span class="mono">${fmt(u.requests)}/${cap?fmt(cap):'∞'}</span></div><span class="sub mono">${fmt(u.tokens)} tok</span><svg width="49" height="18" viewBox="0 0 49 18" role="img" aria-label="Last 7 days" style="color:var(--mu)">${days.map((v,i)=>`<rect x="${i*7}" y="${18-v/mxd*17}" width="5" height="${Math.max(1,v/mxd*17)}" rx="1" fill="currentColor"/>`).join('')}</svg>${p>=100?'<span class="chip on">Over cap</span>':p>=80?'<span class="chip">Near cap</span>':''}</div>`;
+  }).join(''):'<div class="sub">No usage yet today.</div>');
+}
+function renderSessions(){
+  const el=$("#ss");if(!el)return;
+  const roleOf=s=>s.admin?'Owner':s.viewer?'Viewer (pass)':((L.access.find(a=>a.label===s.label)||{}).role==='moderator'?'Moderator':(L.access.find(a=>a.label===s.label)||{}).role==='viewer'?'Viewer':'Friend');
+  el.innerHTML=L.sessions.length?L.sessions.map(s=>{
+    const mine=ME.sid&&s.sid===ME.sid;
+    return `<div class="vr"><b>${esc(s.label)}</b><span class="tag">${roleOf(s)}</span><span class="sub">${esc(s.ua||'')}</span><code>${esc(s.ip||'')}</code><span class="sub">${s.ts?ago(s.ts):''}</span>${mine?'<span class="chip" style="margin-left:auto">This device</span>':(VIEWER()?'':`<button class="ib" data-ss="${esc(s.sid||'')}" data-mut style="margin-left:auto">Revoke</button>`)}</div>`;
+  }).join(''):'<div class="sub">No active sessions</div>';
+}
+$("#ss").addEventListener('click',async e=>{
+  const b=e.target.closest('[data-ss]');if(!b||!b.dataset.ss)return;
+  const r=await mut('session_revoke',{sid:b.dataset.ss});
+  if(r&&r.j&&r.j.ok){toast('Session revoked');loadAllSoft()}
+  else if(r&&r.j)toast(r.j.error||'Failed');
+});
+function renderVaultPanel(){
+  const keyedN=Q.providers.filter(p=>p.key_configured).length;
+  const vm=(S&&S.vault_meta)||{};
+  $("#vl").innerHTML=
+    `<div class="vr">🔒 <b>API service key</b><span class="sub">/v1 external API</span><code>${V1?(V1.configured?'••••••••'+esc(V1.last4||''):'not configured'):'—'}</code><a class="ib" href="/api-access" style="text-decoration:none">Manage</a></div>`+
+    `<div class="vr">🔒 <b>Shared provider keys</b><span class="sub">${keyedN} providers configured</span><code>master vault</code><a class="ib" href="/settings" style="text-decoration:none">Update keys</a></div>`+
+    L.access.map(a=>{
+      const entries=vm[a.label]||[];
+      const rows=entries.map(en=>`<div class="vr" style="padding-left:26px">🔒 <b>${esc(a.label)}</b><span class="sub">${esc(en.provider)}</span><code>••••••••${esc(en.last4)}</code></div>`).join('');
+      return rows+`<div class="vr">🔒 <b>${esc(a.label)}</b><span class="sub">personal vault</span><code>${a.vault?entries.length+' key'+(entries.length===1?'':'s')+' on record':'not set up'}</code>${a.vault?`<button class="ib" data-vc="${esc(a.label)}" data-mut>Clear vault</button>`:''}</div>`;
+    }).join('');
+}
+document.addEventListener('click',async e=>{
+  const vc=e.target.closest&&e.target.closest('[data-vc]');
+  if(vc){
+    const r=await mut('friend_vault_clear',{label:vc.dataset.vc});
+    if(r&&r.j&&r.j.ok){toast('Vault cleared for '+vc.dataset.vc);loadAllSoft()}
+    else if(r&&r.j)toast(r.j.error||'Failed');
+    return;
+  }
+  const b=e.target.closest&&e.target.closest('#ug [data-u]');
+  if(!b)return;
+  const label=b.dataset.l,act=b.dataset.u;
+  if(act==='fl'){const card=b.closest('.uc');if(card)card.classList.toggle('fl');return}
+  if(act==='sus'){
+    const a=L.access.find(x=>x.label===label);
+    const r=await mut('friend_set_suspended',{label,on:!(a&&a.suspended)});
+    if(r&&r.j&&r.j.ok){toast(label+((a&&a.suspended)?' restored':' suspended'));loadAllSoft()}
+    else if(r&&r.j)toast(r.j.error||'Failed');
+  }
+  if(act==='ru'){
+    const v=await dlg('Reset today\'s usage for '+label+'? Their request counters start over; history charts keep the past days.',[]);
+    if(!v)return;
+    const r=await mut('friend_usage_reset',{label});
+    if(r&&r.j&&r.j.ok){toast('Usage reset for '+label);UT=await jget('/api/usage_today');AN7=await jget('/api/analytics?range=7d');renderFriends();renderSide()}
+    else if(r&&r.j)toast(r.j.error||'Failed');
+  }
+  if(act==='ed'){
+    const a=L.access.find(x=>x.label===label);
+    const roleOpts=MOD()?['Friend','Viewer']:['Friend','Moderator','Viewer'];
+    const curRole=a?(a.role==='moderator'?'Moderator':a.role==='viewer'?'Viewer':'Friend'):'Friend';
+    const v=await dlg('Edit '+label,[['Role','r',curRole,'select',roleOpts],['Daily request cap (blank = instance default, 0 = no cap)','c',a&&a.cap!=null?a.cap:'','number']]);
+    if(!v)return;
+    const newRole=v[0].toLowerCase();
+    if(newRole!==(a?a.role:'friend')){
+      const r=await mut('friend_role_set',{label,role:newRole});
+      if(!(r&&r.j&&r.j.ok)){if(r&&r.j)toast(r.j.error||'Role change failed');return}
+    }
+    const caps=parseInt(v[1],10);
+    const r2=await mut('friend_set_cap',{label,cap:v[1]===''?null:(isNaN(caps)?null:caps)});
+    if(r2&&r2.j&&r2.j.ok){toast('Saved '+label);loadAllSoft()}
+    else if(r2&&r2.j)toast(r2.j.error||'Failed');
+  }
+  if(act==='rst'){
+    const v=await dlg('Reset password for '+label+' — their saved keys and chats (encrypted under the old password) will be removed',[['New password (min 6 chars)','np','','password']].concat(ADMIN()?[['Your master password','pw','','password']]:[]));
+    if(!v)return;
+    const body={label,new_password:v[0]};
+    if(ADMIN())body.master_pw=v[1];
+    const r=await (MOD()?apiS('friend_reset_pw',body):apiS('friend_reset_pw',body));
+    if(r.j&&r.j.ok)toast('Password reset for '+label);
+    else toast((r.j&&r.j.error)||'Failed');
+  }
+  if(act==='del'){
+    const v=await dlg('Remove '+label+'? They will be logged out immediately and their saved chats and keys removed.',[['Your master password','pw','','password']]);
+    if(!v)return;
+    const r=await apiS('revoke',{label,master_pw:v[0]});
+    if(r.j&&r.j.ok){toast('Access revoked: '+label);loadAllSoft()}
+    else toast((r.j&&r.j.error)||'Failed');
+  }
+});
+$("#us").addEventListener('input',e=>{UF=e.target.value.trim().toLowerCase();renderFriends()});
+$("#kf").addEventListener('submit',async e=>{
+  e.preventDefault();
+  const msg=$("#kfMsg");
+  const body={label:$("#ku").value,provider:$("#kp").value,key:$("#kk").value,friend_pw:$("#kfp").value};
+  if(ADMIN())body.master_pw=$("#kfm").value;
+  if(!body.label){msg.textContent='Add a friend first';return}
+  if(!body.key||!body.friend_pw||(ADMIN()&&!body.master_pw)){msg.textContent='Fill the key, the friend\'s password'+(ADMIN()?' and your master password':'');return}
+  const r=await apiS('friend_key_add',body);
+  if(r.j&&r.j.ok){msg.innerHTML='<span class="okc">Key encrypted into '+esc(body.label)+'\'s vault</span>';$("#kk").value='';loadAllSoft()}
+  else msg.textContent=(r.j&&r.j.error)||'Failed';
+});
+async function loadInvites(){
+  if(VIEWER()){$("#iv").innerHTML='<div class="sub">Invites are managed by the owner and moderators.</div>';return}
+  const j=await api('invite_list');
+  INVITES=(j&&j.invites)||[];
+  $("#iv").innerHTML=INVITES.length?INVITES.map(g=>`<div class="vr"><code style="margin:0;color:var(--tx)">${esc(g.id)}••</code><span class="sub">${esc(g.role)} · ${g.used_by?('used by '+esc(g.used_by)):g.expired?'expired':'expires '+new Date(g.expires*1000).toLocaleDateString()}</span>${!g.used_by&&!g.expired?`<button class="ib" data-iv="${esc(g.id)}" data-mut style="margin-left:auto">Revoke</button>`:''}</div>`).join(''):'<div class="sub">No invites yet — use “Invite friend” above to create one.</div>';
+}
+$("#iv").addEventListener('click',async e=>{
+  const b=e.target.closest('[data-iv]');if(!b)return;
+  const r=await mut('invite_revoke',{id:b.dataset.iv});
+  if(r&&r.j&&r.j.ok){toast('Invite revoked');loadInvites()}
+  else if(r&&r.j)toast(r.j.error||'Failed');
+});
+async function inviteFlow(){
+  const roleOpts=MOD()?['Friend','Viewer']:['Friend','Moderator','Viewer'];
+  const v=await dlg('Invite someone',[['Role','r','Friend','select',roleOpts],['Expires in','e','7 days','select',['1 day','7 days','30 days']]]);
+  if(!v)return;
+  const days={'1 day':1,'7 days':7,'30 days':30}[v[1]];
+  const r=await mut('invite_create',{role:v[0].toLowerCase(),days});
+  if(r&&r.j&&r.j.ok){
+    const link=location.origin+'/invite?code='+r.j.code;
+    const v2=await dlg('Invite code — shown only once',[['Code','c',r.j.code,'text'],['Signup link','l',link,'text']]);
+    if(v2)(navigator.clipboard?navigator.clipboard.writeText(link):Promise.reject()).then(()=>toast('Invite link copied'),()=>toast('Copy the link from the dialog'));
+    loadInvites();
+  }else if(r&&r.j)toast(r.j.error||'Failed');
+}
 function vpWhen(ts){const mins=Math.max(0,Math.round((ts*1000-Date.now())/60000));if(mins<60)return mins+' min left';return Math.round(mins/60)+' h left'}
 async function loadViewPasses(){
+  if(!ADMIN()){GRANTS=[];const c=$("#vpControls");if(c)c.style.display='none';$("#gv").innerHTML='<div class="sub">View passes are managed from the owner account.</div>';return}
   const j=await api('viewpass_list');
-  if(!j||j.error){GRANTS=[];const c=$("#vpControls");if(c)c.style.display='none';$("#iv").innerHTML='<div class="sub">View passes are managed from the admin account.</div>';return}
+  if(!j||j.error){GRANTS=[];const c=$("#vpControls");if(c)c.style.display='none';$("#gv").innerHTML='<div class="sub">View passes are managed from the admin account.</div>';return}
   GRANTS=j.grants||[];
-  $("#iv").innerHTML=GRANTS.length?GRANTS.map(g=>`<div class="vr"><b>${esc(g.name)}</b><span class="sub">${vpWhen(g.expires)}${g.watching?' · '+g.watching+' watching':''}</span><button class="ib" data-vp="${g.id}" data-mut style="margin-left:auto">Revoke</button></div>`).join(''):'<div class="sub">No active view passes</div>';
+  $("#gv").innerHTML=GRANTS.length?GRANTS.map(g=>`<div class="vr"><b>${esc(g.name)}</b><span class="sub">${vpWhen(g.expires)}${g.watching?' · '+g.watching+' watching':''}</span><button class="ib" data-vp="${g.id}" data-mut style="margin-left:auto">Revoke</button></div>`).join(''):'<div class="sub">No active view passes</div>';
 }
 document.addEventListener('click',async e=>{
   const rb=e.target.closest&&e.target.closest('[data-vp]');
@@ -360,11 +610,10 @@ document.addEventListener('click',async e=>{
     const mpw=await askMaster('Revoke view pass?');
     if(!mpw)return;
     const r=await apiS('viewpass_revoke',{id:rb.dataset.vp,master_pw:mpw});
-    if(r.j&&r.j.ok){toast('View pass revoked');await loadViewPasses();renderFriends();loadAllSoft()}
+    if(r.j&&r.j.ok){toast('View pass revoked');await loadViewPasses()}
     else toast((r.j&&r.j.error)||'Failed');
   }
 });
-async function loadAllSoft(){const l=await api('list');if(l){L=l;renderAll()}}
 $("#vpBtn").addEventListener('click',async()=>{
   const name=$("#vpName").value.trim(),hours=parseInt($("#vpHours").value,10),master_pw=$("#vpMaster").value;
   const msg=$("#vpMsg");
@@ -378,162 +627,136 @@ $("#vpBtn").addEventListener('click',async()=>{
     $("#vpResult").style.display='block';
     $("#vpMaster").value='';
     msg.innerHTML='<span class="okc">View pass created — copy the link now</span>';
-    await loadViewPasses();renderFriends();
+    await loadViewPasses();
   }else msg.textContent=(r.j&&r.j.error)||'Failed';
 });
-function renderFriends(){
-  const online=new Set(L.sessions.map(s=>s.label));
-  const used={};
-  if(AN7)AN7.per_user.forEach(u=>used[u.label]=u.requests);
-  const mx=Math.max(...Object.values(used),1);
-  const myCap=S?(S.daily_cap||0):200;
-  $("#ug").innerHTML=`<div style="padding:12px;border:1px solid var(--line);border-radius:14px"><div class="row" style="align-items:center"><div class="av">R</div><div><b>Rudra</b> <span class="tag">Admin</span><div class="sub">Owner · this is you</div></div></div></div>`+L.access.map(a=>{
-    const cap=a.cap!=null?a.cap:myCap;
-    return `<div style="padding:12px;border:1px solid var(--line);border-radius:14px"><div class="row" style="align-items:center"><div class="av">${esc(a.label[0].toUpperCase())}</div><div><b>${esc(a.label)}</b>${a.suspended?' <span class="sub">suspended</span>':''}<div class="sub">Friend · cap ${cap?cap+'/day':'no cap'} · ${online.has(a.label)?'online now':'offline'}</div></div></div><div class="rw" style="margin-top:10px"><span class="sub">${fmt(used[a.label]||0)} requests (7d)</span><div class="bar"><i style="width:${Math.min(100,(used[a.label]||0)/mx*100)}%"></i></div></div><div class="sub" style="margin-top:4px">Personal vault: ${a.vault?'set up':'not set up'}</div><div class="row" style="margin-top:8px;flex-wrap:wrap" data-mut><button class="ib" data-u="sus" data-l="${esc(a.label)}">${a.suspended?'Restore':'Suspend'}</button><button class="ib" data-u="cap" data-l="${esc(a.label)}">Edit cap</button><button class="ib" data-u="rst" data-l="${esc(a.label)}">Reset pw</button><button class="ib" data-u="del" data-l="${esc(a.label)}">Remove</button></div></div>`;
-  }).join('');
-  // vault list
-  const keyedN=Q.providers.filter(p=>p.key_configured).length;
-  $("#vl").innerHTML=
-    `<div class="vr">🔒 <b>API service key</b><span class="sub">/v1 external API</span><code>${V1?(V1.configured?'••••••••'+esc(V1.last4||''):esc('not configured')):'—'}</code><a class="ib" href="/api-access" style="text-decoration:none">Manage</a></div>`+
-    `<div class="vr">🔒 <b>Shared provider keys</b><span class="sub">${keyedN} providers configured</span><code>master vault</code><a class="ib" href="/settings" style="text-decoration:none">Update keys</a></div>`+
-    L.access.map(a=>`<div class="vr">🔒 <b>${esc(a.label)}</b><span class="sub">personal vault</span><code>${a.vault?'set up':'not set up'}</code>${a.vault?`<button class="ib" data-vc="${esc(a.label)}" data-mut>Clear</button>`:''}</div>`).join('');
-  $("#ku").innerHTML=L.access.map(a=>`<option value="${esc(a.label)}">${esc(a.label)}</option>`).join('')||'<option value="">No friends yet</option>';
-  $("#kp").innerHTML=Q.providers.map(p=>`<option value="${esc(p.provider)}">${esc(p.display_name)}</option>`).join('');
+</script>
+<script>
+function segRow(label,opts,cur,attr,note){
+  return `<div class="vr"><span>${label}${note?` <span class="sub">${esc(note)}</span>`:''}</span><div class="row" style="margin-left:auto;flex-wrap:wrap">${opts.map(o=>`<button class="ib ${String(o[1])===String(cur)?'on':''}" data-seg="${attr}" data-v="${o[1]}" data-mut>${o[0]}</button>`).join('')}</div></div>`;
 }
-document.addEventListener('click',async e=>{
-  const vc=e.target.closest&&e.target.closest('[data-vc]');
-  if(vc){
-    const r=await withMaster(mpw=>apiS('friend_vault_clear',{master_pw:mpw,label:vc.dataset.vc}));
-    if(r&&r.j&&r.j.ok){toast('Vault cleared for '+vc.dataset.vc);loadAllSoft()}
-    else if(r&&r.j)toast(r.j.error||'Failed');
-    return;
-  }
-  const b=e.target.closest&&e.target.closest('#ug [data-u]');
-  if(!b)return;
-  const label=b.dataset.l,act=b.dataset.u;
-  if(act==='sus'){
-    const cur=new Set((S&&S.suspended)||[]);
-    if(cur.has(label))cur.delete(label);else cur.add(label);
-    await setSettings({suspended:[...cur]},label+(cur.has(label)?' suspended':' restored'));
-  }
-  if(act==='cap'){
-    const a=L.access.find(x=>x.label===label);
-    const v=await dlg('Daily cap for '+label,[['Cap (requests/day, blank = instance default '+(S?S.daily_cap:200)+')','cap',a&&a.cap!=null?a.cap:'','number']]);
-    if(!v)return;
-    const caps=Object.assign({},(S&&S.user_caps)||{});
-    const n=parseInt(v[0],10);
-    if(n>0)caps[label]=n;else delete caps[label];
-    await setSettings({user_caps:caps},'Cap updated for '+label);
-  }
-  if(act==='rst'){
-    const v=await dlg('Reset password for '+label+' — their saved keys and chats (encrypted under the old password) will be removed',[['New password (min 6 chars)','np','','password'],['Your master password','pw','','password']]);
-    if(!v)return;
-    const r=await apiS('friend_reset_pw',{master_pw:v[1],label,new_password:v[0]});
-    if(r.j&&r.j.ok)toast('Password reset for '+label);
-    else toast((r.j&&r.j.error)||'Failed');
-  }
-  if(act==='del'){
-    const v=await dlg('Remove '+label+'? They will be logged out immediately and their saved chats and keys removed.',[['Your master password','pw','','password']]);
-    if(!v)return;
-    const r=await apiS('revoke',{label,master_pw:v[0]});
-    if(r.j&&r.j.ok){toast('Access revoked: '+label);loadAllSoft()}
-    else toast((r.j&&r.j.error)||'Failed');
-  }
-});
-$("#kf").addEventListener('submit',async e=>{
-  e.preventDefault();
-  const msg=$("#kfMsg");
-  const body={label:$("#ku").value,provider:$("#kp").value,key:$("#kk").value,friend_pw:$("#kfp").value,master_pw:$("#kfm").value};
-  if(!body.label){msg.textContent='Add a friend first';return}
-  if(!body.key||!body.friend_pw||!body.master_pw){msg.textContent='Fill the key, the friend\'s password and your master password';return}
-  const r=await apiS('friend_key_add',body);
-  if(r.j&&r.j.ok){msg.innerHTML='<span class="okc">Key encrypted into '+esc(body.label)+'\'s vault</span>';$("#kk").value='';loadAllSoft()}
-  else msg.textContent=(r.j&&r.j.error)||'Failed';
-});
-function segRow(label,opts,cur,attr){
-  return `<div class="vr"><span>${label}</span><div class="row" style="margin-left:auto;flex-wrap:wrap">${opts.map(o=>`<button class="ib ${o[1]===cur?'on':''}" data-seg="${attr}" data-v="${o[1]}">${o[0]}</button>`).join('')}</div></div>`;
+function tglRow(label,key,on){
+  return `<div class="vr"><span>${label}</span><button class="ib ${on?'on':''}" data-tg="${key}" data-mut style="margin-left:auto">${on?'ON':'OFF'}</button></div>`;
 }
 function renderSettings(){
-  $("#sess").innerHTML=L.sessions.length?L.sessions.map(s=>`<div class="vr"><b>${esc(s.label)}</b><span class="tag">${s.admin?'admin':(s.viewer?'viewer':'friend')}</span></div>`).join(''):'<div class="sub">No active sessions</div>';
+  if(!ADMIN())return;
   const st0=$("#tfaStatus");
-  st0.innerHTML=TFA_ON?'<span class="okc">\u2713 2FA is ON</span>':'<span style="color:var(--mu)">2FA is OFF</span>';
+  st0.innerHTML=TFA_ON?'<span class="okc">✓ 2FA is ON</span>':'<span style="color:var(--mu)">2FA is OFF</span>';
   $("#tfaBtn").textContent=TFA_ON?'Disable 2FA':'Enable 2FA';
   if(!S)return;
-  $("#sm").innerHTML=[['quality','Quality first'],['save','Save tokens'],['auto','Auto']].map(m=>`<button class="ib ${m[0]===RT?'on':''}" data-rt="${m[0]}">${m[1]}</button>`).join('');
+  const CM=[['Priority','priority'],['Fastest','fastest'],['Round-robin','round_robin']];
+  $("#sm").innerHTML=CM.map(m=>`<button class="ib ${m[1]===S.chain_mode?'on':''}" data-cm="${m[1]}" data-mut>${m[0]}</button>`).join('');
   $("#rg").value=S.max_attempts;$("#rv").textContent=S.max_attempts;
   $("#cg").value=S.daily_cap;$("#cv").textContent=S.daily_cap===0?'no cap':S.daily_cap;
-  $("#nm").value=S.instance_name||'Nexus Local';
-  const grantsN=GRANTS.length;
+  $("#gg").value=S.global_cap||0;$("#gv").textContent=(S.global_cap||0)===0?'off':fmt(S.global_cap);
+  if(document.activeElement!==$("#nm"))$("#nm").value=S.instance_name||'Nexus Local';
+  if(document.activeElement!==$("#ae"))$("#ae").value=S.alert_email||'';
+  if(document.activeElement!==$("#anm"))$("#anm").value=S.announcement||'';
+  if(document.activeElement!==$("#wh"))$("#wh").value=S.webhook_url||'';
+  if(document.activeElement!==$("#ip"))$("#ip").value=(S.allowed_ips||[]).join(', ');
+  const A=S.alerts||{};
   $("#sw").innerHTML=
-    `<div class="vr"><span>Maintenance mode (block friends)</span><button class="ib ${S.maintenance?'on':''}" data-sw="maint" data-mut style="margin-left:auto">${S.maintenance?'ON':'OFF'}</button></div>`+
-    `<div class="vr"><span>Vault encryption (AES-256-GCM)</span><span class="tag" style="margin-left:auto">Always on</span></div>`+
-    `<div class="vr"><span>Two-factor for admin</span><span class="sub" style="margin-left:auto">${TFA_ON?'On':'Off'}</span><button class="ib" data-sw="tfa">Manage</button></div>`+
-    `<div class="vr"><span>View passes</span><span class="sub" style="margin-left:auto">${grantsN} active</span><button class="ib" data-sw="vp">Manage</button></div>`+
-    `<div class="vr"><span>Audit logging</span><span class="tag" style="margin-left:auto">Always on</span></div>`;
-  const q3=localStorage.getItem('nexus-q3')||'High';
-  const th=localStorage.getItem('nexus-theme')||'System';
+    `<div class="vr"><span>Encrypt vaults (AES-256-GCM)</span><span class="tag" style="margin-left:auto">Always on</span></div>`+
+    `<div class="vr"><span>Two-factor for admin</span><span class="sub" style="margin-left:auto">${TFA_ON?'On':'Off'}</span><button class="ib" data-jump="tfaCard" style="margin-left:8px">Manage</button></div>`+
+    tglRow('Log request prompts (first 120 chars, for moderation)','log_prompts',!!S.log_prompts)+
+    tglRow('Alert when a provider goes down','alerts.provider_down',A.provider_down!==false)+
+    tglRow('Daily usage digest via webhook','digest_daily',!!S.digest_daily)+
+    tglRow('Notify on new signup','alerts.signup',A.signup!==false)+
+    tglRow('Maintenance mode (block friends)','maintenance',!!S.maintenance)+
+    tglRow('Skip failing providers automatically','skip_failing',S.skip_failing!==false)+
+    tglRow('Alert when a user hits their daily cap','alerts.cap',A.cap!==false)+
+    tglRow('Let friends add their own API keys','friends_byok',S.friends_byok!==false)+
+    tglRow('Lock account after repeated failed sign-ins','login_lockout',S.login_lockout!==false)+
+    tglRow('Record IP addresses in audit log','audit_ips',S.audit_ips!==false)+
+    tglRow('Weekly usage report via webhook','digest_weekly',!!S.digest_weekly);
+  const q3=LS.g('nexus-q3')||'High',th=LS.g('nexus-theme')||'System',tz=LS.g('nexus-tz')||'Local';
   $("#sg").innerHTML=
+    segRow('Registration',[['Open','open'],['Invite only','invite'],['Closed','closed']],S.registration,'registration')+
     segRow('Session timeout',[['30m',30],['1h',60],['8h',480],['24h',1440]],S.session_minutes||30,'session_minutes')+
     segRow('Log retention',[['7d',7],['30d',30],['90d',90]],S.retention_days,'retention_days')+
     segRow('3D scene quality',[['High','High'],['Low','Low'],['Off','Off']],q3,'q3')+
+    segRow('Auto-backup (config snapshot)',[['Off','off'],['Daily','daily'],['Weekly','weekly']],S.auto_backup,'auto_backup',S.last_backup?('last '+ago(Date.parse(S.last_backup)/1000)):'')+
+    segRow('Default role for signups',[['Friend','friend'],['Viewer','viewer']],S.signup_role,'signup_role')+
+    segRow('Failures before a provider is skipped',[['1',1],['3',3],['5',5],['10',10]],S.cb_failures==null?'':S.cb_failures,'cb_failures',S.cb_failures==null?'2 by default':'')+
+    segRow('Provider cooldown',[['30s',30],['2m',120],['3m',180],['10m',600]],S.cb_cooldown_s==null?180:S.cb_cooldown_s,'cb_cooldown_s')+
+    segRow('Chat rate limit per friend',[['10/m',10],['30/m',30],['60/m',60],['Off',0]],S.chat_rate==null?'':S.chat_rate,'chat_rate',S.chat_rate==null?'40/m by default':'')+
+    segRow('Minimum password length',[['8',8],['12',12],['16',16]],S.pw_min,'pw_min')+
+    segRow('Latency alert threshold',[['Off',0],['1s',1],['2s',2],['5s',5]],S.latency_alert_s,'latency_alert_s')+
+    segRow('Quota alert at',[['80%',80],['90%',90],['95%',95]],S.quota_alert_pct,'quota_alert_pct')+
     segRow('Theme',[['System','System'],['Light','Light'],['Dark','Dark']],th,'theme')+
-    `<div class="vr"><span>Auto-backup</span><span class="sub" style="margin-left:auto">Continuous · encrypted mirror to GitHub</span></div>`+
-    `<div class="vr"><span>Registration</span><span class="sub" style="margin-left:auto">Invite-only · accounts are created by the admin</span></div>`;
+    segRow('Timestamps shown in',[['Browser time','Local'],['UTC','UTC']],tz,'tz');
+  $("#bkLine").textContent=S.last_backup?('Last auto-backup: '+fmtTs(S.last_backup)):('Auto-backup: '+(S.auto_backup||'off')+' · the encrypted mirror to GitHub runs continuously.');
 }
 $("#sm").addEventListener('click',async e=>{
-  const b=e.target.closest('[data-rt]');if(!b)return;
-  const r=await fetch('/api/routing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({set:b.dataset.rt})});
-  if(r.status===401){location.href='/login';return}
-  const j=await r.json().catch(()=>null);
-  if(j&&j.ok){RT=j.routing;renderSettings();toast('Routing: '+b.textContent)}
+  const b=e.target.closest('[data-cm]');if(!b)return;
+  await setSettings({chain_mode:b.dataset.cm},'Chain mode: '+b.textContent);
 });
 $("#rg").addEventListener('change',async e=>{await setSettings({max_attempts:+e.target.value},'Max attempts: '+e.target.value);$("#polMsg").textContent='';});
 $("#cg").addEventListener('change',async e=>{await setSettings({daily_cap:+e.target.value},'Daily cap: '+(+e.target.value===0?'off':e.target.value));});
+$("#gg").addEventListener('change',async e=>{await setSettings({global_cap:+e.target.value},'Instance cap: '+(+e.target.value===0?'off':fmt(+e.target.value)));});
 $("#rg").addEventListener('input',e=>{$("#rv").textContent=e.target.value});
 $("#cg").addEventListener('input',e=>{$("#cv").textContent=+e.target.value===0?'no cap':e.target.value});
+$("#gg").addEventListener('input',e=>{$("#gv").textContent=+e.target.value===0?'off':fmt(+e.target.value)});
 $("#nm").addEventListener('change',async e=>{const v=e.target.value.trim();if(v)await setSettings({instance_name:v},'Instance renamed')});
+$("#ae").addEventListener('change',async e=>{await setSettings({alert_email:e.target.value.trim()},'Alert email saved')});
+$("#wh").addEventListener('change',async e=>{await setSettings({webhook_url:e.target.value.trim()},'Webhook URL saved')});
+$("#ip").addEventListener('change',async e=>{const v=e.target.value.split(',').map(x=>x.trim()).filter(Boolean);await setSettings({allowed_ips:v},v.length?'Allowed IPs saved':'Allowed IPs cleared — sign-in open');});
 $("#sw").addEventListener('click',async e=>{
-  const b=e.target.closest('[data-sw]');if(!b)return;
-  if(b.dataset.sw==='maint')await setSettings({maintenance:!S.maintenance},'Maintenance mode '+(S.maintenance?'off':'on'));
-  if(b.dataset.sw==='tfa'){go('se');setTimeout(()=>$("#tfaCard").scrollIntoView({behavior:'smooth'}),60)}
-  if(b.dataset.sw==='vp'){go('fr')}
+  const j=e.target.closest('[data-jump]');
+  if(j){$("#"+j.dataset.jump).scrollIntoView({behavior:'smooth'});return}
+  const b=e.target.closest('[data-tg]');if(!b)return;
+  const k=b.dataset.tg;
+  if(k.startsWith('alerts.')){
+    const sub=k.split('.')[1];
+    const A=Object.assign({provider_down:true,cap:true,signup:true},S.alerts||{});
+    A[sub]=!(A[sub]!==false);
+    await setSettings({alerts:A},'Saved');
+  }else{
+    await setSettings({[k]:!S[k]},'Saved');
+  }
 });
 $("#sg").addEventListener('click',async e=>{
   const b=e.target.closest('[data-seg]');if(!b)return;
   const k=b.dataset.seg,v=b.dataset.v;
-  if(k==='q3'){localStorage.setItem('nexus-q3',v);window.q3set&&q3set(v);renderSettings();toast('3D quality: '+v);return}
+  if(k==='q3'){LS.s('nexus-q3',v);window.q3set&&q3set(v);renderSettings();toast('3D quality: '+v);return}
   if(k==='theme'){applyTheme(v);renderSettings();return}
-  await setSettings({[k]:+v},'Saved');
+  if(k==='tz'){LS.s('nexus-tz',v);renderSettings();renderAudit();renderSide();toast('Timestamps: '+v);return}
+  await setSettings({[k]:v},'Saved');
 });
 function renderAudit(){
-  $("#af").innerHTML=['All','Providers','Users','Vault','System'].map(c=>`<button class="ib ${c===AF?'on':''}" data-f="${c}">${c}</button>`).join('');
-  const rows=AU.filter(e2=>AF==='All'||e2.cat===AF);
-  $("#at").innerHTML=rows.length?rows.map(e2=>`<tr><td class="mono sub">${esc(String(e2.ts).replace('T',' ').slice(0,19))}</td><td>${esc(e2.cat)}</td><td>${esc(e2.event)}</td></tr>`).join(''):'<tr><td colspan="3" class="sub">No events in this category yet</td></tr>';
+  $("#af").innerHTML=['All','Providers','Users','Vault','System'].map(c=>`<button class="ib ${c===AF?'on':''}" data-f="${c}">${c}</button>`).join('')+'<button class="ib" data-x="acv" style="margin-left:auto">Copy CSV</button>';
+  const rows=AU.filter(e2=>(AF==='All'||e2.cat===AF)&&(!AQ||(e2.event+' '+e2.cat+' '+(e2.ip||'')).toLowerCase().includes(AQ)));
+  $("#at").innerHTML=rows.length?rows.map(e2=>`<tr><td class="mono sub">${esc(fmtTs(e2.ts))}${e2.ip?`<div>${esc(e2.ip)}</div>`:''}</td><td>${esc(e2.cat)}</td><td>${esc(e2.event)}</td></tr>`).join(''):'<tr><td colspan="3" class="sub">No events match</td></tr>';
 }
 $("#af").addEventListener('click',e=>{const b=e.target.closest('[data-f]');if(b){AF=b.dataset.f;renderAudit()}});
+$("#aq").addEventListener('input',e=>{AQ=e.target.value.trim().toLowerCase();renderAudit()});
 async function anRender(){
-  if(VIEWER){$("#ank").innerHTML='<div class="p s12"><h2>Analytics</h2><div class="sub">Analytics is admin-only — a view pass can look, but request data stays with the owner.</div></div>';return}
   const j=await jget('/api/analytics?range='+RG);
   if(!j)return;
   if(RG==='7d'){AN7=j;renderProviders()}
+  if(RG==='24h')AN24=j;
   $("#arg").innerHTML=['24h','7d','30d'].map(t=>`<button class="ib ${t===RG?'on':''}" data-rg="${t}">${t}</button>`).join('');
-  const kpi=[['Total requests',fmt(j.totals.requests)],['Success rate',j.success_rate==null?'—':j.success_rate+'%'],['Avg latency',j.avg_ms==null?'—':fmt(j.avg_ms)+' ms'],['Failovers',fmt(j.failovers)]];
+  const fr=j.totals.requests?Math.round(j.failovers/j.totals.requests*1000)/10:0;
+  const kpi=[['Total requests',fmt(j.totals.requests)],['Success rate',j.success_rate==null?'—':j.success_rate+'%'],['Avg latency',j.avg_ms==null?'—':fmt(j.avg_ms)+' ms'],['Failover rate',fr+'%']];
   $("#ank").innerHTML=kpi.map(k=>`<div class="p s3"><h2 class="lift">${k[0]}</h2><div class="num lift" style="font-size:clamp(26px,3.2vw,42px)">${k[1]}</div></div>`).join('');
   const bars=(arr,id,label)=>{const mx=Math.max(...arr.map(x=>x.requests),1);$(id).innerHTML=arr.length?arr.map(x=>`<div class="rw"><span style="min-width:110px">${esc(label(x))}</span><div class="bar"><i style="width:${x.requests/mx*100}%"></i></div><span class="mono">${fmt(x.requests)}</span></div>`).join(''):'<div class="sub">No requests in this range yet</div>'};
   const names={};Q.providers.forEach(p=>names[p.provider]=p.display_name);
   bars(j.per_provider,'#anp',x=>x.provider.startsWith('v1:')?((names[x.provider.slice(3)]||x.provider.slice(3))+' (API)'):names[x.provider]||x.provider);
   bars(j.per_user,'#anf',x=>x.label);
-  const ser=j.series.map(s2=>s2.requests);
+  const hasLat=j.series.some(s2=>s2.avg_ms!=null);
+  const ser=hasLat?j.series.map(s2=>s2.avg_ms||0):j.series.map(s2=>s2.requests);
   $("#anl").innerHTML=`<path d="${sparkPath(ser,140)}L600 140L0 140Z" style="fill:var(--line)"/><path d="${sparkPath(ser,140)}" style="fill:none;stroke:var(--tx);stroke-width:2" vector-effect="non-scaling-stroke"/>`;
-  $("#anc").textContent=`Range ${RG} · avg ${j.avg_ms==null?'—':fmt(j.avg_ms)+'ms'} · ${fmt(j.fails)} failed attempts · ${fmt(j.failovers)} failovers · ${fmt(j.totals.tokens)} tokens`;
+  $("#anc").textContent=`Range ${RG} · avg ${j.avg_ms==null?'—':fmt(j.avg_ms)+'ms'} · p95 ${j.p95_ms==null?'—':fmt(j.p95_ms)+'ms'} · ${fmt(j.fails)} failed attempts · ${fmt(j.failovers)} failovers · ${fmt(j.totals.tokens)} tokens`;
 }
 $("#arg").addEventListener('click',e=>{const b=e.target.closest('[data-rg]');if(b){RG=b.dataset.rg;anRender()}});
-</script>
-<script>
 function configJSON(){
   return {instance:(S&&S.instance_name)||'Nexus Local',exported_at:new Date().toISOString(),settings:S,
     providers:Q.providers.map(p=>({provider:p.provider,name:p.display_name,disabled:!!p.disabled,key_configured:p.key_configured})),
     usage:{today:{requests:Q.history.requests[6],tokens:Q.history.tokens[6]},last_7_days:Q.history}};
+}
+const csvQ=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
+function copyText(t,okMsg){
+  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast(okMsg),()=>toast('Clipboard unavailable'));
 }
 const ACT={
   rc:()=>recheck(),
@@ -545,12 +768,47 @@ const ACT={
     if(r.j&&r.j.ok){toast(v[0]+' added');loadAll()}
     else toast((r.j&&r.j.error)||'Failed');
   },
-  addf:async()=>{
-    const v=await dlg('Add friend',[['Friend\'s name (e.g. Rudra)','n','','text'],['Their password (min 6 chars)','p','','password'],['Your master password','pw','','password']]);
+  nu:async()=>{
+    const roleOpts=MOD()?['Friend','Viewer']:['Friend','Moderator','Viewer'];
+    const fields=[['Name (letters, digits, _)','n','','text'],['Password (min '+(S?S.pw_min:6)+' chars)','p','','password'],['Role','r','Friend','select',roleOpts],['Daily cap (blank = instance default)','c','','number']];
+    if(ADMIN())fields.push(['Your master password','pw','','password']);
+    const v=await dlg('Add user',fields);
     if(!v)return;
-    const r=await apiS('add',{label:v[0],password:v[1],master_pw:v[2]});
-    if(r.j&&r.j.ok){toast('Friend added: '+v[0]);loadAllSoft()}
+    const body={label:v[0],password:v[1],role:v[2].toLowerCase()};
+    if(v[3]!=='')body.cap=parseInt(v[3],10);
+    if(ADMIN())body.master_pw=v[4];
+    const r=await apiS('add',body);
+    if(r.j&&r.j.ok){toast('User added: '+v[0]);loadAllSoft()}
     else toast((r.j&&r.j.error)||'Failed');
+  },
+  inv:()=>inviteFlow(),
+  sim:async()=>{
+    const r=await mut('simulate_failure',{});
+    if(r&&r.j&&r.j.ok){toast('Simulated failure: '+r.j.provider+' is down for 60s');Q=await jget('/api/quotas');renderAll()}
+    else if(r&&r.j)toast(r.j.error||'Nothing to simulate');
+  },
+  bnc:async()=>{await setSettings({announcement:''},'Announcement cleared')},
+  bnp:async()=>{const v=$("#anm").value.trim();await setSettings({announcement:v},v?'Announcement published':'Announcement cleared')},
+  wht:async()=>{
+    const r=await withMaster(mpw=>apiS('webhook_test',{master_pw:mpw}));
+    if(r&&r.j&&r.j.ok)toast('Test webhook sent');
+    else if(r&&r.j)toast(r.j.error||'Webhook test failed');
+  },
+  ucv:()=>{
+    if(!UT){toast('Nothing to copy');return}
+    const rows=[['user','role','requests','cap','tokens','top_provider']].concat(UT.users.map(u=>{const a=(L.access||[]).find(x=>x.label===u.label)||{};return[u.label,a.role||'friend',u.requests,capOf(u.label)||'',u.tokens,u.top_provider||'']}));
+    copyText(rows.map(r=>r.map(csvQ).join(',')).join('\n'),'Usage copied as CSV');
+  },
+  acv:()=>{
+    const rows=[['timestamp','category','event','ip']].concat(AU.map(e2=>[e2.ts,e2.cat,e2.event,e2.ip||'']));
+    copyText(rows.map(r=>r.map(csvQ).join(',')).join('\n'),'Audit log copied as CSV');
+  },
+  pta:()=>recheck(),
+  pea:async()=>{await setSettings({provider_disabled:[]},'All providers enabled')},
+  pda:async()=>{
+    const v=await dlg('Disable ALL providers? Chat will stop working until you enable them again.',[['Type DISABLE to confirm','c','','text']]);
+    if(!v||v[0]!=='DISABLE')return;
+    await setSettings({provider_disabled:Q.providers.map(p=>p.provider)},'All providers disabled');
   },
   bk:()=>{
     const blob=new Blob([JSON.stringify(configJSON(),null,2)],{type:'application/json'});
@@ -558,19 +816,21 @@ const ACT={
     setTimeout(()=>URL.revokeObjectURL(a.href),2000);
     toast('Backup downloaded');
   },
-  exp:()=>{
-    const j=JSON.stringify(configJSON(),null,2);
-    (navigator.clipboard?navigator.clipboard.writeText(j):Promise.reject()).then(()=>toast('Config copied to clipboard'),()=>toast('Clipboard unavailable'));
-  },
+  exp:()=>copyText(JSON.stringify(configJSON(),null,2),'Config copied to clipboard'),
   rk:()=>{go('se');setTimeout(()=>$("#mpCard").scrollIntoView({behavior:'smooth'}),60)},
   cl:async()=>{
     const r=await withMaster(mpw=>apiS('audit_clear',{master_pw:mpw}));
     if(r&&r.j&&r.j.ok){toast('Audit log cleared');const au=await jget('/api/audit');if(au)AU=au.events||[];renderAudit();renderSide()}
-    $("#dzMsg").textContent='';
+  },
+  sa:async()=>{
+    const r=await mut('sessions_revoke_all',{});
+    if(r&&r.j&&r.j.ok){toast('Signed out '+r.j.revoked+' sessions — yours stays');loadAllSoft()}
+    else if(r&&r.j)toast(r.j.error||'Failed');
   },
   rs:async()=>{
-    const r=await withMaster(mpw=>apiS('provider_health_reset',{master_pw:mpw}));
+    const r=await mut('provider_health_reset',{});
     if(r&&r.j&&r.j.ok){toast('Provider statuses reset');Q=await jget('/api/quotas');renderAll()}
+    else if(r&&r.j)toast(r.j.error||'Failed');
   },
   rva:async()=>{
     if(!GRANTS.length){toast('No active view passes');return}
@@ -580,7 +840,7 @@ const ACT={
     let n=0;
     for(const g of GRANTS){const r=await apiS('viewpass_revoke',{id:g.id,master_pw:mpw});if(r.j&&r.j.ok)n++}
     toast(n+' view pass'+(n===1?'':'es')+' revoked');
-    await loadViewPasses();renderFriends();
+    await loadViewPasses();
   },
   fx:async()=>{
     const v=await dlg('Factory reset — removes all friends, view passes, personal vaults and saved chats, and resets every console setting. Provider keys and the master password stay.',[['Type RESET to confirm','c','','text'],['Your master password','pw','','password']]);
@@ -647,20 +907,28 @@ $("#mpBtn").addEventListener('click',async()=>{
   else msg.textContent=(r&&r.error)?r.error:'Change failed.';
 });
 // ===== navigation =====
-const V=[["ov","Overview"],["an","Analytics"],["pv","Providers"],["fr","Friends"],["au","Audit log"],["se","Settings"]];
+const V=[["ov","Overview"],["an","Analytics"],["pv","Providers"],["fr","Users & Vaults"],["au","Audit log"],["se","Settings"]];
 const svg=d=>`<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const IC={an:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',pv:'<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>',fr:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14.8c2 .6 3.2 2.3 3.5 5.2"/>',au:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',se:'<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'};
 $("#nav").innerHTML=V.map(v=>`<button data-v="${v[0]}" data-tip="${v[1]}">${svg(IC[v[0]])}<span>${v[1]}</span><em></em></button>`).join('');
 function go(v){
+  if(v==='se'&&!ADMIN()){toast('Settings are owner-only');return}
   $$(".view").forEach(e2=>e2.classList.toggle("on",e2.id===v));
   $$("#nav>button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  const item=V.find(x=>x[0]===v);
+  if(item)$("#mtt").textContent=item[1];
   if(v==="an")anRender();
   $$(".view.on .p").forEach((e2,i)=>e2.style.setProperty("--i",i));
   window.cam&&cam(v);
+  drw(false);
   scrollTo(0,0);
 }
 $("#nav").onclick=e=>{const b=e.target.closest("button");if(b)go(b.dataset.v)};
-$("#sc").onclick=()=>$(".stage").classList.toggle("c");
+function drw(o){const st=$(".stage");st.classList.toggle("nav-open",o);$("#mm").setAttribute("aria-expanded",String(!!o))}
+$("#mm").onclick=()=>drw(true);
+$("#scrim").onclick=()=>drw(false);
+$("#sb").addEventListener('click',e=>{if(e.target.closest('.sbf .tl')&&e.target.id!=='th')drw(false)});
+$("#sc").onclick=()=>{const on=$(".stage").classList.toggle("c");LS.s('nexus-c',on?'1':'')};
 $("#so").onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.href='/login'};
 document.addEventListener("mouseover",e=>{
   const t=e.target.closest&&e.target.closest("[data-tip]"),tp=$("#tip");
@@ -669,13 +937,13 @@ document.addEventListener("mouseover",e=>{
 });
 // ===== theme =====
 function effectiveDark(){
-  const t=localStorage.getItem('nexus-theme');
+  const t=LS.g('nexus-theme');
   if(t==='Dark')return true;
   if(t==='Light')return false;
   return matchMedia('(prefers-color-scheme: dark)').matches;
 }
 function applyTheme(v){
-  localStorage.setItem('nexus-theme',v);
+  LS.s('nexus-theme',v);
   const r=document.documentElement;
   if(v==='Dark')r.dataset.theme='dark';
   else if(v==='Light')r.dataset.theme='light';
@@ -684,19 +952,32 @@ function applyTheme(v){
 }
 $("#th").onclick=()=>{applyTheme(effectiveDark()?'Light':'Dark');renderSettings()};
 // ===== command palette =====
-const CM=[...V.map(v=>["Go to "+v[1],()=>go(v[0])]),
-  ["Re-check providers",()=>recheck()],
-  ["Add a friend",()=>ACT.addf()],
-  ["Create view pass",()=>go('fr')],
-  ["Add custom provider",()=>ACT.ap()],
-  ["Backup now (download JSON)",()=>ACT.bk()],
-  ["Copy config",()=>ACT.exp()],
-  ["Toggle maintenance mode",async()=>{await setSettings({maintenance:!S.maintenance},'Maintenance mode toggled')}],
-  ["Toggle theme",()=>$("#th").click()],
-  ["Sign out",()=>$("#so").click()]];
+function buildCM(){
+  const base=V.filter(v=>v[0]!=='se'||ADMIN()).map(v=>["Go to "+v[1],()=>go(v[0])]);
+  const cmds=[
+    ["Re-check providers",()=>recheck()],
+    ["Simulate failure",()=>ACT.sim()],
+    ["Toggle theme",()=>$("#th").click()],
+    ["Sign out",()=>$("#so").click()]];
+  if(!VIEWER()){
+    cmds.splice(2,0,
+      ["Add a user",()=>ACT.nu()],
+      ["Invite a friend",()=>inviteFlow()],
+      ["Sign out all users",()=>ACT.sa()],
+      ["Backup now (download JSON)",()=>ACT.bk()],
+      ["Copy config",()=>ACT.exp()]);
+  }
+  if(ADMIN()){
+    cmds.splice(2,0,
+      ["Create view pass",()=>go('fr')],
+      ["Add custom provider",()=>ACT.ap()],
+      ["Toggle maintenance mode",async()=>{await setSettings({maintenance:!S.maintenance},'Maintenance mode toggled')}]);
+  }
+  return base.concat(cmds);
+}
 let fl=[];
 function fill(q){
-  fl=CM.filter(c=>c[0].toLowerCase().includes(q.toLowerCase()));
+  fl=buildCM().filter(c=>c[0].toLowerCase().includes(q.toLowerCase()));
   $("#cl").innerHTML=fl.map((c,i)=>`<button data-c="${i}">${esc(c[0])}</button>`).join('');
 }
 function pal(o){$("#pal").hidden=!o;if(o){$("#cq").value="";fill("");$("#cq").focus()}}
@@ -707,7 +988,7 @@ $("#cl").onclick=e=>{const b=e.target.closest("button");if(b){pal(false);fl[+b.d
 $("#pal").onclick=e=>{if(e.target.id==="pal")pal(false)};
 addEventListener("keydown",e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();pal(true)}
-  if(e.key==="Escape"){pal(false);$("#md").hidden=true}
+  if(e.key==="Escape"){pal(false);$("#md").hidden=true;drw(false)}
   if(!e.metaKey&&!e.ctrlKey&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)&&V[+e.key-1])go(V[+e.key-1][0]);
 });
 // ===== 3D card tilt + pointer light =====
@@ -721,6 +1002,8 @@ addEventListener("pointermove",e=>{
   c.style.setProperty("--ry",(x-.5)*5+"deg");c.style.setProperty("--rx",(.5-y)*5+"deg");
   c.style.setProperty("--mx",x*100+"%");c.style.setProperty("--my",y*100+"%");
 });
+</script>
+<script>
 // ===== 3D scene: wireframe core, 3 orbit rings of provider nodes =====
 (function(){
   if(!window.THREE)return;
@@ -775,7 +1058,7 @@ addEventListener("pointermove",e=>{
   let t=0;
   (function loop(){
     requestAnimationFrame(loop);
-    if(document.hidden||(localStorage.getItem('nexus-q3')==='Off'))return;
+    if(document.hidden||(LS.g('nexus-q3')==='Off'))return;
     t++;
     if(!rm){spins.forEach(g=>g.rotation.y+=g.userData.sp);core.rotation.y+=.004;core.rotation.x+=.0015;halo.rotation.y+=.0015;stars.rotation.y+=.0003;
       if(t%40===0&&window._P){const ok=window._P.map((p,i)=>i).filter(i=>window._P[i].s==='ok');if(ok.length)window._pulse(ok[Math.random()*ok.length|0])}}
@@ -793,18 +1076,19 @@ addEventListener("pointermove",e=>{
     for(let k=pl.length-1;k>=0;k--){const p=pl[k];p.t+=.02;nodes[p.i].getWorldPosition(v3);p.m.position.copy(v3).multiplyScalar(p.t);if(p.t>=1){Sc.remove(p.m);pl.splice(k,1)}}
     R.render(Sc,C);
   })();
-  window.q3set(localStorage.getItem('nexus-q3')||'High');
+  window.q3set(LS.g('nexus-q3')||'High');
 })();
 // ===== init =====
 (async()=>{
-  const savedTheme=localStorage.getItem('nexus-theme');
+  const savedTheme=LS.g('nexus-theme');
   if(savedTheme==='Dark')document.documentElement.dataset.theme='dark';
   if(savedTheme==='Light')document.documentElement.dataset.theme='light';
+  if(LS.g('nexus-c')&&matchMedia('(min-width:901px)').matches)$(".stage").classList.add('c');
   await loadAll();
-  const rt=await jget('/api/routing');
-  if(rt&&rt.routing){RT=rt.routing;renderSettings()}
-  const tfa=await api('2fa_state');
-  if(tfa&&!tfa.error){TFA_ON=!!tfa.enabled;renderSettings()}
+  if(ADMIN()){
+    const tfa=await api('2fa_state');
+    if(tfa&&!tfa.error){TFA_ON=!!tfa.enabled;renderSettings()}
+  }
   go('ov');
 })();
 </script>
