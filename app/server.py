@@ -775,6 +775,18 @@ def _validate_settings_patch(patch):
     Returns (clean_dict, error) — error None on success."""
     clean = {}
     for k, v in patch.items():
+        # The console's segmented controls read values from DOM dataset,
+        # which are always strings ("60", not 60) — a valid pill choice
+        # was refused for its type ("session_minutes must be 30, 60, 480
+        # or 1440" when picking 1h). Coerce integer strings for the
+        # numeric settings here; the per-key checks below still enforce
+        # the allowed values and ranges.
+        if k in ("session_minutes", "retention_days", "cb_failures",
+                 "cb_cooldown_s", "chat_rate", "pw_min", "latency_alert_s",
+                 "quota_alert_pct", "max_attempts", "daily_cap",
+                 "global_cap") and isinstance(v, str) \
+                and v.strip().lstrip("-").isdigit():
+            v = int(v.strip())
         if k == "maintenance":
             if not isinstance(v, bool):
                 return None, "maintenance must be true or false"

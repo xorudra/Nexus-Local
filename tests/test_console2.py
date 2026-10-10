@@ -208,6 +208,35 @@ class Console2Tests(unittest.TestCase):
                                "webhook_url": ""})
         self.assertEqual(status, 200, j)
 
+    def test_01b_numeric_settings_accept_dom_strings(self):
+        # The console's segmented controls read values from DOM dataset,
+        # which are always strings — picking "1h" sent session_minutes as
+        # "60" and the owner got "session_minutes must be 30, 60, 480 or
+        # 1440". Integer strings for numeric settings are coerced; the
+        # allowed-value checks still apply.
+        status, j = self._set({"session_minutes": "60"})
+        self.assertEqual(status, 200, j)
+        self.assertEqual(j["settings"]["session_minutes"], 60)
+        status, j = self._set({"retention_days": "90",
+                               "cb_cooldown_s": "120",
+                               "cb_failures": "3",
+                               "chat_rate": "30",
+                               "pw_min": "12",
+                               "latency_alert_s": "2",
+                               "quota_alert_pct": "95"})
+        self.assertEqual(status, 200, j)
+        self.assertEqual(j["settings"]["pw_min"], 12)
+        # Out-of-range values are still refused, string or not.
+        status, j = self._set({"session_minutes": "45"})
+        self.assertEqual(status, 400)
+        status, j = self._set({"session_minutes": 45})
+        self.assertEqual(status, 400)
+        status, j = self._set({"session_minutes": "abc"})
+        self.assertEqual(status, 400)
+        # Restore the session default the other tests rely on.
+        status, j = self._set({"session_minutes": 30})
+        self.assertEqual(status, 200, j)
+
     def test_02_announcement_public(self):
         status, j, _, _ = self._req("GET", "/api/announcement")
         self.assertEqual(status, 200)

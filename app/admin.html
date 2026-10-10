@@ -729,7 +729,8 @@ $("#sw").addEventListener('click',async e=>{
 });
 $("#sg").addEventListener('click',async e=>{
   const b=e.target.closest('[data-seg]');if(!b)return;
-  const k=b.dataset.seg,v=b.dataset.v;
+  const k=b.dataset.seg;let v=b.dataset.v;
+  if(/^-?\d+$/.test(v))v=parseInt(v,10);
   if(k==='q3'){LS.s('nexus-q3',v);window.q3set&&q3set(v);renderSettings();toast('3D quality: '+v);return}
   if(k==='theme'){applyTheme(v);renderSettings();return}
   if(k==='tz'){LS.s('nexus-tz',v);renderSettings();renderAudit();renderSide();toast('Timestamps: '+v);return}
