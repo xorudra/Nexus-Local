@@ -965,6 +965,22 @@ function makeCustomSelect(sel){
 }
 ['composer-provider', 'composer-model', 'composer-mode', 'routing-mode'].forEach(id => { try { makeCustomSelect(document.getElementById(id)); } catch (e) { console.error('custom select', id, e); } });
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// A hotlinked generated image can fail its first load (the image service
+// is still generating it, or rate-limited the hit). Re-request the SAME
+// URL a few times with growing delays before giving up — the generation
+// is keyed by the URL, so a later attempt usually lands. Data URIs are
+// inline already and never retried.
+function imgRetry(el){
+  var src = el.getAttribute('src') || '';
+  if (src.indexOf('http') !== 0) return;
+  var n = parseInt(el.getAttribute('data-rt') || '0', 10);
+  if (n >= 3) return;
+  el.setAttribute('data-rt', String(n + 1));
+  setTimeout(function(){
+    el.removeAttribute('src');
+    setTimeout(function(){ el.setAttribute('src', src); }, 60);
+  }, 2500 * (n + 1));
+}
 function md(text){
   // Simple markdown to HTML: escape first, then apply formatting
   let h = esc(text);
@@ -979,7 +995,7 @@ function md(text){
   // so nothing can break out of the src attribute (XSS guard).
   h = h.replace(/!\[([^\]]*)\]\((https?:[^)\s]+|data:image[^)\s]+)\)/g, function(m, alt, url){
     if(/["\s\x00-\x1f\x7f]|&quot;/i.test(url)) return alt;
-    return '<img class="md-img" src="' + url + '" alt="' + alt + '" loading="lazy">';
+    return '<img class="md-img" src="' + url + '" alt="' + alt + '" loading="lazy" onerror="imgRetry(this)">';
   });
   // Headers (###, ##)
   h = h.replace(/^### (.+)$/gm, '<h4 class="md-h">$1</h4>');

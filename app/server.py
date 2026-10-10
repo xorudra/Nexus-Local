@@ -3911,6 +3911,7 @@ class Handler(BaseHTTPRequestHandler):
             message = data.get("message")
             _user_msg = message if isinstance(message, str) else ""
             mode = data.get("mode", "text")  # text, code, search, auto
+            _img_explicit = (mode == "image")  # user picked Image mode on purpose
             image = data.get("image")  # base64 data URI, optional
             file_data = data.get("file")  # {name, text/data, type}, optional
             link = data.get("link")  # URL string, optional
@@ -3975,13 +3976,18 @@ class Handler(BaseHTTPRequestHandler):
                           "Use markdown code blocks with language tags.\n\n" + (message or ""))
             elif mode == "image":
                 # Image generation routed by the picked provider/model:
-                #   aihorde           -> AI Horde async queue (Pollinations if too slow)
-                #   google/relay_gemini -> Gemini native image call (Pollinations on failure)
+                #   aihorde           -> AI Horde async queue
+                #   google/relay_gemini -> Gemini native image call
                 #   pollinations/etc  -> Pollinations image service (flux/turbo)
+                # Pollinations is the substitute only when no provider was
+                # hand-picked for Image mode; explicit picks fail honestly.
                 import urllib.parse as _up2
                 _prompt = (message or "").strip()[:1000]
                 _img = None
+                _fail = None  # why the picked provider could not produce an image
                 _used_p, _used_m = provider, model
+                _disp = {"google": "Google Gemini", "relay_gemini": "Relay Gemini",
+                         "cloudflare": "Cloudflare", "aihorde": "AI Horde"}.get(provider, provider or "The picked provider")
                 def _pollinations(mdl):
                     pm = mdl if mdl in ("flux", "turbo") else "flux"
                     u = ("https://image.pollinations.ai/prompt/" + _up2.quote(_prompt)
@@ -4051,10 +4057,13 @@ class Handler(BaseHTTPRequestHandler):
                         except Exception:
                             _img = None
                     elif provider == "cloudflare" and model:
-                        try:
-                            _ck = (_ekeys or {}).get("cloudflare") or ""
-                            _acct, _, _tok = _ck.partition(":")
-                            if _acct and _tok:
+                        _ck = (_ekeys or {}).get("cloudflare") or ""
+                        _acct, _, _tok = _ck.partition(":")
+                        if not (_acct and _tok):
+                            _fail = ("no usable Cloudflare key is available — the shared vault is still locked "
+                                     "or the stored value is not in account:token form")
+                        else:
+                            try:
                                 _creq = Request(f"https://api.cloudflare.com/client/v4/accounts/{_acct}/ai/run/{model}",
                                     data=json.dumps({"prompt": _prompt}).encode(),
                                     headers={"Authorization": f"Bearer {_tok}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}, method="POST")
@@ -4063,12 +4072,19 @@ class Handler(BaseHTTPRequestHandler):
                                 _cimg = (_cd.get("result") or {}).get("image")
                                 if _cimg:
                                     _img = "data:image/jpeg;base64," + _cimg
-                        except Exception:
-                            _img = None
+                                else:
+                                    _fail = "Cloudflare answered without an image"
+                            except HTTPError as _he:
+                                _fail = f"Cloudflare returned an error ({_he.code})"
+                            except Exception:
+                                _fail = "the request to Cloudflare failed (network or timeout)"
                     elif provider in ("google", "relay_gemini") and model:
-                        try:
-                            gk = (_ekeys or {}).get("google") or (_ekeys or {}).get("relay_gemini") or ""
-                            if gk:
+                        gk = (_ekeys or {}).get("google") or (_ekeys or {}).get("relay_gemini") or ""
+                        if not gk:
+                            _fail = ("no Google key is available — the shared vault is still locked "
+                                     "(an admin sign-in unlocks it) or no Google key is configured")
+                        else:
+                            try:
                                 gurl = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_urlquote(gk, safe='')}"
                                 gbody = {"contents": [{"parts": [{"text": _prompt}]}], "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}}
                                 greq = Request(gurl, data=json.dumps(gbody).encode(), headers={"Content-Type": "application/json"}, method="POST")
@@ -4078,18 +4094,44 @@ class Handler(BaseHTTPRequestHandler):
                                     if "inlineData" in part:
                                         _img = "data:" + part["inlineData"]["mimeType"] + ";base64," + part["inlineData"]["data"]
                                         break
-                        except Exception:
-                            _img = None
+                                if not _img:
+                                    _fail = "Google answered without an image — this model may not generate images"
+                            except HTTPError as _he:
+                                if _he.code == 429:
+                                    _fail = "Google hit its quota / rate limit (429)"
+                                elif _he.code == 403:
+                                    _fail = "Google refused the key (403) — image generation may not be enabled for its project"
+                                elif _he.code in (400, 404):
+                                    _fail = f"Google rejected the request ({_he.code}) — the model may not support image generation"
+                                else:
+                                    _fail = f"Google returned an error ({_he.code})"
+                            except Exception:
+                                _fail = "the request to Google failed (network or timeout)"
                     if not _img:
-                        _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
-                        if _img and provider not in ("pollinations", "relay_pollinations"):
-                            _used_p, _used_m = "pollinations", "flux"
+                        # Pollinations substitution is only for requests that
+                        # did not hand-pick an image provider: Auto routing,
+                        # auto-detected image intent, or a Pollinations pick.
+                        # An explicit pick that failed gets an honest error
+                        # naming why — never a silent swap (owner report
+                        # 2026-10-10: picked Gemini, silently got Pollinations).
+                        _may_substitute = (provider in ("pollinations", "relay_pollinations")
+                                           or provider in (None, "", "auto") or not _img_explicit)
+                        if _may_substitute:
+                            _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
+                            if _img and provider not in ("pollinations", "relay_pollinations"):
+                                _used_p, _used_m = "pollinations", "flux"
                     if _img:
                         self._set_json_headers(200)
                         self.wfile.write(json.dumps({"reply": f"![Generated image]({_img})", "image_url": _img, "used_provider": _used_p, "used_model": _used_m}).encode())
-                    else:
+                    elif provider in ("pollinations", "relay_pollinations"):
                         self._set_json_headers(502)
                         self.wfile.write(json.dumps({"error": "image generation failed, try again"}).encode())
+                    else:
+                        if _fail is None:
+                            _fail = ("AI Horde did not finish the image in time" if provider == "aihorde"
+                                     else "Nexus has no image-generation route for this provider")
+                        self._set_json_headers(502)
+                        self.wfile.write(json.dumps({"error": f"{_disp} couldn't generate this image — {_fail}. Nothing else was substituted; pick Pollinations (flux) under Image mode, or another image provider, and try again."}).encode())
                 except Exception:
                     self._set_json_headers(500)
                     self.wfile.write(json.dumps({"error": "image generation failed, try again"}).encode())
@@ -6168,16 +6210,35 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "no messages"}).encode())
                     return
                 msgs = []
+                _media_left = [1600000]  # per-chat data-URI budget (chars)
                 for m in msgs_in[:200]:
                     if not isinstance(m, dict):
                         continue
                     t = m.get("t")
                     if not isinstance(t, str) or not t:
                         continue
-                    # Media data URIs are far too large to persist; note them.
-                    t = _re2.sub(r"data:[A-Za-z0-9/;,=+_-]{40000,}", "[media too large to store]", t)
+                    # Generated images arrive as data URIs. Keep them when
+                    # they fit (a typical generated image is ~100-250k
+                    # chars) so saved chats replay WITH their images; a
+                    # per-chat media budget bounds total size. An image
+                    # that does not fit is replaced as a WHOLE markdown
+                    # image with a readable note — never leave a broken
+                    # ![..]([media too large..]) behind (owner report
+                    # 2026-10-10: reopened chats showed raw placeholder
+                    # markdown instead of the picture).
+                    def _keep_uri(uri):
+                        if len(uri) <= 260000 and len(uri) <= _media_left[0]:
+                            _media_left[0] -= len(uri)
+                            return True
+                        return False
+                    def _md_img_sub(mm):
+                        return mm.group(0) if _keep_uri(mm.group(2)) else "[Generated image — too large to keep in saved chats]"
+                    t = _re2.sub(r"!\[([^\]]*)\]\((data:[A-Za-z0-9/;,=+_-]+)\)", _md_img_sub, t)
+                    def _bare_uri_sub(mm):
+                        return mm.group(0) if _keep_uri(mm.group(0)) else "[media too large to keep in saved chats]"
+                    t = _re2.sub(r"data:[A-Za-z0-9/;,=+_-]{2000,}", _bare_uri_sub, t)
                     item = {"r": "user" if m.get("r") == "user" else "ai",
-                            "t": t[:120000]}
+                            "t": t[:420000]}
                     if isinstance(m.get("m"), str) and m.get("m"):
                         item["m"] = m["m"][:200]
                     msgs.append(item)
