@@ -89,6 +89,11 @@ input:focus,textarea:focus,select:focus{border-color:var(--tx)}
 th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}th{color:var(--mu);font:500 11px "JetBrains Mono",monospace;letter-spacing:.1em;text-transform:uppercase}
 .rw>span:first-child{min-width:42px}input[type=range]{padding:0;accent-color:var(--tx);width:100%}
 .pal{position:fixed;inset:0;z-index:50;display:flex;justify-content:center;padding-top:16vh;background:rgba(0,0,0,.4)}.pal[hidden]{display:none}
+.liveBtn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--mu)}
+.liveDot{width:8px;height:8px;border-radius:50%;background:#35d07f;animation:lpulse 2.4s infinite;flex:none}
+.liveDot.off{background:#8e8e8e;animation:none}
+@keyframes lpulse{0%{box-shadow:0 0 0 0 rgba(53,208,127,.45)}70%{box-shadow:0 0 0 7px rgba(53,208,127,0)}100%{box-shadow:0 0 0 0 rgba(53,208,127,0)}}
+@media (prefers-reduced-motion:reduce){.liveDot{animation:none}}
 .pal .box{width:min(520px,92vw);align-self:flex-start;border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:10px}
 .pal button{all:unset;display:block;box-sizing:border-box;width:100%;padding:9px 12px;border-radius:10px;cursor:pointer}.pal button:hover,.pal button.on{background:var(--line)}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);transform:translate(-50%,20px);padding:10px 18px;border-radius:999px;background:var(--tx);color:var(--bg);opacity:0;transition:.3s;z-index:60;pointer-events:none}#toast.on{opacity:1;transform:translate(-50%,0)}
@@ -112,7 +117,7 @@ button:focus-visible,.ib:focus-visible,.tl:focus-visible{outline:2px solid var(-
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
 <div class="stage">
-<div class="mbar"><button class="tl" id="mm" aria-label="Open menu" aria-controls="sb" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><b id="mtt">Overview</b><a class="tl" href="/" aria-label="Back to dashboard" style="margin-left:auto;text-decoration:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2L12 3l9 8.2"/><path d="M5.5 9.8V21h13V9.8"/><path d="M10 21v-6h4v6"/></svg></a></div><div class="scrim" id="scrim"></div>
+<div class="mbar"><button class="tl" id="mm" aria-label="Open menu" aria-controls="sb" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><b id="mtt">Overview</b><button class="liveBtn" id="liveBtnM" aria-label="Toggle live updates" style="margin-left:10px"><span class="liveDot"></span><span class="liveTx">Live</span></button><a class="tl" href="/" aria-label="Back to dashboard" style="margin-left:auto;text-decoration:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2L12 3l9 8.2"/><path d="M5.5 9.8V21h13V9.8"/><path d="M10 21v-6h4v6"/></svg></a></div><div class="scrim" id="scrim"></div>
 <aside class="side l" id="sb">
 <div class="ws"><div class="lg"><svg viewBox="0 0 100 36" style="width:21px;height:auto;fill:currentColor;stroke:none"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z"/></svg></div><div class="wt"><b id="wn">Nexus Local</b><small><span class="dot" id="wd" style="width:6px;height:6px;margin-right:5px"></span><span id="wsub">Admin console</span></small></div></div>
 <a class="dashlink" href="/" data-tip="Back to dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2L12 3l9 8.2"/><path d="M5.5 9.8V21h13V9.8"/><path d="M10 21v-6h4v6"/></svg><span>Dashboard</span></a>
@@ -169,7 +174,7 @@ button:focus-visible,.ib:focus-visible,.tl:focus-visible{outline:2px solid var(-
 <div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap"><div><h2 style="margin:0 0 4px">Backup &amp; keys</h2><div class="sub">Download providers, order and policy as JSON. Keys are never included.</div><div class="sub" id="bkLine" style="margin-top:4px"></div></div><div class="row" style="flex-wrap:wrap"><button class="btn" data-x="bk">Backup now</button><button class="btn g" data-x="exp">Copy config</button><button class="btn g" data-x="rsf" data-mut>Restore from backup</button><button class="btn g" data-x="rk" data-mut>Rotate master key</button></div><div class="sub" id="rsLine" style="margin-top:4px">Restore brings back policy settings only (order, caps policy, alerts, announcement…). Accounts, roles, suspensions, invites and sign-in rules are never restorable from a file.</div><input type="file" id="rsFile" accept=".json,application/json" hidden></div></div>
 <div class="p s12"><h2>Danger zone</h2><div class="row" style="flex-wrap:wrap" data-mut><button class="btn g" data-x="cl">Clear audit log</button><button class="btn g" data-x="sa">Sign out all users</button><button class="btn g" data-x="rs">Reset provider statuses</button><button class="btn g" data-x="rva">Revoke all view passes</button><button class="btn g" data-x="fx">Factory reset</button></div><div class="msg" id="dzMsg"></div></div>
 </div></section>
-</main><aside class="side r"><h2>Status</h2><div id="rss"></div><h2>Alerts</h2><div id="ral"></div><h2>Recent</h2><div id="rac" class="log" style="max-height:none"></div><div style="margin-top:auto"><button class="btn g" data-x="sim" data-mut>Simulate failure</button></div></aside>
+</main><aside class="side r"><h2>Status</h2><div id="rss"></div><div style="margin:4px 0 8px"><button class="liveBtn" id="liveBtn" title="Live updates — tap to pause or resume"><span class="liveDot"></span><span class="liveTx">Live · —</span></button></div><h2>Alerts</h2><div id="ral"></div><h2>Recent</h2><div id="rac" class="log" style="max-height:none"></div><div style="margin-top:auto"><button class="btn g" data-x="sim" data-mut>Simulate failure</button></div></aside>
 </div>
 <div class="pal" id="pal" hidden><div class="box" role="dialog" aria-modal="true" aria-label="Command palette"><input id="cq" placeholder="Type a command…" aria-label="Command"><div id="cl" style="margin-top:6px"></div></div></div>
 <div id="toast" role="status"></div><div id="lb" class="lb" hidden></div><div id="tip" class="lb" hidden></div>
@@ -266,6 +271,36 @@ async function loadAllSoft(){
   if(!VIEWER())UT=await jget('/api/usage_today');
   renderAll();
 }
+// ===== live updates: everything refreshes itself on a gentle timer.
+// A tick is skipped while paused, while the tab is hidden, while a
+// dialog or the command palette is open, while any field has focus,
+// or while unsaved edits exist anywhere — a refresh must never yank
+// a form out from under the person using it. =====
+let liveOn=LS.g('nexus-live')!=='0',liveBusy=false,liveStamp=0;
+function paintLive(){
+  const t=liveStamp?new Date(liveStamp).toLocaleTimeString('en-GB',{hour12:false}):'—';
+  $$('.liveTx').forEach(e=>e.textContent=(liveOn?'Live · ':'Paused · ')+t);
+  $$('.liveDot').forEach(e=>e.classList.toggle('off',!liveOn));
+}
+async function liveTick(force){
+  if(liveBusy)return;
+  if(!force){
+    if(!liveOn||document.hidden)return;
+    if(!$('#md').hidden||!$('#pal').hidden)return;
+    const a=document.activeElement;
+    if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
+    if(document.querySelector('[data-dirty="1"]'))return;
+  }
+  liveBusy=true;
+  try{AN7=null;AN24=null;await loadAll();liveStamp=Date.now();paintLive()}catch(e){}
+  liveBusy=false;
+}
+window.liveTick=liveTick;
+function toggleLive(){liveOn=!liveOn;LS.s('nexus-live',liveOn?'1':'0');paintLive();if(liveOn)liveTick(true)}
+$$('.liveBtn').forEach(b=>b.addEventListener('click',toggleLive));
+document.addEventListener('input',e=>{if(e.target&&e.target.dataset&&e.target.id!=='cq')e.target.dataset.dirty='1'},true);
+setInterval(()=>liveTick(false),15000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveTick(false)});
 function applyRoleChrome(){
   const seBtn=$('#nav [data-v="se"]');
   if(seBtn)seBtn.style.display=ADMIN()?'':'none';
@@ -1129,6 +1164,7 @@ addEventListener("pointermove",e=>{
   if(savedTheme==='Light')document.documentElement.dataset.theme='light';
   if(LS.g('nexus-c')&&matchMedia('(min-width:901px)').matches)$(".stage").classList.add('c');
   await loadAll();
+  liveStamp=Date.now();paintLive();
   if(ADMIN()){
     const tfa=await api('2fa_state');
     if(tfa&&!tfa.error){TFA_ON=!!tfa.enabled;renderSettings()}

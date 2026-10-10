@@ -651,5 +651,24 @@ class Console2Tests(unittest.TestCase):
         self.assertNotIn("cdnjs", html)
 
 
+    # --- 20. live updates: the console refreshes itself ----------
+    def test_20_live_updates(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        conn.request("GET", "/admin", headers={"Cookie": self.admin})
+        resp = conn.getresponse()
+        html = resp.read().decode("utf-8", "replace")
+        conn.close()
+        self.assertEqual(resp.status, 200)
+        # the loop, its safety rules and the indicator are in the page
+        self.assertIn("async function liveTick(force)", html)
+        self.assertIn("setInterval(()=>liveTick(false),15000)", html)
+        self.assertIn("data-dirty", html)          # unsaved-edit guard
+        self.assertIn("$('#md').hidden", html)     # dialog-open guard
+        self.assertIn("document.hidden", html)     # hidden-tab guard
+        self.assertIn('class="liveBtn"', html)     # pause/resume control
+        self.assertIn("nexus-live", html)          # persisted preference
+        self.assertIn("AN7=null;AN24=null", html)  # analytics refetched
+
+
 if __name__ == "__main__":
     unittest.main()
