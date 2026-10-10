@@ -6,19 +6,19 @@
 <title>Nexus Local - Connections</title>
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* Global */
 body {
     margin: 0;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
     background-color: #050507;
-    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.07), transparent 70%);
+    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,255,255,.07), transparent 70%);
     color: #dde;
     width: 100%;
     overflow-x: hidden;
     background-color: #050507;
-    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(168,85,247,.07), transparent 70%);
+    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,255,255,.07), transparent 70%);
 }
 
 /* Header */
@@ -27,8 +27,8 @@ body {
     align-items: center;
     padding: 20px 32px;
     padding-left: 70px;
-    background: #11141b;
-    border-bottom: 1px solid rgba(168,85,247,.18);
+    background: #0c0c0e;
+    border-bottom: 1px solid rgba(255,255,255,.18);
     box-shadow: 0 1px 0 rgba(0,0,0,.8);
 }
 
@@ -40,7 +40,7 @@ body {
 
 .header .wordmark {
     flex: none;
-    font-family:'Press Start 2P',monospace;
+    font-family:'Space Grotesk',sans-serif; font-weight:700;
     font-size: 1.7rem;
     letter-spacing: .12em;
     background: linear-gradient(#ffffff,#a8a8b0);
@@ -48,10 +48,10 @@ body {
 }
 
 .header .local-tag {
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
     font-size: 0.8rem;
-    color: #9aa3b2;
-    background: #1e2430;
+    color: #8e8e8e;
+    background: #121214;
     padding: 2px 6px;
     border-radius: 4px;
     margin-left: 8px;
@@ -78,13 +78,13 @@ body {
 
 /* Hero */
 .hero {
-    background: #11141b;
+    background: #0c0c0e;
     padding: 32px 48px;
     margin: 20px auto;
     max-width: 1080px;
     border-radius: 0;
     border: 1px solid #000;
-    border: 1px solid #1e2430;
+    border: 1px solid #121214;
 }
 
 .hero h2 {
@@ -96,7 +96,7 @@ body {
 }
 
 .hero h2 span.accent {
-    color: #A855F7;
+    color: #f2f2f2;
 }
 
 /* Provider cards */
@@ -117,7 +117,7 @@ body {
     background: #101014;
     border-radius: 14px;
     padding: 28px;
-    border: 1px solid rgba(168,85,247,.14);
+    border: 1px solid rgba(255,255,255,.14);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 24px rgba(0,0,0,.5);
 }
 
@@ -133,12 +133,12 @@ body {
 }
 
 .card .icon {
-    background: linear-gradient(#C084FC,#7C3AED);
-    color: #0a0a0a;
+    background: linear-gradient(#ffffff,#a8a8b0);
+    color: #050505;
     width: 40px;
     height: 40px;
     border-radius: 0;
-    border: 1px solid rgba(168,85,247,.14);
+    border: 1px solid rgba(255,255,255,.14);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -147,7 +147,7 @@ body {
 }
 
 .card .provider-name {
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
     font-size: 17px;
     letter-spacing: 0.05em;
     color: #fff;
@@ -161,7 +161,7 @@ body {
 }
 
 .pill {
-    font-family: 'Oswald', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
     font-weight: 600;
     font-size: 10px;
     letter-spacing: .12em;
@@ -174,7 +174,7 @@ body {
     padding: 4px 8px;
     vertical-align: middle;
     margin-top: 4px;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
 }
 
 .pill.missing {
@@ -193,13 +193,13 @@ body {
 }
 
 .pill.own {
-    background: rgba(168,85,247,.18);
-    color: #C084FC;
-    border: 1px solid rgba(168,85,247,.5);
+    background: rgba(255,255,255,.18);
+    color: #d9d9de;
+    border: 1px solid rgba(255,255,255,.5);
 }
 
 a.byok-link {
-    color: #C084FC;
+    color: #d9d9de;
     text-decoration: none;
     font-weight: 600;
 }
@@ -210,22 +210,22 @@ a.byok-link:hover {
 
 /* Bring-your-own-key section (friends only; shown by JS for non-admins) */
 #byok .byok-intro {
-    color: #9aa3b2;
+    color: #8e8e8e;
     font-size: 14px;
     line-height: 1.6;
     margin: 0 0 16px;
 }
 
 #byok details.exp {
-    background: #0c0c0f;
-    border: 1px solid rgba(168,85,247,.25);
+    background: #050505;
+    border: 1px solid rgba(255,255,255,.25);
     border-radius: 10px;
     padding: 14px 16px;
     margin-bottom: 12px;
 }
 
 #byok details.exp summary {
-    color: #C084FC;
+    color: #d9d9de;
     cursor: pointer;
     font-size: 15px;
     font-weight: 600;
@@ -239,7 +239,7 @@ a.byok-link:hover {
 
 #byok details.exp summary::after {
     content: '▸';
-    color: #a855f7;
+    color: #f2f2f2;
     transition: transform .15s;
 }
 
@@ -247,7 +247,7 @@ a.byok-link:hover {
 
 #byok details.exp .cnt {
     font-size: 11px;
-    color: #9aa3b2;
+    color: #8e8e8e;
     font-weight: 400;
     margin-left: 8px;
 }
@@ -256,7 +256,7 @@ a.byok-link:hover {
 
 #byok .prov label {
     display: block;
-    color: #9aa3b2;
+    color: #8e8e8e;
     font-size: 13px;
     margin-bottom: 4px;
 }
@@ -264,18 +264,18 @@ a.byok-link:hover {
 #byok .prov input {
     width: 100%;
     box-sizing: border-box;
-    background: #0a0a0d;
-    border: 1px solid #26262c;
+    background: #050505;
+    border: 1px solid #1a1a1e;
     border-radius: 8px;
-    color: #e8e8ea;
+    color: #f2f2f2;
     padding: 10px 12px;
     font-size: 14px;
 }
 
 #byok .prov input:focus {
     outline: none;
-    border-color: #A855F7;
-    box-shadow: 0 0 0 3px rgba(168,85,247,.15);
+    border-color: #f2f2f2;
+    box-shadow: 0 0 0 3px rgba(255,255,255,.15);
 }
 
 #byok .badge {
@@ -301,30 +301,30 @@ a.byok-link:hover {
 
 #byok .byok-save input {
     flex: 2 1 220px;
-    background: #0a0a0d;
-    border: 1px solid #26262c;
+    background: #050505;
+    border: 1px solid #1a1a1e;
     border-radius: 8px;
-    color: #e8e8ea;
+    color: #f2f2f2;
     padding: 11px 13px;
     font-size: 14px;
 }
 
 #byok .byok-save input:focus {
     outline: none;
-    border-color: #A855F7;
-    box-shadow: 0 0 0 3px rgba(168,85,247,.15);
+    border-color: #f2f2f2;
+    box-shadow: 0 0 0 3px rgba(255,255,255,.15);
 }
 
 #byok .byok-save button {
     flex: 1 1 140px;
-    font-family: 'Oswald', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
     font-weight: 600;
     font-size: 13px;
     letter-spacing: .2em;
     text-transform: uppercase;
-    background: linear-gradient(#C084FC,#7C3AED);
-    color: #0a0a0a;
-    border: 1px solid #0a0a0a;
+    background: linear-gradient(#ffffff,#a8a8b0);
+    color: #050505;
+    border: 1px solid #050505;
     border-radius: 8px;
     padding: 13px;
     cursor: pointer;
@@ -343,7 +343,7 @@ a.byok-link:hover {
     font-size: 0.875rem;
     color: #aaa;
     margin: 4px 0;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
 }
 
 .bar {
@@ -357,7 +357,7 @@ a.byok-link:hover {
 .bar > div {
     height: 100%;
     border-radius: 4px;
-    background: linear-gradient(90deg, #C084FC, #7C3AED);
+    background: linear-gradient(90deg, #ffffff, #a8a8b0);
 }
 
 .bar.hot > div {
@@ -375,17 +375,17 @@ a.byok-link:hover {
 
 .spark .spark-line {
     fill: none;
-    stroke: #4a9eff;
+    stroke: #f2f2f2;
     stroke-width: 1.5;
 }
 
 .spark .spark-area {
-    fill: rgba(74, 158, 255, 0.12);
+    fill: rgba(255, 255, 255, 0.07);
     stroke: none;
 }
 
 .spark .spark-grid {
-    stroke: #1e2430;
+    stroke: #121214;
     stroke-width: 1;
 }
 
@@ -393,25 +393,25 @@ a.byok-link:hover {
     font-size: 0.8rem;
     color: #dde;
     margin: 2px 0;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
 }
 
 .trend-limit {
     font-size: 0.72rem;
     color: #6b7280;
     margin: 2px 0;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
 }
 
 /* Composer card */
 .composer {
-    background: #11141b;
+    background: #0c0c0e;
     border-radius: 0;
     border: 1px solid #000;
     padding: 20px;
     margin: 20px auto;
     max-width: 1080px;
-    border: 1px solid #1e2430;
+    border: 1px solid #121214;
 }
 
 .composer h2 {
@@ -423,7 +423,7 @@ a.byok-link:hover {
 }
 
 .composer h2 span.accent {
-    color: #A855F7;
+    color: #f2f2f2;
 }
 
 .composer .form {
@@ -437,28 +437,28 @@ a.byok-link:hover {
     font-size: 0.9rem;
     color: #aaa;
     align-self: center;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
 }
 
 .composer input, .composer select, .composer textarea {
     flex: 2 1 200px;
     padding: 8px 10px;
-    background: #1e2430;
+    background: #121214;
     border: 1px solid #333;
     border-radius: 6px;
     color: #eee;
     font-size: 1em;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
 }
 
 .composer button {
     flex: 1 1 100%;
-    background: linear-gradient(#C084FC,#7C3AED);
-    color: #0a0a0a;
-    border: 1px solid #0a0a0a;
+    background: linear-gradient(#ffffff,#a8a8b0);
+    color: #050505;
+    border: 1px solid #050505;
     border-radius: 8px;
-    box-shadow: 0 0 24px rgba(168,85,247,.25), inset 0 1px 0 rgba(255,255,255,.5);
-    font-family: 'Oswald', sans-serif;
+    box-shadow: 0 0 24px rgba(255,255,255,.25), inset 0 1px 0 rgba(255,255,255,.5);
+    font-family: 'Space Grotesk', sans-serif;
     font-weight: 600;
     font-size: 13px;
     letter-spacing: .2em;
@@ -473,12 +473,12 @@ a.byok-link:hover {
 }
 
 .composer pre {
-    background: #1e2430;
+    background: #121214;
     border-radius: 6px;
     padding: 12px;
     margin-top: 12px;
     color: #cce;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
 }
 
 /* Refresh button */
@@ -487,10 +487,10 @@ a.byok-link:hover {
     margin: 20px auto;
     padding: 12px 28px;
     background: #141418;
-    color: #A855F7;
-    border: 1px solid rgba(168,85,247,.35);
+    color: #f2f2f2;
+    border: 1px solid rgba(255,255,255,.35);
     border-radius: 8px;
-    font-family: 'Oswald', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
     font-weight: 500;
     font-size: 13px;
     letter-spacing: .2em;
@@ -509,9 +509,9 @@ a.byok-link:hover {
 
 /* Eyebrow labels */
 .eyebrow {
-    font-family:'Press Start 2P',monospace;
+    font-family:'JetBrains Mono',monospace;
     font-size: 15px;
-    color: #A855F7;
+    color: #f2f2f2;
     letter-spacing: 0.32em;
     margin-bottom: 8px;
     text-transform: uppercase;
@@ -520,7 +520,7 @@ a.byok-link:hover {
 /* Mobile */
 @media (max-width: 640px) {
     .header {
-        padding: 16px;
+        padding: 16px 16px 16px 70px;
     }
 
     .hero, .provider-grid, .composer {
@@ -546,8 +546,8 @@ a.byok-link:hover {
 details.provider-group {
     max-width: 1080px;
     margin: 16px auto;
-    background: #11141b;
-    border: 1px solid #1e2430;
+    background: #0c0c0e;
+    border: 1px solid #121214;
     border-radius: 16px;
     overflow: hidden;
 }
@@ -565,11 +565,11 @@ details.provider-group summary {
 details.provider-group summary::-webkit-details-marker { display: none; }
 details.provider-group summary .count {
     font-size: 14px;
-    color: #9aa3b2;
+    color: #8e8e8e;
     font-weight: normal;
 }
 details.provider-group[open] summary {
-    border-bottom: 1px solid rgba(168,85,247,.18);
+    border-bottom: 1px solid rgba(255,255,255,.18);
     box-shadow: 0 1px 0 rgba(0,0,0,.8);
 }
 .group-content {
@@ -582,18 +582,18 @@ details.provider-group[open] summary {
     padding: 32px 32px 0;
 }
 .page-header h1 {
-    font-family:'Press Start 2P',monospace;
+    font-family:'Space Grotesk',sans-serif; font-weight:700;
     font-size: 34px;
     letter-spacing: .08em;
     margin: 0 0 8px;
     line-height: 1.2;
 }
-.page-header h1 .accent { color: #A855F7; }
+.page-header h1 .accent { color: #f2f2f2; }
 .page-header{position:relative;overflow:hidden}
 .page-header::after{content:"";position:absolute;right:-30px;top:50%;width:300px;height:108px;
-background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20100%2036%27%3E%3Cpath%20d%3D%27M0%2C14%20L24%2C3%20L39%2C9%20L44%2C1%20L46.5%2C7%20L50%2C5%20L53.5%2C7%20L56%2C1%20L61%2C9%20L76%2C3%20L100%2C14%20L90%2C20%20L83%2C16%20L75%2C24%20L67%2C18%20L59%2C28%20L54%2C22%20L50%2C30%20L46%2C22%20L41%2C28%20L33%2C18%20L25%2C24%20L17%2C16%20L10%2C20%20Z%27%20fill%3D%27%23A855F7%27/%3E%3C/svg%3E") no-repeat center/contain;opacity:.06;pointer-events:none;animation:batDrift 11s ease-in-out infinite}
+background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20100%2036%27%3E%3Cpath%20d%3D%27M0%2C14%20L24%2C3%20L39%2C9%20L44%2C1%20L46.5%2C7%20L50%2C5%20L53.5%2C7%20L56%2C1%20L61%2C9%20L76%2C3%20L100%2C14%20L90%2C20%20L83%2C16%20L75%2C24%20L67%2C18%20L59%2C28%20L54%2C22%20L50%2C30%20L46%2C22%20L41%2C28%20L33%2C18%20L25%2C24%20L17%2C16%20L10%2C20%20Z%27%20fill%3D%27%23f2f2f2%27/%3E%3C/svg%3E") no-repeat center/contain;opacity:.06;pointer-events:none;animation:batDrift 11s ease-in-out infinite}
 .page-header p {
-    color: #9aa3b2;
+    color: #8e8e8e;
     margin: 0;
 }
 
@@ -611,28 +611,28 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 <body>
 <!-- Nexus Sidebar -->
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
 /* Nexus sidebar — shadcn-style composition (brand header, grouped nav,
    footer, collapsible-to-icons) in the original Purple Gotham theme.
    Desktop >=1100px: pinned rail, content offset. Below: slide-over. */
-.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(168,85,247,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#A855F7;font-size:18px;line-height:1;display:none;align-items:center;justify-content:center}
+.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:18px;line-height:1;display:none;align-items:center;justify-content:center}
 .nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:none}
 .nexus-overlay.show{display:block}
-.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#0c0c0f;border-right:1px solid rgba(168,85,247,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
+.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
 .nexus-side-head{display:flex;align-items:center;gap:9px;padding:16px 12px 12px}
 .nexus-brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:1;min-width:0}
-.nexus-brand .bt{color:#fff;font-family:'Bebas Neue',sans-serif;font-size:16.5px;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
-.nexus-brand .bt em{font-style:normal;color:#A855F7}
-.nexus-toggle{margin-left:auto;width:30px;height:30px;border-radius:7px;border:1px solid rgba(168,85,247,.25);background:transparent;color:#9aa3b2;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.nexus-toggle:hover{color:#fff;border-color:#A855F7}
+.nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:16.5px;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
+.nexus-brand .bt em{font-style:normal;color:#f2f2f2}
+.nexus-toggle{margin-left:auto;width:30px;height:30px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#8e8e8e;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nexus-toggle:hover{color:#fff;border-color:#f2f2f2}
 .nexus-nav{flex:1;overflow-y:auto;padding:4px 12px 12px;scrollbar-width:thin}
-.nexus-glabel{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#6d6475;padding:16px 10px 6px;white-space:nowrap}
-.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#9aa3b2;text-decoration:none;font-size:14.5px;white-space:nowrap;border-left:none}
+.nexus-glabel{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#8e8e8e;padding:16px 10px 6px;white-space:nowrap}
+.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#8e8e8e;text-decoration:none;font-size:14.5px;white-space:nowrap;border-left:none}
 .nexus-sidebar a.nx-item svg{flex-shrink:0;opacity:.85}
-.nexus-sidebar a.nx-item:hover{color:#fff;background:rgba(168,85,247,.07)}
-.nexus-sidebar a.nx-item.active{color:#fff;background:rgba(168,85,247,.14)}
-.nexus-sidebar a.nx-item.active svg{color:#A855F7;opacity:1}
-.nexus-foot{border-top:1px solid rgba(168,85,247,.14);padding:10px 12px}
+.nexus-sidebar a.nx-item:hover{color:#fff;background:rgba(255,255,255,.07)}
+.nexus-sidebar a.nx-item.active{color:#fff;background:rgba(255,255,255,.14)}
+.nexus-sidebar a.nx-item.active svg{color:#f2f2f2;opacity:1}
+.nexus-foot{border-top:1px solid rgba(255,255,255,.14);padding:10px 12px}
 /* Self-defence: some pages style bare button/svg elements globally.
    The sidebar's own geometry is pinned so it renders identically
    on every page. */
@@ -662,7 +662,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 <nav class="nexus-sidebar" id="nx-rail" aria-label="Main navigation">
   <div class="nexus-side-head">
     <a class="nexus-brand" href="/">
-      <svg viewBox="0 0 100 36" style="width:26px;height:11px;flex-shrink:0" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#A855F7"/></svg>
+      <svg viewBox="0 0 100 36" style="width:26px;height:11px;flex-shrink:0" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#f2f2f2"/></svg>
       <span class="bt">NEXUS <em>LOCAL</em></span>
     </a>
     <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
@@ -752,12 +752,12 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
         <p class="byok-intro">If a provider above shows a missing key or "having problems", the shared key may be absent or failing. Add <b>your own</b> key for that provider and your chats will use yours instead — your usage, your quota. Keys are encrypted with your login password and are never shown to anyone, including the admin.</p>
         <details class="exp" id="bk_exp_fl">
             <summary>FreeLLMAPI Providers <span class="cnt" id="bk_cnt_fl"></span></summary>
-            <p style="color:#9aa3b2;font-size:12px;margin:8px 0 12px;line-height:1.5">The normal direct lane — keys for Groq, Google, OpenRouter, NVIDIA and the freemium providers.</p>
+            <p style="color:#8e8e8e;font-size:12px;margin:8px 0 12px;line-height:1.5">The normal direct lane — keys for Groq, Google, OpenRouter, NVIDIA and the freemium providers.</p>
             <div id="bk_providers_fl"></div>
         </details>
         <details class="exp" id="bk_exp_rl">
             <summary>Relay Providers <span class="cnt" id="bk_cnt_rl"></span></summary>
-            <p style="color:#9aa3b2;font-size:12px;margin:8px 0 12px;line-height:1.5">The relay lane — the same big providers reached through the relay (different accounts/quotas than the FreeLLMAPI lane).</p>
+            <p style="color:#8e8e8e;font-size:12px;margin:8px 0 12px;line-height:1.5">The relay lane — the same big providers reached through the relay (different accounts/quotas than the FreeLLMAPI lane).</p>
             <div id="bk_providers_rl"></div>
         </details>
         <div class="byok-save">

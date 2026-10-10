@@ -7,60 +7,60 @@
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0a0a0d;color:#e8e8ee;font-family:'Inter','Segoe UI',system-ui,sans-serif;min-height:100vh;padding:20px}
-h1{font-family:'Press Start 2P',monospace;color:#C084FC;font-size:20px;margin-bottom:8px;text-shadow:0 0 18px rgba(168,85,247,.6)}
-.sub{color:#9aa3b2;font-size:14px;margin-bottom:20px;max-width:640px;line-height:1.5}
-.card{background:#121216;border:1px solid #2a2a32;border-radius:12px;padding:20px;margin-bottom:16px;max-width:640px}
-.card h2{font-family:'Press Start 2P',monospace;font-size:13px;color:#C084FC;margin-bottom:14px}
+body{background:#050505;color:#e8e8ee;font-family:'Inter','Segoe UI',system-ui,sans-serif;min-height:100vh;padding:20px}
+h1{font-family:'Space Grotesk',sans-serif;color:#f2f2f2;font-size:22px;margin-bottom:8px}
+.sub{color:#8e8e8e;font-size:14px;margin-bottom:20px;max-width:640px;line-height:1.5}
+.card{background:#121216;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:20px;margin-bottom:16px;max-width:640px}
+.card h2{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;color:#f2f2f2;margin-bottom:14px}
 .row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
-label{font-size:13px;color:#9aa3b2;display:block;margin-bottom:4px}
-input{flex:1;min-width:200px;background:#0a0a0d;border:1px solid #2a2a32;border-radius:8px;color:#e8e8ee;padding:10px 12px;font-size:14px}
-input:focus{outline:none;border-color:#a855f7}
-button{background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:8px;color:#fff;padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer}
+label{font-size:13px;color:#8e8e8e;display:block;margin-bottom:4px}
+input{flex:1;min-width:200px;background:#050505;border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e8e8ee;padding:10px 12px;font-size:14px}
+input:focus{outline:none;border-color:#f2f2f2}
+button{background:linear-gradient(135deg,#f2f2f2,#8e8e8e);border:none;border-radius:8px;color:#050505;padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer}
 button:hover{filter:brightness(1.1)}
 .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px}
 .badge.on{background:rgba(125,255,154,.15);color:#7dff9a}
-.badge.off{background:rgba(154,163,178,.15);color:#9aa3b2}
+.badge.off{background:rgba(154,163,178,.15);color:#8e8e8e}
 #msg{min-height:20px;font-size:13px;margin-top:8px}
 .prov{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .prov label{min-width:170px;margin:0}
-details.exp{background:#0c0c0f;border:1px solid rgba(168,85,247,.25);border-radius:10px;padding:14px 16px;margin-bottom:12px}
-details.exp summary{color:#C084FC;cursor:pointer;font-size:15px;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.exp{background:#050505;border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:14px 16px;margin-bottom:12px}
+details.exp summary{color:#d9d9de;cursor:pointer;font-size:15px;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center}
 details.exp summary::-webkit-details-marker{display:none}
-details.exp summary::after{content:'▸';color:#a855f7;transition:transform .15s}
+details.exp summary::after{content:'▸';color:#f2f2f2;transition:transform .15s}
 details.exp[open ] summary::after{transform:rotate(90deg)}
-details.exp .lane-sub{color:#9aa3b2;font-size:12px;margin:8px 0 12px;line-height:1.5}
-details.exp .cnt{font-size:11px;color:#9aa3b2;font-weight:400;margin-left:8px}
+details.exp .lane-sub{color:#8e8e8e;font-size:12px;margin:8px 0 12px;line-height:1.5}
+details.exp .cnt{font-size:11px;color:#8e8e8e;font-weight:400;margin-left:8px}
 .nav{margin-top:20px;display:flex;gap:10px}
-.nav a{color:#C084FC;text-decoration:none;font-size:14px;padding:8px 16px;border:1px solid rgba(168,85,247,.35);border-radius:8px}
+.nav a{color:#d9d9de;text-decoration:none;font-size:14px;padding:8px 16px;border:1px solid rgba(255,255,255,.35);border-radius:8px}
 </style>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Press+Start+2P&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
 <!-- Nexus Sidebar -->
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
 /* Nexus sidebar — shadcn-style composition (brand header, grouped nav,
    footer, collapsible-to-icons) in the original Purple Gotham theme.
    Desktop >=1100px: pinned rail, content offset. Below: slide-over. */
-.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(168,85,247,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#A855F7;font-size:18px;line-height:1;display:none;align-items:center;justify-content:center}
+.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:18px;line-height:1;display:none;align-items:center;justify-content:center}
 .nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:none}
 .nexus-overlay.show{display:block}
-.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#0c0c0f;border-right:1px solid rgba(168,85,247,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
+.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
 .nexus-side-head{display:flex;align-items:center;gap:9px;padding:16px 12px 12px}
 .nexus-brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:1;min-width:0}
-.nexus-brand .bt{color:#fff;font-family:'Bebas Neue',sans-serif;font-size:16.5px;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
-.nexus-brand .bt em{font-style:normal;color:#A855F7}
-.nexus-toggle{margin-left:auto;width:30px;height:30px;border-radius:7px;border:1px solid rgba(168,85,247,.25);background:transparent;color:#9aa3b2;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.nexus-toggle:hover{color:#fff;border-color:#A855F7}
+.nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:16.5px;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
+.nexus-brand .bt em{font-style:normal;color:#f2f2f2}
+.nexus-toggle{margin-left:auto;width:30px;height:30px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#8e8e8e;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nexus-toggle:hover{color:#fff;border-color:#f2f2f2}
 .nexus-nav{flex:1;overflow-y:auto;padding:4px 12px 12px;scrollbar-width:thin}
-.nexus-glabel{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#6d6475;padding:16px 10px 6px;white-space:nowrap}
-.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#9aa3b2;text-decoration:none;font-size:14.5px;white-space:nowrap;border-left:none}
+.nexus-glabel{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#8e8e8e;padding:16px 10px 6px;white-space:nowrap}
+.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#8e8e8e;text-decoration:none;font-size:14.5px;white-space:nowrap;border-left:none}
 .nexus-sidebar a.nx-item svg{flex-shrink:0;opacity:.85}
-.nexus-sidebar a.nx-item:hover{color:#fff;background:rgba(168,85,247,.07)}
-.nexus-sidebar a.nx-item.active{color:#fff;background:rgba(168,85,247,.14)}
-.nexus-sidebar a.nx-item.active svg{color:#A855F7;opacity:1}
-.nexus-foot{border-top:1px solid rgba(168,85,247,.14);padding:10px 12px}
+.nexus-sidebar a.nx-item:hover{color:#fff;background:rgba(255,255,255,.07)}
+.nexus-sidebar a.nx-item.active{color:#fff;background:rgba(255,255,255,.14)}
+.nexus-sidebar a.nx-item.active svg{color:#f2f2f2;opacity:1}
+.nexus-foot{border-top:1px solid rgba(255,255,255,.14);padding:10px 12px}
 /* Self-defence: some pages style bare button/svg elements globally.
    The sidebar's own geometry is pinned so it renders identically
    on every page. */
@@ -90,7 +90,7 @@ details.exp .cnt{font-size:11px;color:#9aa3b2;font-weight:400;margin-left:8px}
 <nav class="nexus-sidebar" id="nx-rail" aria-label="Main navigation">
   <div class="nexus-side-head">
     <a class="nexus-brand" href="/">
-      <svg viewBox="0 0 100 36" style="width:26px;height:11px;flex-shrink:0" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#A855F7"/></svg>
+      <svg viewBox="0 0 100 36" style="width:26px;height:11px;flex-shrink:0" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#f2f2f2"/></svg>
       <span class="bt">NEXUS <em>LOCAL</em></span>
     </a>
     <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
@@ -162,7 +162,7 @@ details.exp .cnt{font-size:11px;color:#9aa3b2;font-weight:400;margin-left:8px}
 
 <div class="card">
 <h2>PROVIDER KEYS</h2>
-<p style="color:#9aa3b2;font-size:13px;margin-bottom:14px;line-height:1.5">Choose your lane — expand <b style="color:#C084FC">FreeLLMAPI</b> or <b style="color:#C084FC">Relay</b> and add your keys there. In the chat, each lane's providers appear separately, and your key works in the lane you saved it under.</p>
+<p style="color:#8e8e8e;font-size:13px;margin-bottom:14px;line-height:1.5">Choose your lane — expand <b style="color:#d9d9de">FreeLLMAPI</b> or <b style="color:#d9d9de">Relay</b> and add your keys there. In the chat, each lane's providers appear separately, and your key works in the lane you saved it under.</p>
 <details class="exp" id="exp_fl">
 <summary>FreeLLMAPI Providers <span class="cnt" id="cnt_fl"></span></summary>
 <p class="lane-sub">The normal direct lane — keys for Groq, Google, OpenRouter, NVIDIA and the freemium providers.</p>
