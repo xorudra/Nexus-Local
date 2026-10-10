@@ -711,6 +711,30 @@ def _today_counts():
     return _TODAY_CACHE
 
 
+def _today_total_requests():
+    """Today's counted requests across both surfaces: dashboard chat
+    (counted per user) plus /v1 API rows (which carry no user — they
+    are counted under their 'v1:<lane>' provider names)."""
+    c = _today_counts()
+    total = sum(c["users"].values())
+    total += sum(v for k, v in c["providers"].items()
+                 if k.startswith("v1:"))
+    return total
+
+
+def _instance_cap_reached():
+    """True when the owner's instance-wide daily cap (console setting
+    global_cap, 0 = off) is set and today's total has reached it."""
+    try:
+        gcap = int(_SETTINGS.get("global_cap") or 0)
+    except Exception:
+        gcap = 0
+    return bool(gcap) and _today_total_requests() >= gcap
+
+
+_V1_CAP_AUDIT = [0.0]
+
+
 def _validate_settings_patch(patch):
     """Whitelist + type-check a settings patch from the admin console.
     Returns (clean_dict, error) — error None on success."""
@@ -2069,6 +2093,18 @@ class Handler(BaseHTTPRequestHandler):
         if not _rl_ok("v1", (self.headers.get("Authorization", "") or "")[-8:], 60, 60):
             self._set_json_headers(429)
             self.wfile.write(json.dumps({"error": {"message": "rate limit", "type": "rate_limit_error"}}).encode())
+            return
+        # Hard daily stop (reel-risk fix 2026-10-10): the instance-wide
+        # cap the owner sets in the console also binds the /v1 API —
+        # a looping consumer or a leaked service key must not be able
+        # to burn the whole day's provider quota at 60 requests/min.
+        if _instance_cap_reached():
+            if time.time() - _V1_CAP_AUDIT[0] >= 600:
+                _V1_CAP_AUDIT[0] = time.time()
+                _audit("System", "/v1 stopped: instance daily cap hit "
+                       f"({int(_SETTINGS.get('global_cap') or 0)}/day)")
+            self._set_json_headers(429)
+            self.wfile.write(json.dumps({"error": {"message": "instance daily limit reached", "type": "rate_limit_error"}}).encode())
             return
         try:
             length = int(self.headers.get("Content-Length", 0) or 0)
@@ -3701,7 +3737,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
                     return
                 _gcap = int(_SETTINGS.get("global_cap") or 0)
-                if _gcap and sum(_today_counts()["users"].values()) >= _gcap:
+                if _gcap and _today_total_requests() >= _gcap:
                     _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
                     _alert("cap_hit", "cap", {"label": _chat_label, "cap": _gcap, "scope": "instance"})
                     self._set_json_headers(429)

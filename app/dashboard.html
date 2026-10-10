@@ -1265,9 +1265,9 @@ if (attachPlus && attachMenu) {
 function showPreview(type, src, name) {
     let previewHtml = '';
     if (type === 'image' || type === 'camera' || type === 'photos') {
-        previewHtml = '<img src="' + src + '" style="max-width:200px;border-radius:8px;border:1px solid rgba(168,85,247,.2)">';
+        previewHtml = '<img src="' + src + '" alt="' + (name || 'Image attachment').replace(/[<>&"]/g, '') + '" style="max-width:200px;border-radius:8px;border:1px solid rgba(168,85,247,.2)">';
     } else if (type === 'videos') {
-        previewHtml = '<video src="' + src + '" style="max-width:200px;border-radius:8px" controls></video>';
+        previewHtml = '<video src="' + src + '" aria-label="' + (name || 'Video attachment').replace(/[<>&"]/g, '') + '" style="max-width:200px;border-radius:8px" controls></video>';
     } else if (type === 'files') {
         previewHtml = '<div style="background:#141419;border:1px solid rgba(168,85,247,.2);padding:12px;border-radius:8px;font-size:13px">File: ' + (name || 'File') + '</div>';
     } else if (type === 'link') {

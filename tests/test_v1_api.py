@@ -129,6 +129,33 @@ class V1ChatTests(unittest.TestCase):
         self.assertIn("error", out)
 
 
+class V1CapTests(unittest.TestCase):
+    """The instance-wide daily cap must bind /v1 too (reel-risk fix):
+    dashboard rows count per user, /v1 rows count under their
+    'v1:<lane>' provider names; plain provider rows must not be
+    double-counted."""
+
+    COUNTS = {"ts": 0.0, "users": {"friendone": 2, "chatgpt": 1},
+              "providers": {"v1:relay_groq": 3, "groq": 50}}
+
+    def test_today_total_requests(self):
+        with mock.patch.object(server, "_today_counts",
+                               lambda: dict(self.COUNTS)):
+            self.assertEqual(server._today_total_requests(), 6)
+
+    def test_instance_cap_reached(self):
+        with mock.patch.object(server, "_today_counts",
+                               lambda: dict(self.COUNTS)):
+            with mock.patch.dict(server._SETTINGS, {"global_cap": 0}):
+                self.assertFalse(server._instance_cap_reached())
+            with mock.patch.dict(server._SETTINGS, {"global_cap": 7}):
+                self.assertFalse(server._instance_cap_reached())
+            with mock.patch.dict(server._SETTINGS, {"global_cap": 6}):
+                self.assertTrue(server._instance_cap_reached())
+            with mock.patch.dict(server._SETTINGS, {"global_cap": 3}):
+                self.assertTrue(server._instance_cap_reached())
+
+
 class V1FreeLLanesTests(unittest.TestCase):
     """FreeLLMAPI providers as supply lanes (owner order 2026-10-09)."""
 
