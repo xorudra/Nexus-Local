@@ -462,6 +462,95 @@ class Console2Tests(unittest.TestCase):
             status, _, _, _ = self._req("GET", path, cookie=admin)
             self.assertEqual(status, 200, path)
 
+    def test_16_role_action_matrix(self):
+        # The console permission table, pinned server-side: for each
+        # role, the actions it may and may not perform.
+        for label, role in ((F1, "moderator"), (F2, "viewer")):
+            status, j = self._access("friend_role_set", self.admin,
+                                     label=label, role=role,
+                                     master_pw=MASTER)
+            self.assertEqual(status, 200, j)
+        _, _, mod = self._login(F1_PW)
+        _, _, view = self._login(F2_PW)
+        # reads both roles may do
+        for action in ("list", "2fa_state"):
+            for cookie, who in ((mod, "moderator"), (view, "viewer")):
+                status, j = self._access(action, cookie)
+                self.assertEqual(status, 200, (action, who, j))
+        # moderator-only reads
+        for action in ("settings_get", "invite_list"):
+            status, j = self._access(action, mod)
+            self.assertEqual(status, 200, (action, j))
+            status, j = self._access(action, view)
+            self.assertEqual(status, 403, (action, j))
+        # owner-only writes: refused for both roles
+        for action, fields in (
+                ("settings_set", {"patch": {"announcement": "x"}}),
+                ("settings_restore_preview",
+                 {"backup": {"settings": {}}}),
+                ("settings_restore_apply", {"nonce": "x"}),
+                ("factory_reset", {}),
+                ("audit_clear", {}),
+                ("friend_role_set", {"label": F2, "role": "moderator"}),
+                ("viewpass_list", {})):
+            for cookie, who in ((mod, "moderator"), (view, "viewer")):
+                status, j = self._access(action, cookie, **fields)
+                self.assertEqual(status, 403, (action, who, j))
+        # a moderator manages users on their own session (no master)
+        status, j = self._access("friend_set_suspended", mod,
+                                 label=F2, suspended=True)
+        self.assertEqual(status, 200, j)
+        status, j = self._access("friend_set_suspended", mod,
+                                 label=F2, suspended=False)
+        self.assertEqual(status, 200, j)
+
+    def test_17_settings_restore(self):
+        backup = {"settings": {"announcement": "Back soon",
+                                "chain_mode": "fastest"}}
+        # accounts/roles are never restorable from a file
+        status, j = self._access(
+            "settings_restore_preview", self.admin,
+            backup={"settings": {"roles": {F1: "viewer"}}},
+            master_pw=MASTER)
+        self.assertEqual(status, 400, j)
+        self.assertIn("roles", j.get("error", ""))
+        # invalid values rejected by the shared settings validator
+        status, j = self._access(
+            "settings_restore_preview", self.admin,
+            backup={"settings": {"chain_mode": "bogus"}},
+            master_pw=MASTER)
+        self.assertEqual(status, 400, j)
+        # master password required
+        status, j = self._access("settings_restore_preview", self.admin,
+                                 backup=backup)
+        self.assertEqual(status, 401, j)
+        # preview → diff + nonce; nothing applied yet
+        status, j = self._access("settings_restore_preview", self.admin,
+                                 backup=backup, master_pw=MASTER)
+        self.assertEqual(status, 200, j)
+        keys = sorted(d["key"] for d in j["diff"])
+        self.assertEqual(keys, ["announcement", "chain_mode"], j)
+        nonce = j["nonce"]
+        _, cur = self._access("settings_get", self.admin)
+        self.assertNotEqual(cur["settings"].get("announcement"),
+                            "Back soon")
+        # bogus nonce refused; the real one applies exactly once
+        status, j = self._access("settings_restore_apply", self.admin,
+                                 nonce="nope", master_pw=MASTER)
+        self.assertEqual(status, 400, j)
+        status, j = self._access("settings_restore_apply", self.admin,
+                                 nonce=nonce, master_pw=MASTER)
+        self.assertEqual(status, 200, j)
+        self.assertEqual(sorted(j["applied"]),
+                         ["announcement", "chain_mode"])
+        _, cur = self._access("settings_get", self.admin)
+        self.assertEqual(cur["settings"].get("announcement"), "Back soon")
+        self.assertEqual(cur["settings"].get("chain_mode"), "fastest")
+        self.assertTrue(cur["settings"].get("backup_snapshot"))
+        status, j = self._access("settings_restore_apply", self.admin,
+                                 nonce=nonce, master_pw=MASTER)
+        self.assertEqual(status, 400, j)
+
     # ---- allowed IPs (last: needs a restart to recover) ----
 
     def test_13_allowed_ips_lockout_and_recovery(self):

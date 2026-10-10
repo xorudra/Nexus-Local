@@ -127,7 +127,7 @@ button:focus-visible,.ib:focus-visible,.tl:focus-visible{outline:2px solid var(-
 <div class="p s3"><h2 class="lift">Active users</h2><div class="num lift" id="mg">—</div><div class="sub" id="mgSub">of — accounts</div></div>
 <div class="p s4"><h2>Failover chain</h2><div class="chain row" style="flex-wrap:wrap;align-items:center"></div><div class="row" style="margin-top:16px"><button class="btn" data-x="sim" data-mut>Simulate failure</button><button class="btn g" data-x="pv">Providers</button></div></div>
 <div class="p s4"><h2>Mesh health</h2><div id="th2"></div></div>
-<div class="p s4"><h2>Server</h2><div class="rw"><span>CPU</span><div class="bar"><i id="cpu" style="width:0%"></i></div><span class="mono" id="cpv">—</span></div><div class="rw"><span>RAM</span><div class="bar"><i id="ram" style="width:0%"></i></div><span class="mono" id="rmv">—</span></div><div class="rw"><span>Disk</span><div class="bar"><i id="dsk" style="width:0%"></i></div><span class="mono" id="dsv">—</span></div><div class="sub" style="margin-top:8px" id="uptime">—</div></div>
+<div class="p s4"><h2>Server</h2><div class="rw"><span>CPU</span><div class="bar"><i id="cpu" style="width:0%"></i></div><span class="mono" id="cpv">—</span></div><div class="rw"><span>RAM</span><div class="bar"><i id="ram" style="width:0%"></i></div><span class="mono" id="rmv">—</span></div><div class="rw"><span>Disk</span><div class="bar"><i id="dsk" style="width:0%"></i></div><span class="mono" id="dsv">—</span></div><div class="sub" style="margin-top:8px" id="uptime">—</div><div class="sub mono" id="srvStat" style="margin-top:3px"></div></div>
 </div></section>
 
 <section class="view" id="an"><div class="head"><div class="sub mono">REQUESTS · LATENCY · RELIABILITY</div><h1>Analytics</h1></div><div class="row" id="arg" style="margin-bottom:14px"></div><div class="bento"><div id="ank" style="display:contents"></div>
@@ -135,7 +135,7 @@ button:focus-visible,.ib:focus-visible,.tl:focus-visible{outline:2px solid var(-
 <div class="p s5"><h2>Top friends</h2><div id="anf"></div></div>
 <div class="p s12"><h2>Latency over time</h2><svg id="anl" viewBox="0 0 600 140" preserveAspectRatio="none" style="width:100%;height:140px;display:block" role="img" aria-label="Average latency over time"></svg><div class="sub mono" id="anc" style="margin-top:8px"></div></div></div></section>
 
-<section class="view" id="au"><div class="head"><div class="sub mono">EVERY ADMIN &amp; SYSTEM EVENT</div><h1>Audit log</h1></div><div class="bento"><div class="p s12"><div class="row" id="af" style="margin-bottom:14px;flex-wrap:wrap"></div><input id="aq" class="srch" type="search" placeholder="Search events" aria-label="Search audit log"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr><th>Time</th><th>Category</th><th>Event</th></tr></thead><tbody id="at"></tbody></table></div><div class="sub" style="margin-top:10px">Stored on the server (audit.jsonl) — resets on redeploy, like sessions. Newest first, last 200.</div></div></div></section>
+<section class="view" id="au"><div class="head"><div class="sub mono">EVERY ADMIN &amp; SYSTEM EVENT</div><h1>Audit log</h1></div><div class="bento"><div class="p s12"><div class="row" id="af" style="margin-bottom:14px;flex-wrap:wrap"></div><input id="aq" class="srch" type="search" placeholder="Search events" aria-label="Search audit log"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr><th>Time</th><th>Category</th><th>Event</th></tr></thead><tbody id="at"></tbody></table></div><div class="sub" style="margin-top:10px"><span id="auCap">Newest first, last 200.</span></div></div></div></section>
 
 <section class="view" id="pv"><div class="head"><div class="sub mono">FAILOVER ORDER · TOP TO BOTTOM</div><h1>Providers</h1><button class="btn" data-x="ap" data-mut style="display:inline-block;margin-top:14px">+ Add provider</button></div><div class="row" id="pfl" style="margin-bottom:14px;flex-wrap:wrap"></div><div class="row" style="margin-bottom:14px;flex-wrap:wrap;align-items:center"><input id="ps" class="srch" style="margin:0" type="search" placeholder="Search providers" aria-label="Search providers"><button class="ib" data-x="pta" data-mut>Test all</button><button class="ib" data-x="pea" data-mut>Enable all</button><button class="ib" data-x="pda" data-mut>Disable all</button></div><div class="pgrid" id="pgrid"></div></section>
 
@@ -165,7 +165,7 @@ button:focus-visible,.ib:focus-visible,.tl:focus-visible{outline:2px solid var(-
 <div class="p s12"><h2>General &amp; performance</h2><label class="sub" for="nm">Instance name</label><input id="nm" value="Nexus Local" style="margin-bottom:6px" data-mut><label class="sub" for="ae" style="display:block;margin-top:10px">Alert email (contact of record — alerts are delivered to the webhook below)</label><input id="ae" type="email" placeholder="you@example.com" style="margin-bottom:6px" data-mut><label class="sub" for="anm" style="display:block;margin-top:10px">Announcement for all users (shown on the sign-in and invite pages)</label><div class="row"><input id="anm" placeholder="e.g. Maintenance tonight at 22:00" data-mut><button class="btn g" data-x="bnp" data-mut>Publish</button></div><label class="sub" for="wh" style="display:block;margin-top:10px">Webhook URL (alerts: provider down, cap hits, signups, digests)</label><div class="row"><input id="wh" type="url" placeholder="https://example.com/hook" data-mut><button class="btn g" data-x="wht" data-mut>Test</button></div><label class="sub" for="ip" style="display:block;margin-top:10px">Allowed IPs for sign-in &amp; console (comma-separated, blank = anywhere)</label><input id="ip" placeholder="203.0.113.0/24, 198.51.100.7" style="margin-bottom:6px" data-mut><div id="sg"></div></div>
 <div class="p s12" id="tfaCard"><h2>Two-factor auth (admin)</h2><div class="sub" style="margin-bottom:10px">Protect your admin login with an authenticator app. Friends are not affected.</div><div id="tfaStatus" style="margin-bottom:12px;font-size:14px">Checking…</div><div class="row" style="flex-wrap:wrap" data-mut><input id="tfaMaster" type="password" aria-label="Your master password" placeholder="Your master password" style="flex:1;min-width:180px"><button class="btn" id="tfaBtn">Enable 2FA</button></div><div class="qrbox" id="tfaSecret"><p class="sub" style="margin-bottom:8px">Scan this QR with your authenticator app:</p><img id="tfaQR" src="" alt="2FA QR code"><p class="sub" style="margin-bottom:8px">Or enter the key manually:</p><p id="tfaKey" style="font-family:monospace;font-size:16px;letter-spacing:.1em;word-break:break-all"></p><p class="sub" style="margin-top:8px">Then enter a code from the app to confirm:</p><div class="row" style="margin-top:8px;flex-wrap:wrap"><input id="tfaConfirm" aria-label="Two-factor code" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="text-align:center;letter-spacing:.3em;flex:1"><button class="btn" id="tfaConfirmBtn">Confirm</button></div></div><div class="msg" id="tfaMsg"></div></div>
 <div class="p s12" id="mpCard"><h2>Master password</h2><div class="sub" style="margin-bottom:10px">Change the password that encrypts all your provider keys. At least 10 characters. You'll be signed out everywhere and must log in with the new password.</div><div class="row" style="flex-wrap:wrap" data-mut><input id="mpCur" type="password" aria-label="Current master password" placeholder="Current master password" style="flex:1;min-width:180px"><input id="mpNew" type="password" aria-label="New master password" placeholder="New master password (10+ chars)" style="flex:1;min-width:180px"><button class="btn" id="mpBtn">Change password</button></div><div class="msg" id="mpMsg"></div></div>
-<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap"><div><h2 style="margin:0 0 4px">Backup &amp; keys</h2><div class="sub">Download providers, order and policy as JSON. Keys are never included.</div><div class="sub" id="bkLine" style="margin-top:4px"></div></div><div class="row" style="flex-wrap:wrap"><button class="btn" data-x="bk">Backup now</button><button class="btn g" data-x="exp">Copy config</button><button class="btn g" data-x="rk" data-mut>Rotate master key</button></div></div></div>
+<div class="p s12"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap"><div><h2 style="margin:0 0 4px">Backup &amp; keys</h2><div class="sub">Download providers, order and policy as JSON. Keys are never included.</div><div class="sub" id="bkLine" style="margin-top:4px"></div></div><div class="row" style="flex-wrap:wrap"><button class="btn" data-x="bk">Backup now</button><button class="btn g" data-x="exp">Copy config</button><button class="btn g" data-x="rsf" data-mut>Restore from backup</button><button class="btn g" data-x="rk" data-mut>Rotate master key</button></div><div class="sub" id="rsLine" style="margin-top:4px">Restore brings back policy settings only (order, caps policy, alerts, announcement…). Accounts, roles, suspensions, invites and sign-in rules are never restorable from a file.</div><input type="file" id="rsFile" accept=".json,application/json" hidden></div></div>
 <div class="p s12"><h2>Danger zone</h2><div class="row" style="flex-wrap:wrap" data-mut><button class="btn g" data-x="cl">Clear audit log</button><button class="btn g" data-x="sa">Sign out all users</button><button class="btn g" data-x="rs">Reset provider statuses</button><button class="btn g" data-x="rva">Revoke all view passes</button><button class="btn g" data-x="fx">Factory reset</button></div><div class="msg" id="dzMsg"></div></div>
 </div></section>
 </main><aside class="side r"><h2>Status</h2><div id="rss"></div><h2>Alerts</h2><div id="ral"></div><h2>Recent</h2><div id="rac" class="log" style="max-height:none"></div><div style="margin-top:auto"><button class="btn g" data-x="sim" data-mut>Simulate failure</button></div></aside>
@@ -317,6 +317,11 @@ function renderOverview(){
     pct('#cpu','#cpv',SYS.cpu_pct);pct('#ram','#rmv',SYS.ram_pct);pct('#dsk','#dsv',SYS.disk_pct);
     const u=SYS.uptime_s||0,d=Math.floor(u/86400),h=Math.floor(u%86400/3600),m=Math.floor(u%3600/60);
     $("#uptime").textContent=`Uptime ${d?d+'d ':''}${h}h ${m}m · ${location.host}`;
+    const bits=['Build '+(SYS.build||'local')];
+    if(SYS.boot_ts)bits.push('booted '+ago(SYS.boot_ts));
+    bits.push('vault '+(SYS.vault_locked?'LOCKED — keyless lanes only':'unlocked'));
+    bits.push('history '+(SYS.telemetry_saved?('persisted '+fmtTs(SYS.telemetry_saved)):'not yet persisted'));
+    $("#srvStat").textContent=bits.join(' · ');
   }
 }
 function alertsList(){
@@ -377,7 +382,8 @@ function renderProviders(){
     const s=stOf(p),custom=p.provider.startsWith('custom_relay_');
     const lim=lims[p.provider],today=p.history.requests[6];
     const usageLine=lim?`${Math.min(999,Math.round(today/lim*100))}% of ${fmt(lim)}/day · ${tos[p.provider]?tos[p.provider]+'s timeout':'default timeout'}`:`${fmt(today)} requests today · ${fmt(p.history.tokens[6])} tokens`;
-    return `<div class="p" style="--i:${i}"><div class="lift"><b>${esc(p.display_name)}</b> <span class="sub mono">#${i+1}</span></div><div class="sub lift" style="margin:2px 0 12px">${caps.map(c=>c[0].toUpperCase()+c.slice(1)).join(' · ')}${p.key_configured?'':' · no key'}</div><div class="lift"><span class="dot ${s[0]}"></span>${s[1]}<span class="sub mono" style="float:right">${lat[p.provider]!=null?fmt(lat[p.provider])+'ms':''}</span></div><div class="bar" style="margin:12px 0"><i style="width:${lim?Math.min(100,today/lim*100):Math.min(100,today/Math.max(...Q.providers.map(x=>x.history.requests[6]),1)*100)}%"></i></div><div class="sub mono" style="margin:-6px 0 10px">${usageLine}</div><div class="row" style="flex-wrap:wrap" data-mut><button class="ib" data-a="up" data-i="${i}" aria-label="Move up">▲</button><button class="ib" data-a="dn" data-i="${i}" aria-label="Move down">▼</button><button class="ib" data-a="ping" data-i="${i}">Test</button><button class="ib" data-a="cfg" data-i="${i}">Config</button>${custom?`<button class="ib" data-a="del" data-i="${i}">Remove</button>`:''}<button class="ib ${p.disabled?'':'on'}" data-a="en" data-i="${i}" style="margin-left:auto">${p.disabled?'OFF':'ON'}</button></div></div>`;
+    const hl=p.health||{};const healthLine=hl.last_error?('Last error: '+esc(hl.last_error)+(hl.last_fail?' · '+ago(hl.last_fail):'')):(hl.last_ok?('Last success '+ago(hl.last_ok)):'');
+    return `<div class="p" style="--i:${i}"><div class="lift"><b>${esc(p.display_name)}</b> <span class="sub mono">#${i+1}</span></div><div class="sub lift" style="margin:2px 0 12px">${caps.map(c=>c[0].toUpperCase()+c.slice(1)).join(' · ')}${p.key_configured?'':' · no key'}</div><div class="lift"><span class="dot ${s[0]}"></span>${s[1]}<span class="sub mono" style="float:right">${lat[p.provider]!=null?fmt(lat[p.provider])+'ms':''}</span></div><div class="bar" style="margin:12px 0"><i style="width:${lim?Math.min(100,today/lim*100):Math.min(100,today/Math.max(...Q.providers.map(x=>x.history.requests[6]),1)*100)}%"></i></div><div class="sub mono" style="margin:-6px 0 10px">${usageLine}</div>${healthLine?`<div class="sub mono" style="margin:-6px 0 10px">${healthLine}</div>`:''}<div class="row" style="flex-wrap:wrap" data-mut><button class="ib" data-a="up" data-i="${i}" aria-label="Move up">▲</button><button class="ib" data-a="dn" data-i="${i}" aria-label="Move down">▼</button><button class="ib" data-a="ping" data-i="${i}">Test</button><button class="ib" data-a="cfg" data-i="${i}">Config</button>${custom?`<button class="ib" data-a="del" data-i="${i}">Remove</button>`:''}<button class="ib ${p.disabled?'':'on'}" data-a="en" data-i="${i}" style="margin-left:auto">${p.disabled?'OFF':'ON'}</button></div></div>`;
   }).join('')||'<div class="empty">No providers match.</div>';
   $("#pgrid").dataset.names=JSON.stringify(names);
 }
@@ -730,6 +736,7 @@ $("#sg").addEventListener('click',async e=>{
 });
 function renderAudit(){
   $("#af").innerHTML=['All','Providers','Users','Vault','System'].map(c=>`<button class="ib ${c===AF?'on':''}" data-f="${c}">${c}</button>`).join('')+'<button class="ib" data-x="acv" style="margin-left:auto">Copy CSV</button>';
+  const ac=$("#auCap");if(ac)ac.textContent='History is mirrored encrypted and survives redeploys'+(SYS&&SYS.telemetry_saved?(' — persisted up to '+fmtTs(SYS.telemetry_saved)):' — not yet persisted this boot')+'. Newest first, last 200.';
   const rows=AU.filter(e2=>(AF==='All'||e2.cat===AF)&&(!AQ||(e2.event+' '+e2.cat+' '+(e2.ip||'')).toLowerCase().includes(AQ)));
   $("#at").innerHTML=rows.length?rows.map(e2=>`<tr><td class="mono sub">${esc(fmtTs(e2.ts))}${e2.ip?`<div>${esc(e2.ip)}</div>`:''}</td><td>${esc(e2.cat)}</td><td>${esc(e2.event)}</td></tr>`).join(''):'<tr><td colspan="3" class="sub">No events match</td></tr>';
 }
@@ -740,7 +747,7 @@ async function anRender(){
   if(!j)return;
   if(RG==='7d'){AN7=j;renderProviders()}
   if(RG==='24h')AN24=j;
-  $("#arg").innerHTML=['24h','7d','30d'].map(t=>`<button class="ib ${t===RG?'on':''}" data-rg="${t}">${t}</button>`).join('');
+  $("#arg").innerHTML=['24h','7d','30d'].map(t=>`<button class="ib ${t===RG?'on':''}" data-rg="${t}">${t}</button>`).join('')+'<button class="ib" data-x="anv" style="margin-left:auto">Copy CSV</button>';
   const fr=j.totals.requests?Math.round(j.failovers/j.totals.requests*1000)/10:0;
   const kpi=[['Total requests',fmt(j.totals.requests)],['Success rate',j.success_rate==null?'—':j.success_rate+'%'],['Avg latency',j.avg_ms==null?'—':fmt(j.avg_ms)+' ms'],['Failover rate',fr+'%']];
   $("#ank").innerHTML=kpi.map(k=>`<div class="p s3"><h2 class="lift">${k[0]}</h2><div class="num lift" style="font-size:clamp(26px,3.2vw,42px)">${k[1]}</div></div>`).join('');
@@ -804,6 +811,13 @@ const ACT={
     const rows=[['user','role','requests','cap','tokens','top_provider']].concat(UT.users.map(u=>{const a=(L.access||[]).find(x=>x.label===u.label)||{};return[u.label,a.role||'friend',u.requests,capOf(u.label)||'',u.tokens,u.top_provider||'']}));
     copyText(rows.map(r=>r.map(csvQ).join(',')).join('\n'),'Usage copied as CSV');
   },
+  anv:async()=>{
+    const j=await jget('/api/analytics?range='+RG);
+    if(!j){toast('Nothing to copy');return}
+    const rows=[[RG+' buckets','requests','tokens','avg_ms','p95_ms']].concat(j.series.map(s2=>[s2.bucket||s2.label||'',s2.requests,s2.tokens,s2.avg_ms==null?'':s2.avg_ms,s2.p95_ms==null?'':s2.p95_ms]));
+    rows.push([],['provider','requests','tokens','avg_ms'],...j.per_provider.map(p=>[p.provider,p.requests,p.tokens,p.avg_ms==null?'':p.avg_ms]));
+    copyText(rows.map(r=>r.map(csvQ).join(',')).join('\n'),'Analytics copied as CSV');
+  },
   acv:()=>{
     const rows=[['timestamp','category','event','ip']].concat(AU.map(e2=>[e2.ts,e2.cat,e2.event,e2.ip||'']));
     copyText(rows.map(r=>r.map(csvQ).join(',')).join('\n'),'Audit log copied as CSV');
@@ -832,6 +846,7 @@ const ACT={
     if(r&&r.j&&r.j.ok){toast('Signed out '+r.j.revoked+' sessions — yours stays');loadAllSoft()}
     else if(r&&r.j)toast(r.j.error||'Failed');
   },
+  rsf:()=>{const f=$("#rsFile");if(f)f.click()},
   rs:async()=>{
     const r=await mut('provider_health_reset',{});
     if(r&&r.j&&r.j.ok){toast('Provider statuses reset');Q=await jget('/api/quotas');renderAll()}
@@ -910,6 +925,23 @@ $("#mpBtn").addEventListener('click',async()=>{
   const r=await api('change_master',{master_pw:cur,new_master_pw:nw});
   if(r&&r.ok){msg.innerHTML='<span class="okc">✓ Password changed. Signing you out — log in with the new password.</span>';setTimeout(()=>{location.href='/login'},1500)}
   else msg.textContent=(r&&r.error)?r.error:'Change failed.';
+});
+$("#rsFile").addEventListener('change',async e=>{
+  const f=e.target.files[0];e.target.value='';
+  if(!f)return;
+  let backup;try{backup=JSON.parse(await f.text())}catch(err){toast('That file is not valid JSON');return}
+  const pw=await askPw('restore settings from this backup');
+  if(pw===null)return;
+  const r=await apiS('settings_restore_preview',{backup},{master_pw:pw});
+  if(!r.ok){toast((r.j&&r.j.error)||'Preview failed');return}
+  const diff=r.j.diff||[];
+  if(!diff.length){$("#rsLine").textContent='That backup matches the current settings — nothing to restore.';return}
+  const clip=v=>{const s=typeof v==='string'?v:JSON.stringify(v);return s&&s.length>42?s.slice(0,42)+'…':String(s)};
+  const v=await dlg('Restore these settings?',[['Changes (key: current → backup)','x',diff.map(d=>d.key+': '+clip(d.from)+' → '+clip(d.to)).join(' · '),'text']]);
+  if(!v)return;
+  const r2=await apiS('settings_restore_apply',{nonce:r.j.nonce},{master_pw:pw});
+  if(r2.ok){S=r2.j.settings;$("#rsLine").textContent='Restored: '+(r2.j.applied||[]).join(', ')+'. The previous values were snapshotted for undo.';toast('Settings restored');renderAll()}
+  else toast((r2.j&&r2.j.error)||'Restore failed');
 });
 // ===== navigation =====
 const V=[["ov","Overview"],["an","Analytics"],["pv","Providers"],["fr","Users & Vaults"],["au","Audit log"],["se","Settings"]];

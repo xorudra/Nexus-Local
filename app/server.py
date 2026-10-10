@@ -73,7 +73,7 @@ def _provider_down(p):
     h = _PROVIDER_HEALTH.get(p)
     return bool(h) and h.get("down_until", 0) > time.time()
 
-def _note_failure(p):
+def _note_failure(p, err=""):
     # Threshold + cooldown are console settings (defaults reproduce the
     # original behaviour: down for 3 min after 2 straight failures).
     try:
@@ -83,6 +83,9 @@ def _note_failure(p):
         need, cd = 2, 180
     h = _PROVIDER_HEALTH.setdefault(p, {"fails": 0, "down_until": 0.0})
     h["fails"] = h.get("fails", 0) + 1
+    h["last_fail"] = time.time()
+    if err:
+        h["last_error"] = str(err)[:120]
     if h["fails"] >= need:
         if h.get("down_until", 0) <= time.time():
             _cdtxt = f"{cd // 60} min" if cd >= 60 else f"{cd} sec"
@@ -92,7 +95,19 @@ def _note_failure(p):
         h["down_until"] = time.time() + cd
 
 def _note_success(p):
-    _PROVIDER_HEALTH.pop(p, None)
+    h = _PROVIDER_HEALTH.get(p)
+    if h is None:
+        return
+    h["fails"] = 0
+    h["down_until"] = 0.0
+    h["last_ok"] = time.time()
+
+
+def _health_fields(p):
+    """Last success/failure detail for the console's provider cards."""
+    h = _PROVIDER_HEALTH.get(p) or {}
+    return {"last_ok": h.get("last_ok"), "last_fail": h.get("last_fail"),
+            "last_error": h.get("last_error")}
 
 # ---- Admin console settings (owner-ordered 2026-10-10) ----
 # One settings dict drives the admin console's working controls:
@@ -153,6 +168,22 @@ _SETTINGS_DEFAULTS = {
 }
 _SETTINGS = dict(_SETTINGS_DEFAULTS)
 _BOOT_TS = time.time()
+
+# Settings restore (console Backup panel): only instance POLICY keys
+# may come back from a backup file. Accounts, roles, per-user caps,
+# suspensions, invites, the IP allowlist and every auth-shaped value
+# are never restorable from JSON — the encrypted mirror stays the
+# only recovery path for those.
+_RESTORE_ALLOWED = {
+    "instance_name", "maintenance", "max_attempts", "daily_cap",
+    "global_cap", "chain_mode", "provider_order", "provider_disabled",
+    "provider_limits", "provider_timeouts", "retention_days", "alerts",
+    "digest_daily", "digest_weekly", "webhook_url", "alert_email",
+    "announcement", "skip_failing", "friends_byok", "log_prompts",
+    "audit_ips", "login_lockout", "cb_failures", "cb_cooldown_s",
+    "chat_rate", "quota_alert_pct", "latency_alert_s", "auto_backup",
+}
+_RESTORE_NONCES = {}
 
 
 def _save_settings():
@@ -491,6 +522,7 @@ def _audit(category, event, ip=None):
             row["ip"] = str(ip)[:45]
         with open(AUDIT_PATH, "a") as f:
             f.write(json.dumps(row) + "\n")
+        _TELEMETRY["dirty"] = True
         if os.path.getsize(AUDIT_PATH) > 512 * 1024:
             with open(AUDIT_PATH) as f:
                 lines = f.readlines()
@@ -523,6 +555,102 @@ def _read_audit(limit=200):
     except Exception:
         pass
     return out[-limit:][::-1]
+
+
+# ---- Durable telemetry (owner order 2026-10-10, post-review) ----
+# usage.jsonl / audit.jsonl live on Render's ephemeral disk, so every
+# deploy used to zero the console's numbers AND the daily caps (which
+# are counted from usage.jsonl). The tails of both files are kept in a
+# restore-key-encrypted telemetry.enc, flushed at most every few
+# minutes by a daemon thread, carried by the friend_blob sync to a
+# DEDICATED git branch (nexus-telemetry — never main, so a flush can
+# never trigger a redeploy), and hydrated back at boot. Bounded by
+# line caps; holds no prompts beyond what usage rows already carry.
+TELEMETRY_ENC_PATH = Path(__file__).parent / "telemetry.enc"
+_TELEMETRY = {"dirty": False, "saved": "", "last_flush": 0.0}
+_TELEMETRY_BRANCH_URL = ("https://raw.githubusercontent.com/xorudra/"
+                         "Nexus-Local/nexus-telemetry/telemetry.enc")
+_TELEMETRY_USAGE_LINES = 3000
+_TELEMETRY_AUDIT_LINES = 500
+
+
+def _tail_text(path, max_lines):
+    try:
+        if not path.exists():
+            return ""
+        with open(path) as f:
+            lines = f.readlines()
+        return "".join(lines[-max_lines:])
+    except Exception:
+        return ""
+
+
+def _flush_telemetry():
+    if not RESTORE_KEY:
+        return False
+    try:
+        payload = {"v": 1,
+                   "saved": datetime.datetime.now().isoformat(),
+                   "usage": _tail_text(USAGE_PATH, _TELEMETRY_USAGE_LINES),
+                   "audit": _tail_text(AUDIT_PATH, _TELEMETRY_AUDIT_LINES)}
+        encrypt_keys(payload, RESTORE_KEY, TELEMETRY_ENC_PATH)
+        _TELEMETRY["saved"] = payload["saved"]
+        _TELEMETRY["dirty"] = False
+        _TELEMETRY["last_flush"] = time.time()
+        return True
+    except Exception:
+        return False
+
+
+_TELEMETRY_FLUSH_S = float(os.environ.get("NEXUS_TELEMETRY_FLUSH_S")
+                           or 240)
+
+
+def _telemetry_flusher():
+    tick = 60 if _TELEMETRY_FLUSH_S >= 60 else max(1.0, _TELEMETRY_FLUSH_S)
+    while True:
+        try:
+            time.sleep(tick)
+            if _TELEMETRY["dirty"] \
+                    and time.time() - _TELEMETRY["last_flush"] \
+                    >= _TELEMETRY_FLUSH_S:
+                _flush_telemetry()
+        except Exception:
+            pass
+
+
+def _boot_restore_telemetry():
+    """Hydrate usage/audit history at boot when the local files are
+    missing (fresh deploy): local telemetry.enc first, then — on
+    Render only — the copy mirrored to the nexus-telemetry branch."""
+    try:
+        usage_ok = USAGE_PATH.exists() and USAGE_PATH.stat().st_size > 0
+        audit_ok = AUDIT_PATH.exists() and AUDIT_PATH.stat().st_size > 0
+        if usage_ok and audit_ok:
+            return
+        data = None
+        if RESTORE_KEY and TELEMETRY_ENC_PATH.exists():
+            try:
+                data = decrypt_keys(TELEMETRY_ENC_PATH, RESTORE_KEY)
+            except Exception:
+                data = None
+        if data is None and RESTORE_KEY and os.environ.get("RENDER"):
+            try:
+                import urllib.request as _u
+                with _u.urlopen(_TELEMETRY_BRANCH_URL, timeout=5) as r:
+                    TELEMETRY_ENC_PATH.write_bytes(r.read())
+                data = decrypt_keys(TELEMETRY_ENC_PATH, RESTORE_KEY)
+            except Exception:
+                data = None
+        if not isinstance(data, dict):
+            return
+        if not usage_ok and data.get("usage"):
+            USAGE_PATH.write_text(data["usage"])
+        if not audit_ok and data.get("audit"):
+            AUDIT_PATH.write_text(data["audit"])
+        _TELEMETRY["saved"] = data.get("saved", "")
+    except Exception:
+        pass
 
 
 def _audit_count_today(prefix, cat=None):
@@ -744,7 +872,11 @@ def _system_metrics():
     /proc/loadavg, RAM from /proc/meminfo, disk from the app volume,
     uptime from process start. Any source may be unavailable (None)."""
     m = {"cpu_pct": None, "ram_pct": None, "disk_pct": None,
-         "uptime_s": int(time.time() - _BOOT_TS)}
+         "uptime_s": int(time.time() - _BOOT_TS),
+         "boot_ts": int(_BOOT_TS),
+         "build": (os.environ.get("RENDER_GIT_COMMIT") or "")[:7],
+         "vault_locked": Handler.keys is None,
+         "telemetry_saved": _TELEMETRY.get("saved", "")}
     try:
         with open("/proc/loadavg") as f:
             load1 = float(f.read().split()[0])
@@ -1261,6 +1393,7 @@ def _append_usage(entry):
     try:
         with open(USAGE_PATH, "a") as f:
             f.write(json.dumps(entry) + "\n")
+        _TELEMETRY["dirty"] = True
         if os.path.getsize(USAGE_PATH) > _USAGE_MAX_BYTES:
             with open(USAGE_PATH) as f:
                 lines = f.readlines()
@@ -1523,11 +1656,11 @@ def _v1_chat(messages, model, temperature=None):
             data.setdefault("model", mdl)
             return 200, data, lane
         except HTTPError as e:
-            _note_failure(lane)
+            _note_failure(lane, f"HTTP {e.code}")
             last_error = f"{lane} returned {e.code}"
             continue
         except Exception:
-            _note_failure(lane)
+            _note_failure(lane, "unreachable")
             last_error = f"{lane} unreachable"
             continue
     return 502, {"error": {"message": f"all Nexus lanes failed ({last_error})",
@@ -2644,10 +2777,17 @@ class Handler(BaseHTTPRequestHandler):
                 settings_b64 = None
                 if SETTINGS_ENC_PATH.exists():
                     settings_b64 = _b64.b64encode(SETTINGS_ENC_PATH.read_bytes()).decode()
+                # telemetry.enc too (usage/audit tails, restore-key
+                # encrypted) — the sync parks it on the nexus-telemetry
+                # branch so history survives deploys without ever
+                # triggering one.
+                telemetry_b64 = None
+                if TELEMETRY_ENC_PATH.exists():
+                    telemetry_b64 = _b64.b64encode(TELEMETRY_ENC_PATH.read_bytes()).decode()
             except Exception:
-                blob, vaults, chats, keys_b64, access_b64, v1key_b64, settings_b64 = None, {}, {}, None, None, None, None
+                blob, vaults, chats, keys_b64, access_b64, v1key_b64, settings_b64, telemetry_b64 = None, {}, {}, None, None, None, None, None
             self._set_json_headers(200)
-            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64, "access": access_b64, "v1key": v1key_b64, "settings": settings_b64}).encode())
+            self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64, "access": access_b64, "v1key": v1key_b64, "settings": settings_b64, "telemetry": telemetry_b64}).encode())
             return
         if parsed.path == "/api/2fa_qr":
             # QR code for the TOTP secret (admin only) — scan with authenticator app
@@ -2727,6 +2867,7 @@ class Handler(BaseHTTPRequestHandler):
                         },
                         "key_configured": bool(_ekeys_q.get(name)) or name in ("aihorde", "kilo", "ovh", "pollinations", "relay_pollinations"),
                         "down": _provider_down(name),
+                        "health": _health_fields(name),
                         "daily_usage": {"requests": 0, "tokens": 0},
                         "monthly_usage": {"requests": 0, "tokens": 0},
                     })
@@ -2744,6 +2885,7 @@ class Handler(BaseHTTPRequestHandler):
                             "limits": {},
                             "key_configured": True,
                             "down": _provider_down(k),
+                            "health": _health_fields(k),
                             "daily_usage": {"requests": 0, "tokens": 0},
                             "monthly_usage": {"requests": 0, "tokens": 0},
                         })
@@ -2759,6 +2901,7 @@ class Handler(BaseHTTPRequestHandler):
                             "limits": {},
                             "key_configured": True,
                             "down": _provider_down(k),
+                            "health": _health_fields(k),
                             "daily_usage": {"requests": 0, "tokens": 0},
                             "monthly_usage": {"requests": 0, "tokens": 0},
                         })
@@ -4340,7 +4483,7 @@ class Handler(BaseHTTPRequestHandler):
                         _audit("Providers", f"Failover handled: {_attempts[0][0]} → {_ap}")
                     _answered = (_ap, _am, _rest[0])
                     break
-                _note_failure(_ap)
+                _note_failure(_ap, str(_rest[1]))
                 _audit("Providers", f"Attempt failed: {_ap} ({_rest[1]})")
                 _last = (_rest[0], _rest[1])
             if _answered:
@@ -4742,7 +4885,8 @@ class Handler(BaseHTTPRequestHandler):
                     "2fa_enable", "2fa_confirm", "2fa_disable",
                     "settings_set", "audit_clear", "custom_provider_save",
                     "custom_provider_remove", "factory_reset",
-                    "webhook_test"):
+                    "webhook_test", "settings_restore_preview",
+                    "settings_restore_apply"):
                 self._set_json_headers(403)
                 self.wfile.write(json.dumps({"error": "owner only"}).encode())
                 return
@@ -5236,7 +5380,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
             if action in ("settings_set", "audit_clear",
                           "custom_provider_save", "custom_provider_remove",
-                          "factory_reset", "webhook_test"):
+                          "factory_reset", "webhook_test",
+                          "settings_restore_preview",
+                          "settings_restore_apply"):
                 # All console mutations are master-password gated, the
                 # same proof the other sensitive actions use.
                 master_pw = data.get("master_pw") or ""
@@ -5273,6 +5419,62 @@ class Handler(BaseHTTPRequestHandler):
                                       {"on": bool(clean["maintenance"])})
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True, "settings": _SETTINGS}).encode())
+                    return
+                if action == "settings_restore_preview":
+                    backup = data.get("backup")
+                    if not isinstance(backup, dict) \
+                            or not isinstance(backup.get("settings"), dict):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "not a Nexus backup file (no settings inside)"}).encode())
+                        return
+                    if len(json.dumps(backup)) > 65536:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "backup file too large"}).encode())
+                        return
+                    src = backup["settings"]
+                    refused = sorted(k for k in src
+                                     if k not in _RESTORE_ALLOWED)
+                    if refused:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "backup contains settings that are never restorable: " + ", ".join(refused)}).encode())
+                        return
+                    clean, err = _validate_settings_patch(
+                        {k: src[k] for k in src if k in _RESTORE_ALLOWED})
+                    if err:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": err}).encode())
+                        return
+                    diff = []
+                    for k in sorted(clean):
+                        if json.dumps(_SETTINGS.get(k), sort_keys=True) \
+                                != json.dumps(clean[k], sort_keys=True):
+                            diff.append({"key": k,
+                                         "from": _SETTINGS.get(k),
+                                         "to": clean[k]})
+                    nonce = secrets.token_hex(12)
+                    _RESTORE_NONCES[nonce] = (time.time() + 300, clean)
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "nonce": nonce, "diff": diff}).encode())
+                    return
+                if action == "settings_restore_apply":
+                    ent = _RESTORE_NONCES.pop(data.get("nonce") or "", None)
+                    if not ent or ent[0] < time.time():
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "restore preview expired — preview again"}).encode())
+                        return
+                    clean = ent[1]
+                    _SETTINGS["backup_snapshot"] = {
+                        "ts": datetime.datetime.now().isoformat(),
+                        "config": {k: _SETTINGS.get(k)
+                                   for k in sorted(_RESTORE_ALLOWED)}}
+                    _SETTINGS.update(clean)
+                    _save_settings()
+                    _audit("System", "Settings restored from backup: "
+                           + ", ".join(sorted(clean.keys())))
+                    _fire_webhook("settings_restored",
+                                  {"keys": sorted(clean.keys())})
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "settings": _SETTINGS, "applied": sorted(clean.keys())}).encode())
                     return
                 if action == "webhook_test":
                     url = (_SETTINGS.get("webhook_url") or "").strip()
@@ -5886,8 +6088,10 @@ def main():
     addr = (host, port)
     _boot_restore_access()
     _boot_restore_settings()
+    _boot_restore_telemetry()
     _load_v1key()
     threading.Thread(target=_housekeeper, daemon=True).start()
+    threading.Thread(target=_telemetry_flusher, daemon=True).start()
     httpd = ThreadingHTTPServer(addr, Handler)
     print(f"Serving on {addr[0]}:{addr[1]} – press Ctrl-C to stop")
     try:

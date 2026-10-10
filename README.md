@@ -1,6 +1,6 @@
 # Nexus-Local
 
-Your personal AI dashboard — 19 providers, all on your machine.
+Your personal AI dashboard — 19 providers, one login. Runs locally, or as a hosted instance for you and your friends.
 
 **Live demo:** https://nexus-local.onrender.com
 
@@ -29,7 +29,7 @@ Auto-installs dependencies and launches everything. No admin rights needed.
 
 Type `nexuslocal`. It starts the engine + dashboard and opens **http://127.0.0.1:8080** in your browser.
 
-All 14 API keys come pre-configured — just log in with your password. Zero setup needed.
+The install ships with an encrypted key vault — log in with the master password and the providers are ready. That vault's only protection is the password itself; read the Security section below before reusing this setup.
 
 To use your own keys instead, delete `keys.enc` from the install folder and use the **Quick Import** box on the setup page: paste all keys at once as `name: key` (one per line), click Fill Fields Below, set your password, done.
 
@@ -59,9 +59,10 @@ OpenAI-compatible endpoint:
 
 **Off by default.** Set the `NEXUS_V1_API_KEY` environment variable to enable
 it; clients send it as `Authorization: Bearer <key>`. Without the variable the
-routes answer 404. The key is a service credential — it lives only in the
-server environment and the consumer's settings, never in this repo, and the
-API Access page shows only its last 4 characters.
+routes answer 404. The key is a service credential — it can also be generated
+from the admin console (stored encrypted and mirrored like the other console
+secrets; the env var stays as fallback). The API Access page shows the admin
+the full key; everyone else only ever sees its last 4 characters.
 
 Ask for model `nexus-auto` and Nexus tries its relay lanes in order
 (Gemini → OpenRouter → Groq → NVIDIA → Pollinations) until one answers,
@@ -96,4 +97,23 @@ Keyless providers (Pollinations, AI Horde, Kilo, OVH) work with no setup.
 
 ## Security
 
-Runs on localhost only. API keys encrypted with AES-256-GCM (PBKDF2 600,000 iterations). Keys live only in memory after login — never written to disk as plaintext. Nothing leaves your machine except the AI requests you make.
+Nexus runs in two shapes, and this section describes both honestly: locally
+via the CLI above (bound to your machine), and as a hosted instance — the
+live demo linked at the top is a real multi-user deployment on Render,
+reached over HTTPS, where the owner and invited friends sign in. The hosted
+instance is not localhost-only, and AI requests always leave the server for
+the provider you picked.
+
+- Provider keys are stored AES-256-GCM encrypted (PBKDF2 600,000
+  iterations) and decrypted only in memory after an admin login. After a
+  restart the vault stays locked — keyless providers only — until then.
+- An encrypted keys file ships in this repository. Encryption is the only
+  barrier on that file: anyone can download it and attack it offline,
+  where no lockout applies, so the master password's strength is what
+  protects it. Pick a long one.
+- The admin can enable TOTP two-factor sign-in. Friend accounts use
+  PBKDF2-HMAC-SHA256 password hashes, and friends' personal key vaults
+  are encrypted under their own passwords — the admin cannot read them.
+- Friend data, console settings, and usage/audit history are mirrored
+  back to GitHub as encrypted files so they survive the host's
+  ephemeral disk. The mirrors are ciphertext only.
