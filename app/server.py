@@ -33,6 +33,7 @@ import shutil
 import time
 import threading
 import ipaddress
+import socket
 import urllib.parse
 from pathlib import Path
 
@@ -161,6 +162,7 @@ _SETTINGS_DEFAULTS = {
     # Internal state (never patchable through settings_set):
     "roles": {},                # label -> moderator | viewer (default friend)
     "invites": [],              # {h, role, created, expires, used_by}
+    "terms_seen": [],           # labels shown the first-login terms notice
     "vault_meta": {},           # label -> [{provider, last4}] (metadata only)
     "backup_snapshot": None,    # last auto-backup {ts, config}
     "last_digest": "",          # date/week stamp of the last digest sent
@@ -315,6 +317,39 @@ def _webhook_url_ok(url):
                 return False
         except ValueError:
             pass  # a DNS name, not a literal IP — allowed
+        return True
+    except Exception:
+        return False
+
+
+def _public_base_url_ok(url):
+    """SSRF guard for user-supplied provider/gateway base URLs
+    (custom_relay_*_url, freellmapi_url): the server fetches these
+    with credentials attached, so the target must resolve ONLY to
+    public addresses (Launch Safety Standard A5). Same resolve-and-
+    validate rule as the agent fetch_url tool: scheme http/https, the
+    hostname must resolve, and EVERY resolved address must be public —
+    private, loopback (localhost included), link-local, reserved and
+    multicast targets are rejected. Built-in providers never pass
+    through here; only URLs a user typed in."""
+    try:
+        u = urllib.parse.urlparse((url or "").strip())
+        if u.scheme not in ("http", "https") or not u.hostname:
+            return False
+        host = u.hostname.lower()
+        if host == "localhost" or host.endswith(".local"):
+            return False
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except Exception:
+            return False
+        if not infos:
+            return False
+        for info in infos:
+            addr = ipaddress.ip_address(info[4][0])
+            if addr.is_private or addr.is_loopback or addr.is_link_local \
+                    or addr.is_reserved or addr.is_multicast:
+                return False
         return True
     except Exception:
         return False
@@ -1433,6 +1468,67 @@ def _append_usage(entry):
         pass
 
 
+def _purge_label_history(label):
+    """Revoke cleanup (Launch Safety Standard F28): drop the label's
+    rows from usage.jsonl (rows carry "user") and from audit.jsonl
+    (rows whose event names the label), so a removed account leaves no
+    per-user history behind. Other users' rows are untouched; the
+    caller audits the revoke itself AFTER this runs, so that one
+    admin-action record remains. Telemetry is marked dirty so the
+    encrypted mirror re-flushes without the purged rows. Returns the
+    number of usage rows removed."""
+    n = 0
+    if not label:
+        return 0
+    try:
+        if os.path.exists(USAGE_PATH):
+            with open(USAGE_PATH) as f:
+                lines = f.readlines()
+            keep = []
+            for line in lines:
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    keep.append(line)
+                    continue
+                if isinstance(e, dict) and e.get("user") == label:
+                    n += 1
+                    continue
+                keep.append(line)
+            tmp = str(USAGE_PATH) + ".tmp"
+            with open(tmp, "w") as f:
+                f.writelines(keep)
+            os.replace(tmp, USAGE_PATH)
+    except Exception:
+        pass
+    try:
+        if os.path.exists(AUDIT_PATH):
+            pat = _re.compile(r"(?<![a-z0-9_])" + _re.escape(label)
+                              + r"(?![a-z0-9_])", _re.IGNORECASE)
+            with open(AUDIT_PATH) as f:
+                lines = f.readlines()
+            keep = []
+            for line in lines:
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    keep.append(line)
+                    continue
+                if isinstance(e, dict) \
+                        and pat.search(str(e.get("event", ""))):
+                    continue
+                keep.append(line)
+            tmp = str(AUDIT_PATH) + ".tmp"
+            with open(tmp, "w") as f:
+                f.writelines(keep)
+            os.replace(tmp, AUDIT_PATH)
+    except Exception:
+        pass
+    _TELEMETRY["dirty"] = True
+    _TODAY_CACHE["ts"] = 0.0
+    return n
+
+
 def get_usage_history():
     """Last 7 days of per-provider usage from usage.jsonl.
 
@@ -1700,6 +1796,11 @@ def register_custom_providers(keys):
             name = k[len("custom_relay_"):]
             url = keys.get(k + "_url", "").strip()
             if url and name not in RELAY_UPSTREAMS:
+                # Registration-time SSRF guard (A5): a stored URL that
+                # resolves to a non-public address is never registered,
+                # even if it predates the save-time validation.
+                if not _public_base_url_ok(url):
+                    continue
                 RELAY_UPSTREAMS[name] = url.rstrip("/")
 
 
@@ -3428,9 +3529,12 @@ class Handler(BaseHTTPRequestHandler):
                 url = form.get(f"cr_url_{idx}", [""])[0].strip()
                 key = form.get(f"cr_key_{idx}", [""])[0].strip()
                 if name and url and key and re.match(r"^[a-z0-9_]+$", name):
-                    if url.startswith("http://") or url.startswith("https://"):
-                        keys[f"custom_relay_{name}"] = key
-                        keys[f"custom_relay_{name}_url"] = url
+                    if not _public_base_url_ok(url):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "custom provider URL must be a public http(s) address"}).encode())
+                        return
+                    keys[f"custom_relay_{name}"] = key
+                    keys[f"custom_relay_{name}_url"] = url
         for fk in list(form.keys()):
             m = re.match(r"^cf_name_(\d+)$", fk)
             if m:
@@ -3441,9 +3545,9 @@ class Handler(BaseHTTPRequestHandler):
                     keys[f"custom_fl_{name}"] = key
         gw_url = form.get("url_freellmapi", [""])[0].strip()
         if gw_url:
-            if not (gw_url.startswith("http://") or gw_url.startswith("https://")):
+            if not _public_base_url_ok(gw_url):
                 self._set_json_headers(400)
-                self.wfile.write(json.dumps({"error": "gateway URL must start with http:// or https://"}).encode())
+                self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
                 return
             keys["freellmapi_url"] = gw_url
         vault = _load_userkeys(label, password) or {}
@@ -3523,7 +3627,7 @@ class Handler(BaseHTTPRequestHandler):
             # minted so they arrive signed in. The master password never
             # matches here: admin setup stays behind a real admin session.
             if keys_exist and not _su:
-                ip = self.client_address[0]
+                ip = _client_ip(self.headers, self.client_address[0])
                 now = time.time()
                 recent = [t for t in _login_attempts.get(ip, []) if now - t < 900]
                 if len(recent) >= 10:
@@ -3582,8 +3686,10 @@ class Handler(BaseHTTPRequestHandler):
                     url = form.get(f"cr_url_{idx}", [""])[0].strip()
                     key = form.get(f"cr_key_{idx}", [""])[0].strip()
                     if name and url and key and re.match(r"^[a-z0-9_]+$", name):
-                        if not (url.startswith("http://") or url.startswith("https://")):
-                            continue
+                        if not _public_base_url_ok(url):
+                            self._set_json_headers(400)
+                            self.wfile.write(json.dumps({"error": "custom provider URL must be a public http(s) address"}).encode())
+                            return
                         keys[f"custom_relay_{name}"] = key
                         keys[f"custom_relay_{name}_url"] = url
             # Custom FreeLLMAPI providers: cf_name_N, cf_key_N
@@ -3597,9 +3703,9 @@ class Handler(BaseHTTPRequestHandler):
                         keys[f"custom_fl_{name}"] = key
             gw_url = form.get("url_freellmapi", [""])[0].strip()
             if gw_url:
-                if not (gw_url.startswith("http://") or gw_url.startswith("https://")):
+                if not _public_base_url_ok(gw_url):
                     self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "gateway URL must start with http:// or https://"}).encode())
+                    self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
                     return
                 keys["freellmapi_url"] = gw_url
             encrypt_keys(keys, pw, key_path)
@@ -3641,6 +3747,10 @@ class Handler(BaseHTTPRequestHandler):
                     updated += 1
             gw_url = form.get("url_freellmapi", [""])[0].strip()
             if gw_url:
+                if not _public_base_url_ok(gw_url):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
+                    return
                 keys["freellmapi_url"] = gw_url
                 updated += 1
             encrypt_keys(keys, pw, key_path)
@@ -4582,7 +4692,7 @@ class Handler(BaseHTTPRequestHandler):
             # Self-service signup: an invite code (or open registration)
             # creates a friend account and signs the new user in. Uses
             # the same per-IP ledger as /api/login against brute force.
-            if not _rl_ok("invite", self.client_address[0], 10, 900):
+            if not _rl_ok("invite", _client_ip(self.headers, self.client_address[0]), 10, 900):
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                 return
@@ -4639,6 +4749,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             access[label] = _hash_password(password)
             _save_access(access)
+            # The invite page itself shows the terms notice at signup,
+            # so the first-login notice (F26) is already satisfied.
+            _seen = list(_SETTINGS.get("terms_seen") or [])
+            if label not in _seen:
+                _seen.append(label)
+                _SETTINGS["terms_seen"] = _seen
+                _save_settings()
             if invite is not None:
                 invite["used_by"] = label
                 _save_settings()
@@ -4664,7 +4781,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/login":
             if not self._ip_gate():
                 return
-            ip = self.client_address[0]
+            ip = _client_ip(self.headers, self.client_address[0])
             now = time.time()
             recent = [t for t in _login_attempts.get(ip, []) if now - t < 900]
             if _SETTINGS.get("login_lockout", True) and len(recent) >= 10:
@@ -4838,8 +4955,21 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             _audit("System", f"Signed in: {label} ({'admin' if is_admin else 'friend'})",
                    ip=_client_ip(self.headers, ip))
+            terms_notice = False
+            if not is_admin and label not in (_SETTINGS.get("terms_seen") or []):
+                # First login of an admin-added friend (F26): show the
+                # terms notice once — invite signups already saw it on
+                # the invite page and are marked seen at signup — and
+                # record the showing in the audit trail.
+                _seen = list(_SETTINGS.get("terms_seen") or [])
+                _seen.append(label)
+                _SETTINGS["terms_seen"] = _seen
+                _save_settings()
+                _audit("Users", f"Terms notice shown: {label}")
+                terms_notice = True
             self.wfile.write(json.dumps({"ok": True, "admin": is_admin, "label": label,
-                                         "role": "owner" if is_admin else _friend_role(label)}).encode())
+                                         "role": "owner" if is_admin else _friend_role(label),
+                                         "terms_notice": terms_notice}).encode())
             return
         if parsed.path == "/api/logout":
             cookie = SimpleCookie(self.headers.get("Cookie", ""))
@@ -5569,6 +5699,10 @@ class Handler(BaseHTTPRequestHandler):
                             self._set_json_headers(400)
                             self.wfile.write(json.dumps({"error": "base URL (http/https) and API key required"}).encode())
                             return
+                        if not _public_base_url_ok(curl_):
+                            self._set_json_headers(400)
+                            self.wfile.write(json.dumps({"error": "base URL must be a public http(s) address"}).encode())
+                            return
                         keys[f"custom_relay_{cname}"] = ckey
                         keys[f"custom_relay_{cname}_url"] = curl_
                         _audit("Providers", f"Custom provider saved: {cname}")
@@ -5724,6 +5858,9 @@ class Handler(BaseHTTPRequestHandler):
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and s.get("label") == label]:
                         del SESSIONS[tok]
+                    # Purge their usage + audit history rows too (F28):
+                    # a revoked account leaves no per-user history.
+                    _purge_label_history(label)
                 _audit("Users", f"Friend revoked: {label}")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
@@ -5895,7 +6032,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/chats":
             # Saved conversations, per user, encrypted with their login
-            # password. Actions: list / get / save / delete.
+            # password. Actions: list / get / save / delete / export.
             info = self._session_info()
             if not info:
                 self._set_json_headers(401)
@@ -5953,6 +6090,27 @@ class Handler(BaseHTTPRequestHandler):
                     _save_admin_chats(_admin_rec, store)
                 else:
                     _save_chats(label, store, chat_pw)
+            if action == "export":
+                # Data export (F29 / DPDP data portability): the
+                # caller downloads their OWN decrypted chat store as a
+                # JSON file. The label comes from the session only —
+                # never from the request — so no one can export
+                # another account's chats.
+                payload = json.dumps({
+                    "label": label,
+                    "exported_at": datetime.datetime.now().isoformat(),
+                    "chats": chats,
+                }, indent=2).encode()
+                _safe_label = _re.sub(r"[^a-z0-9_]", "",
+                                      (label or "").lower())[:30] or "export"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="nexus-chats-{_safe_label}.json"')
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
             if action == "list":
                 out = [{"id": c.get("id"), "title": c.get("title", "Chat"),
                         "ts": c.get("ts", 0), "updated": c.get("updated", 0),
@@ -6095,6 +6253,18 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "invalid keys"}).encode())
                     return
+                # SSRF guard (A5): provider/gateway base URLs are
+                # fetched server-side with the vault key attached, so a
+                # stored URL must resolve to public addresses only.
+                for k, v in keys_in.items():
+                    if isinstance(v, str) and v.strip() and (
+                            k == "freellmapi_url"
+                            or (k.startswith("custom_relay_")
+                                and k.endswith("_url"))) \
+                            and not _public_base_url_ok(v):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "provider URL must be a public http(s) address"}).encode())
+                        return
                 # Load existing vault, merge (blank = keep, explicit empty = delete)
                 vault = _load_userkeys(label, password) or {}
                 for k, v in keys_in.items():

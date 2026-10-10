@@ -554,6 +554,11 @@ select:focus,input:focus{border-color:#A855F7;box-shadow:0 0 12px rgba(168,85,24
 </style>
 </head>
 <body>
+<!-- First-login terms notice (shown once, flag set by /api/login) -->
+<div id="termsNotice" role="note" style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2000;max-width:min(92vw,560px);background:#17131f;border:1px solid rgba(168,85,247,.45);color:#e8e8ee;border-radius:12px;padding:12px 16px;font-size:13.5px;line-height:1.5;box-shadow:0 8px 30px rgba(0,0,0,.5)">By using Nexus you agree to the <a href="/terms" style="color:#c084fc">Terms</a> — see how data is handled in <a href="/privacy" style="color:#c084fc">Privacy</a>.<button type="button" id="termsNoticeOk" style="margin-left:10px;background:#a855f7;border:0;border-radius:8px;color:#fff;padding:6px 12px;cursor:pointer">OK</button></div>
+<script>
+try{ if(sessionStorage.getItem('nexus_terms_notice')==='1'){ var _tn=document.getElementById('termsNotice'); _tn.style.display='block'; document.getElementById('termsNoticeOk').addEventListener('click',function(){ _tn.style.display='none'; sessionStorage.removeItem('nexus_terms_notice'); }); } }catch(e){}
+</script>
 <!-- Nexus Sidebar -->
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@400;500;600&family=Press+Start+2P&display=swap');
@@ -960,7 +965,7 @@ function makeCustomSelect(sel){
     syncLabel();
 }
 ['composer-provider', 'composer-model', 'composer-mode', 'routing-mode'].forEach(id => { try { makeCustomSelect(document.getElementById(id)); } catch (e) { console.error('custom select', id, e); } });
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function md(text){
   // Simple markdown to HTML: escape first, then apply formatting
   let h = esc(text);
@@ -970,8 +975,13 @@ function md(text){
   });
   // Inline code (`code`)
   h = h.replace(/`([^`\n]+)`/g, '<code class="md-inline">$1</code>');
-  // Images ![alt](url)
-  h = h.replace(/!\[([^\]]*)\]\((https?:[^)\s]+|data:image[^)\s]+)\)/g, '<img class="md-img" src="$2" alt="$1" loading="lazy">');
+  // Images ![alt](url) — a URL carrying a quote (raw or entity-encoded),
+  // whitespace or control chars is rejected: fall back to the alt text
+  // so nothing can break out of the src attribute (XSS guard).
+  h = h.replace(/!\[([^\]]*)\]\((https?:[^)\s]+|data:image[^)\s]+)\)/g, function(m, alt, url){
+    if(/["\s\x00-\x1f\x7f]|&quot;/i.test(url)) return alt;
+    return '<img class="md-img" src="' + url + '" alt="' + alt + '" loading="lazy">';
+  });
   // Headers (###, ##)
   h = h.replace(/^### (.+)$/gm, '<h4 class="md-h">$1</h4>');
   h = h.replace(/^## (.+)$/gm, '<h3 class="md-h">$1</h3>');
@@ -1265,13 +1275,13 @@ if (attachPlus && attachMenu) {
 function showPreview(type, src, name) {
     let previewHtml = '';
     if (type === 'image' || type === 'camera' || type === 'photos') {
-        previewHtml = '<img src="' + src + '" alt="' + (name || 'Image attachment').replace(/[<>&"]/g, '') + '" style="max-width:200px;border-radius:8px;border:1px solid rgba(168,85,247,.2)">';
+        previewHtml = '<img src="' + esc(src) + '" alt="' + esc(name || 'Image attachment') + '" style="max-width:200px;border-radius:8px;border:1px solid rgba(168,85,247,.2)">';
     } else if (type === 'videos') {
-        previewHtml = '<video src="' + src + '" aria-label="' + (name || 'Video attachment').replace(/[<>&"]/g, '') + '" style="max-width:200px;border-radius:8px" controls></video>';
+        previewHtml = '<video src="' + esc(src) + '" aria-label="' + esc(name || 'Video attachment') + '" style="max-width:200px;border-radius:8px" controls></video>';
     } else if (type === 'files') {
-        previewHtml = '<div style="background:#141419;border:1px solid rgba(168,85,247,.2);padding:12px;border-radius:8px;font-size:13px">File: ' + (name || 'File') + '</div>';
+        previewHtml = '<div style="background:#141419;border:1px solid rgba(168,85,247,.2);padding:12px;border-radius:8px;font-size:13px">File: ' + esc(name || 'File') + '</div>';
     } else if (type === 'link') {
-        previewHtml = '<div style="background:#141419;border:1px solid rgba(168,85,247,.2);padding:12px;border-radius:8px;font-size:13px;word-break:break-all">Link: ' + src.substring(0,50) + '</div>';
+        previewHtml = '<div style="background:#141419;border:1px solid rgba(168,85,247,.2);padding:12px;border-radius:8px;font-size:13px;word-break:break-all">Link: ' + esc(String(src).substring(0,50)) + '</div>';
     }
     attachPreview.innerHTML = previewHtml
         + '<button type="button" onclick="clearAttachment()" style="margin-left:8px;background:#ef4444;border:0;border-radius:8px;color:#fff;padding:8px 12px;cursor:pointer">✕</button>';

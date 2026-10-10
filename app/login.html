@@ -154,6 +154,7 @@ async function submit(){
     const j=await r.json();
     if(r.status===200&&j.ok){
       if(j.need_2fa){ show2FA(j.tmp); return; }
+      if(j.terms_notice){ try{ sessionStorage.setItem('nexus_terms_notice','1'); }catch(e){} }
       location.href='/';return;
     }
     if(j.error==='maintenance mode is on'){ err.textContent='Maintenance mode is on — friends are paused right now. Please try again later.'; }
