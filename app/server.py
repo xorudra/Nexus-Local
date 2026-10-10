@@ -2400,6 +2400,25 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self._send_body(_data)
             return
+        if parsed.path == "/vendor/three.min.js":
+            # The admin console's 3D background library, served from
+            # Nexus itself. It used to load from a public CDN — when
+            # that request was blocked (browser extension, network),
+            # the console silently lost its whole 3D layer. Same-origin
+            # now: no outside dependency, cacheable for a week.
+            try:
+                _data = (Path(__file__).parent / "vendor"
+                         / "three.min.js").read_bytes()
+            except OSError:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/javascript")
+            self.send_header("Cache-Control", "public, max-age=604800")
+            self.send_header("Content-Length", str(len(_data)))
+            self.end_headers()
+            self._send_body(_data)
+            return
         if parsed.path == "/v1/models":
             # External API (service-key auth, no session): see _V1_LANES.
             self._v1_models()

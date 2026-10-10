@@ -67,6 +67,8 @@ class Console2Tests(unittest.TestCase):
                 continue
             if name.endswith((".py", ".json", ".html")):
                 shutil.copy(APP / name, cls.tmp / name)
+        if (APP / "vendor").is_dir():
+            shutil.copytree(APP / "vendor", cls.tmp / "vendor")
         access = {F1: _hash_pw(F1_PW), F2: _hash_pw(F2_PW)}
         encrypt_keys({"groq": "sk-shared-fake"}, MASTER, cls.tmp / "keys.enc")
         encrypt_keys(access, MASTER, cls.tmp / "users.enc")
@@ -599,6 +601,25 @@ class Console2Tests(unittest.TestCase):
         self.assertIn("third-party AI providers", priv)
         self.assertIn("no session recording", priv)
         self.assertIn("not stored by default", priv)
+
+
+    # --- 19. 3D library is self-hosted (no CDN dependency) -------
+    def test_19_vendor_three(self):
+        st, _, headers, payload = self._req("GET", "/vendor/three.min.js")
+        self.assertEqual(st, 200)
+        self.assertIn("text/javascript", headers.get("content-type", ""))
+        self.assertIn("max-age=604800", headers.get("cache-control", ""))
+        self.assertGreater(len(payload), 500_000)
+        self.assertIn(b"Three.js Authors", payload[:300])
+        # the console page must reference the local copy, never a CDN
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        conn.request("GET", "/admin", headers={"Cookie": self.admin})
+        resp = conn.getresponse()
+        html = resp.read().decode("utf-8", "replace")
+        conn.close()
+        self.assertEqual(resp.status, 200)
+        self.assertIn('src="/vendor/three.min.js"', html)
+        self.assertNotIn("cdnjs", html)
 
 
 if __name__ == "__main__":

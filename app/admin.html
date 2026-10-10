@@ -6,11 +6,11 @@
 <title>Nexus Local - Admin</title>
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="/vendor/three.min.js"></script>
 <style>
-:root{--bg:#ececec;--panel:rgba(255,255,255,.62);--line:rgba(0,0,0,.13);--tx:#0b0b0b;--mu:#666;--wire:#111;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#050505;--panel:rgba(14,14,14,.58);--line:rgba(255,255,255,.14);--tx:#f2f2f2;--mu:#8e8e8e;--wire:#fff}}
-:root[data-theme="dark"]{--bg:#050505;--panel:rgba(14,14,14,.58);--line:rgba(255,255,255,.14);--tx:#f2f2f2;--mu:#8e8e8e;--wire:#fff}
+:root{--bg:#ececec;--panel:rgba(255,255,255,.62);--line:rgba(0,0,0,.13);--tx:#0b0b0b;--mu:#666;--wire:#111;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#050505;--panel:rgba(14,14,14,.58);--line:rgba(255,255,255,.14);--tx:#f2f2f2;--mu:#8e8e8e;--wire:#fff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#050505;--panel:rgba(14,14,14,.58);--line:rgba(255,255,255,.14);--tx:#f2f2f2;--mu:#8e8e8e;--wire:#fff;color-scheme:dark}
 *{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 "Space Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
 .mono,h2,code,small{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
@@ -40,6 +40,7 @@ h2{margin:0 0 14px;font-size:11px;font-weight:500;letter-spacing:.16em;text-tran
 .btn{all:unset;cursor:pointer;padding:9px 16px;border-radius:12px;background:var(--tx);color:var(--bg);font-weight:600;font-size:13px;text-align:center}
 .btn:hover{opacity:.85}.btn.g{background:var(--line);color:var(--tx)}
 input,textarea,select{width:100%;background:var(--line);border:1px solid var(--line);color:var(--tx);border-radius:12px;padding:9px 12px;font:inherit;outline:none}
+select option{background:var(--bg);color:var(--tx)}
 input:focus,textarea:focus,select:focus{border-color:var(--tx)}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;background:var(--tx);box-shadow:0 0 8px var(--tx)}
 .dot.w{background:transparent;border:2px solid var(--tx);box-shadow:none}.dot.b{background:transparent;border:2px dashed var(--mu);box-shadow:none}
