@@ -4657,6 +4657,27 @@ class Handler(BaseHTTPRequestHandler):
                     _audit("System", f"Signed out: {_old.get('label', '?')}")
                 _drop_chat_unlock(_old.get("chat_unlock") if isinstance(_old, dict) else None)
                 del SESSIONS[token]
+                # Sign-out-everywhere (the admin console passes
+                # {"all": true}): also end every OTHER session for the
+                # same account, so copies signed in on other browsers
+                # or devices do not stay alive after a sign-out.
+                try:
+                    _cl = int(self.headers.get("Content-Length", 0))
+                    _lbody = json.loads(self.rfile.read(_cl)) if _cl else {}
+                except Exception:
+                    _lbody = {}
+                if isinstance(_lbody, dict) and _lbody.get("all") \
+                        and isinstance(_old, dict) and _old.get("label"):
+                    _extra = [t for t, s in list(SESSIONS.items())
+                              if isinstance(s, dict)
+                              and s.get("label") == _old["label"]]
+                    for _t in _extra:
+                        _drop_chat_unlock(SESSIONS[_t].get("chat_unlock"))
+                        del SESSIONS[_t]
+                    if _extra:
+                        _audit("System",
+                               f"Signed out everywhere: {_old['label']} "
+                               f"({len(_extra)} more session(s) ended)")
             # Expire cookie
             self.send_response(200)
             self.send_header("Set-Cookie", "session=; Max-Age=0; Secure; Path=/")

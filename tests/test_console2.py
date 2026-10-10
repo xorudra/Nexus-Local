@@ -416,6 +416,33 @@ class Console2Tests(unittest.TestCase):
         mine = [u for u in j["users"] if u["label"] == F1]
         self.assertTrue(not mine or mine[0]["requests"] == 0)
 
+    def test_14_signout_everywhere(self):
+        # Two independent sign-ins for the same account (phone + browser).
+        status, body, c1 = self._login(MASTER)
+        self.assertEqual(status, 200, body)
+        status, body, c2 = self._login(MASTER)
+        self.assertEqual(status, 200, body)
+        status, _, _, _ = self._req("GET", "/admin", cookie=c1)
+        self.assertEqual(status, 200)
+        status, _, _, _ = self._req("GET", "/admin", cookie=c2)
+        self.assertEqual(status, 200)
+        # A plain logout ends only its own session.
+        status, j, _, _ = self._req("POST", "/api/logout", {}, cookie=c2)
+        self.assertEqual(status, 200)
+        status, _, _, _ = self._req("GET", "/admin", cookie=c2)
+        self.assertEqual(status, 302)
+        status, _, _, _ = self._req("GET", "/admin", cookie=c1)
+        self.assertEqual(status, 200)
+        # The console's sign-out (all=true) ends the account's other
+        # sessions too.
+        status, body, c3 = self._login(MASTER)
+        self.assertEqual(status, 200, body)
+        status, j, _, _ = self._req("POST", "/api/logout", {"all": True},
+                                    cookie=c3)
+        self.assertEqual(status, 200)
+        status, _, _, _ = self._req("GET", "/admin", cookie=c1)
+        self.assertEqual(status, 302)
+
     # ---- allowed IPs (last: needs a restart to recover) ----
 
     def test_13_allowed_ips_lockout_and_recovery(self):

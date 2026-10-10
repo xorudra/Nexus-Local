@@ -934,7 +934,11 @@ $("#mm").onclick=()=>drw(true);
 $("#scrim").onclick=()=>drw(false);
 $("#sb").addEventListener('click',e=>{if(e.target.closest('.sbf .tl')&&e.target.id!=='th')drw(false)});
 $("#sc").onclick=()=>{const on=$(".stage").classList.toggle("c");LS.s('nexus-c',on?'1':'')};
-$("#so").onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.href='/login'};
+$("#so").onclick=async()=>{await fetch('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})});location.href='/login'};
+/* A console page restored from the browser's back-forward cache must
+   never look signed in after a sign-out: force a fresh load, which
+   re-checks the session on the server. */
+addEventListener('pageshow',e=>{if(e.persisted)location.reload()});
 document.addEventListener("mouseover",e=>{
   const t=e.target.closest&&e.target.closest("[data-tip]"),tp=$("#tip");
   if(t&&$(".stage").classList.contains("c")){const r=t.getBoundingClientRect();tp.textContent=t.dataset.tip;tp.style.left=r.right+"px";tp.style.top=(r.top+r.height/2)+"px";tp.hidden=false}
