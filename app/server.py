@@ -2557,6 +2557,10 @@ class Handler(BaseHTTPRequestHandler):
     def _set_json_headers(self, status: int = 200):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        # API JSON is private per-user data: never let a browser, proxy
+        # or shared cache store it (Launch Safety G33). Static assets
+        # carry their own explicit public TTLs where they are served.
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
     def send_response(self, code, message=None):
