@@ -14,8 +14,10 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 
 // 200 = served, 302 = bounced to /login (signed-out page routes),
-// 401 = auth-gated API answering correctly. Anything else is a failure.
-http.setResponseCallback(http.expectedStatuses(200, 302, 401));
+// 401 = auth-gated API answering correctly, 404 = the deliberate
+// unknown-path probe below (its check asserts the branded 404).
+// Anything else is a failure.
+http.setResponseCallback(http.expectedStatuses(200, 302, 401, 404));
 
 export const options = {
   stages: [
