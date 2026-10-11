@@ -2563,6 +2563,30 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
+    def _send_404_page(self):
+        # A useful, on-brand 404 for unknown paths (Launch Safety H39)
+        # instead of the bare BaseHTTPRequestHandler error page.
+        body = (
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            "<title>404 — Nexus Local</title>"
+            "<link rel=\"icon\" href=\"/favicon.ico\" sizes=\"any\"></head>"
+            "<body style=\"margin:0;min-height:100vh;display:flex;align-items:center;"
+            "justify-content:center;background:#050505;color:#fff;"
+            "font-family:'Space Grotesk',system-ui,sans-serif;text-align:center;padding:20px\">"
+            "<main><p style=\"font-size:56px;font-weight:700;margin:0\">404</p>"
+            "<p style=\"color:#a1a1aa;margin:10px 0 22px\">This page doesn't exist — "
+            "it may have moved, or the link is wrong.</p>"
+            "<a href=\"/\" style=\"color:#fff;border:1px solid #3f3f46;border-radius:8px;"
+            "padding:10px 18px;text-decoration:none\">Go to Nexus</a></main>"
+            "</body></html>"
+        ).encode()
+        self.send_response(404)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self._send_body(body)
+
     def send_response(self, code, message=None):
         self._resp_started = True
         return super().send_response(code, message)
@@ -3752,7 +3776,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, "internal error")
             return
-        self.send_error(404, "Not Found")
+        self._send_404_page()
 
     def _setup_save_user_keys(self, info, form=None, fresh_token=None):
         """POST /setup for a signed-in non-admin user: the setup form saves
@@ -6689,7 +6713,7 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": "unknown action"}).encode())
             return
-        self.send_error(404, "Not Found")
+        self._send_404_page()
 
     def log_message(self, format, *args):
         return
