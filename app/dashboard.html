@@ -843,7 +843,7 @@ async function openChat(id){
     const j = await chatsApi('get', {id});
     if (!j || !j.chat) return;
     currentChatId = j.chat.id;
-    chatLog = (j.chat.messages || []).map(m => ({r: m.r, t: m.t, ...(m.m ? {m: m.m} : {})}));
+    chatLog = (j.chat.messages || []).map(m => ({r: m.r, t: m.t, ...(m.m ? {m: m.m} : {}), ...(m.p ? {p: m.p} : {})}));
     setChatTitle(j.chat.title || 'Chat');
     thread.querySelectorAll('.msg').forEach(n => n.remove());
     const e = document.getElementById('thread-empty');
@@ -1385,7 +1385,10 @@ composerSend.addEventListener('click', async () => {
     composerSend.disabled = true;
     try {
         const mode = document.getElementById('composer-mode').value;
-        const payload = { provider, model, message: msg, mode };
+        // Shared memory: send the conversation so far (chatLog's last
+        // entry is the message just typed) — Nexus rebuilds it for
+        // whichever provider answers, so a switch mid-chat keeps context.
+        const payload = { provider, model, message: msg, mode, history: chatLog.slice(0, -1) };
         if (attachedImage) payload.image = attachedImage;
         if (attachedFile) payload.file = attachedFile;
         if (attachedLink) payload.link = attachedLink;
@@ -1402,9 +1405,10 @@ composerSend.addEventListener('click', async () => {
             const dispProvider = j.used_provider || provider;
             const dispModel = j.used_model || model;
             const metaStr = friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode;
-            if (j.audio) { addAudioMsg(j.audio, metaStr); chatLog.push({r:'ai', t:'🔊 Voice reply — audio itself is not stored in saved chats', m: metaStr}); }
-            else if (j.video) { addVideoMsg(j.video, metaStr); chatLog.push({r:'ai', t:'🎬 Video reply — video itself is not stored in saved chats', m: metaStr}); }
-            else { addMsg('ai', j.reply, metaStr); chatLog.push({r:'ai', t: j.reply, m: metaStr}); }
+            if (j.handover) addMsg('system', '↪ ' + friendlyName(j.from_provider || 'Previous provider') + ' hit a limit or stopped — ' + friendlyName(dispProvider) + ' continued this chat with the same shared memory.');
+            if (j.audio) { addAudioMsg(j.audio, metaStr); chatLog.push({r:'ai', t:'🔊 Voice reply — audio itself is not stored in saved chats', m: metaStr, p: dispProvider}); }
+            else if (j.video) { addVideoMsg(j.video, metaStr); chatLog.push({r:'ai', t:'🎬 Video reply — video itself is not stored in saved chats', m: metaStr, p: dispProvider}); }
+            else { addMsg('ai', j.reply, metaStr); chatLog.push({r:'ai', t: j.reply, m: metaStr, p: dispProvider}); }
             scheduleSave();
         }
     } catch (e) {

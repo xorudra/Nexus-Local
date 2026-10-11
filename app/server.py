@@ -1648,6 +1648,230 @@ RELAY_UPSTREAMS = {
 RELAY_KEYLESS = {"relay_pollinations", "aihorde", "pollinations", "kilo", "ovh"}
 
 # ---------------------------------------------------------------------------
+# Shared memory (owner order 2026-10-11): ONE conversation memory inside
+# Nexus, shared by every provider/model. The providers themselves are
+# stateless — Nexus owns the memory. The client sends the conversation
+# history with each /api/chat request (it already stores that history in
+# the per-user encrypted saved chats; no new server-side store and no
+# plaintext copy is created here), and Nexus rebuilds the full message
+# list for whichever provider actually answers. When a provider hits its
+# limit or fails and the existing failover chain moves to another one,
+# the next provider receives the SAME history plus an explicit handover
+# note, so it continues the task where the previous one stopped instead
+# of starting over. Long histories are compressed deterministically
+# (older turns summarised locally, newest turns verbatim) so the memory
+# stays inside a fixed character budget on free-tier context windows.
+# ---------------------------------------------------------------------------
+SHARED_MEMORY_MAX_CHARS = 26000   # total history budget per request
+SHARED_MEMORY_MSG_CAP = 8000      # per-message cap
+SHARED_MEMORY_RECENT = 10         # newest messages always kept verbatim
+SHARED_MEMORY_SUMMARY_CAP = 6000  # cap for the compressed older-turns note
+
+_SHARED_MEMORY_SYSTEM = (
+    "You are answering inside Nexus, where several AI models share ONE "
+    "conversation memory owned by Nexus. The conversation below may "
+    "include replies written by other models. Treat the whole "
+    "conversation as your own shared context: use it, continue the "
+    "user's task seamlessly, do not claim you cannot see earlier "
+    "messages, and do not mention a model switch unless it is relevant."
+)
+
+
+def _sm_text(content):
+    """Plain text from a message content: a string, or OpenAI-style
+    content parts ([{type:text,...}, {type:image_url,...}])."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                t = part.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+        return "\n".join(parts)
+    return ""
+
+
+def _normalize_history(raw):
+    """Sanitise a client-supplied history into [{role, content, by}].
+    Accepts the dashboard's saved-chat shape ({r: user|ai, t, m, p}) and
+    the OpenAI shape ({role, content}). Client-supplied system entries
+    are dropped — a client must never inject its own system prompt.
+    Media data URIs are dropped: history is text memory."""
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw[:80]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role") or item.get("r")
+        if role in ("user",):
+            role = "user"
+        elif role in ("assistant", "ai"):
+            role = "assistant"
+        else:
+            continue
+        text = item.get("content")
+        if text is None:
+            text = item.get("t")
+        text = _sm_text(text).strip()
+        if not text or text.startswith("data:"):
+            continue
+        by = item.get("p") or item.get("by") or ""
+        if not by and isinstance(item.get("m"), str):
+            by = item["m"].split("·")[0].strip()
+        out.append({"role": role, "content": text[:SHARED_MEMORY_MSG_CAP],
+                    "by": str(by)[:80]})
+    return out
+
+
+def _handover_note(handover_from, for_provider):
+    return (f"[Handover] {handover_from} could not continue this "
+            f"task (limit reached or provider failure). You "
+            f"({for_provider}) are taking over with the full "
+            f"shared memory above. Continue exactly where it "
+            f"left off — do not restart, do not repeat work "
+            f"already done, and finish the user's request.")
+
+
+def _last_assistant_by(history):
+    for h in reversed(history or []):
+        if h.get("role") == "assistant" and h.get("by"):
+            return h["by"]
+    return ""
+
+
+def _build_shared_messages(history, current_text, current_content=None,
+                           handover_from=None, for_provider=None):
+    """Build the OpenAI-shaped message list carrying the shared memory.
+
+    Returns (messages, info) — messages is None when there is no history
+    and no handover (callers keep their legacy single-message payload);
+    info = {"turns": int, "compressed": bool}. `handover_from` is who
+    could not continue (a provider id or label); when it differs from
+    `for_provider`, an explicit continue-from-here note is injected.
+    """
+    hist = list(history or [])
+    info = {"turns": len(hist), "compressed": False}
+    if not hist and not handover_from:
+        return None, info
+    total = sum(len(h["content"]) for h in hist)
+    older, recent = [], hist
+    if total > SHARED_MEMORY_MAX_CHARS and len(hist) > 2:
+        # Keep the newest turns verbatim within ~60% of the budget;
+        # everything older becomes one deterministic summary note.
+        keep, acc = [], 0
+        budget = int(SHARED_MEMORY_MAX_CHARS * 0.6)
+        for h in reversed(hist):
+            if len(keep) >= SHARED_MEMORY_RECENT and acc >= budget // 2:
+                break
+            if acc + len(h["content"]) > budget and keep:
+                break
+            keep.append(h)
+            acc += len(h["content"])
+        recent = list(reversed(keep))
+        older = hist[:len(hist) - len(recent)]
+        info["compressed"] = bool(older)
+    msgs = [{"role": "system", "content": _SHARED_MEMORY_SYSTEM}]
+    if older:
+        lines = []
+        used = 0
+        for h in older:
+            who = "User" if h["role"] == "user" else "Assistant"
+            if h.get("by") and h["role"] == "assistant":
+                who = f"Assistant ({h['by']})"
+            snippet = h["content"][:400].replace("\n", " ")
+            line = f"- {who}: {snippet}"
+            if used + len(line) > SHARED_MEMORY_SUMMARY_CAP:
+                lines.append("- … (earlier turns truncated to fit the "
+                             "shared-memory budget)")
+                break
+            lines.append(line)
+            used += len(line)
+        msgs.append({"role": "system", "content":
+                     "[Shared memory — summary of earlier turns in this "
+                     "conversation]\n" + "\n".join(lines)})
+    for h in recent:
+        msgs.append({"role": h["role"], "content": h["content"]})
+    if handover_from and for_provider and handover_from != for_provider:
+        msgs.append({"role": "system",
+                     "content": _handover_note(handover_from, for_provider)})
+    msgs.append({"role": "user",
+                 "content": current_content if current_content is not None
+                 else current_text})
+    return msgs, info
+
+
+def _cohere_history(msgs):
+    """Convert shared-memory messages to Cohere's shape: returns
+    (chat_history, final_user_text). System notes are folded into a
+    preamble entry so Cohere gets the same context other lanes get."""
+    history, final = [], ""
+    items = list(msgs or [])
+    for i, m in enumerate(items):
+        role, text = m.get("role"), _sm_text(m.get("content"))
+        if not text:
+            continue
+        if i == len(items) - 1 and role == "user":
+            final = text
+        elif role == "system":
+            history.append({"role": "USER",
+                            "message": f"[Context] {text}"[:2000]})
+        elif role == "user":
+            history.append({"role": "USER", "message": text})
+        elif role == "assistant":
+            history.append({"role": "CHATBOT", "message": text})
+    return history, final
+
+
+def _trim_messages(messages, budget=SHARED_MEMORY_MAX_CHARS):
+    """Budget-trim an OpenAI-shaped message list (the /v1 surface):
+    caller system messages and the newest turns are preserved; older
+    middle turns are replaced by one summary system note. Returns the
+    (possibly new) list; a short list is returned unchanged."""
+    if not isinstance(messages, list):
+        return []
+    clean = []
+    for m in messages[:120]:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        if role not in ("system", "user", "assistant"):
+            continue
+        text = _sm_text(m.get("content"))
+        if not text and not isinstance(m.get("content"), list):
+            continue
+        entry = dict(m)
+        if isinstance(m.get("content"), str):
+            entry["content"] = text[:SHARED_MEMORY_MSG_CAP]
+        clean.append(entry)
+    total = sum(len(_sm_text(m.get("content"))) for m in clean)
+    if total <= budget or len(clean) <= 3:
+        return clean
+    systems = [m for m in clean if m["role"] == "system"]
+    convo = [m for m in clean if m["role"] != "system"]
+    keep, acc = [], 0
+    for m in reversed(convo):
+        if acc + len(_sm_text(m.get("content"))) > int(budget * 0.6) and keep:
+            break
+        keep.append(m)
+        acc += len(_sm_text(m.get("content")))
+    keep.reverse()
+    dropped = convo[:len(convo) - len(keep)]
+    lines, used = [], 0
+    for m in dropped:
+        who = "User" if m["role"] == "user" else "Assistant"
+        line = f"- {who}: {_sm_text(m.get('content'))[:400]}".replace("\n", " ")
+        if used + len(line) > SHARED_MEMORY_SUMMARY_CAP:
+            break
+        lines.append(line)
+        used += len(line)
+    note = {"role": "system", "content":
+            "[Shared memory — summary of earlier turns]\n" + "\n".join(lines)}
+    return systems + [note] + keep
+
+# ---------------------------------------------------------------------------
 # External API (owner order 2026-10-09): an OpenAI-compatible surface so
 # Rudra's other project (DSRclone's AI service) can be supplied by Nexus.
 # Disabled until a service key exists: one the admin generates on the API
@@ -1761,8 +1985,14 @@ def _v1_route(model):
 
 def _v1_chat(messages, model, temperature=None):
     """Run a chat completion across the relay lanes until one answers.
-    Returns (status_code, openai_shaped_dict, lane_used)."""
+    Returns (status_code, openai_shaped_dict, lane_used). The caller's
+    messages ARE the shared memory: they are budget-trimmed once and the
+    same list rides every lane, so a lane that takes over mid-request
+    sees the full conversation; lanes after the first attempted one get
+    an explicit handover note."""
+    messages = _trim_messages(messages)
     last_error = "no lane available"
+    _attempted = []
     for lane, mdl in _v1_route(model):
         if _provider_down(lane):
             continue
@@ -1771,7 +2001,14 @@ def _v1_chat(messages, model, temperature=None):
         if lane not in RELAY_KEYLESS and getattr(Handler, "keys", None) is None:
             last_error = "vault locked"
             continue
-        payload = {"model": mdl, "messages": messages, "max_tokens": 4096}
+        lane_msgs = messages
+        if _attempted:
+            _note = _handover_note(_attempted[-1], lane)
+            lane_msgs = (list(messages[:-1])
+                         + [{"role": "system", "content": _note}]
+                         + list(messages[-1:]))
+        _attempted.append(lane)
+        payload = {"model": mdl, "messages": lane_msgs, "max_tokens": 4096}
         if temperature is not None:
             payload["temperature"] = temperature
         try:
@@ -3915,6 +4152,7 @@ class Handler(BaseHTTPRequestHandler):
             image = data.get("image")  # base64 data URI, optional
             file_data = data.get("file")  # {name, text/data, type}, optional
             link = data.get("link")  # URL string, optional
+            _history_raw = data.get("history")  # shared-memory turns, optional
             # Input limits: cap message size so one request can't burn huge token quotas
             if isinstance(message, str) and len(message) > 50000:
                 self._set_json_headers(400)
@@ -4341,6 +4579,21 @@ class Handler(BaseHTTPRequestHandler):
                 message = f"[Attached file: {file_data.get('name', 'file')}]\n{file_data['text'][:8000]}\n\n{message}"
             if link:
                 message = f"[Attached link: {link}]\n{message}"
+            # Shared memory: sanitise the client-supplied history. If the
+            # client's last history entry IS this request's message (the
+            # dashboard appends the user turn before sending), drop that
+            # duplicate — the current message is added back exactly once
+            # when the provider payload is built.
+            _shared_hist = _normalize_history(_history_raw)
+            if _shared_hist and _shared_hist[-1]["role"] == "user" and \
+                    _shared_hist[-1]["content"] in ((_user_msg or "").strip(),
+                                                    (message or "").strip()):
+                _shared_hist = _shared_hist[:-1]
+            _prev_by = _last_assistant_by(_shared_hist)
+            # Only a raw provider id proves a cross-turn switch; older
+            # saved chats store just a display label in `m`, which must
+            # not trigger a false "previous provider failed" note.
+            _prev_by_id = _prev_by if _prev_by in PROVIDER_NAMES else ""
             # Routing mode: quality | save | auto (stored in keys dict)
             # Per-session routing mode (each user has their own)
             _sess = SESSIONS.get(self._get_session() or "", {})
@@ -4408,6 +4661,26 @@ class Handler(BaseHTTPRequestHandler):
             # _attempt() runs ONE provider/model and returns (ok, reply_or_err...).
             # The loop below tries the chosen provider first, then fallbacks, so a
             # dead key / retired model / rate limit routes around automatically.
+            # Shared memory: _base_msgs carries the whole conversation for
+            # whichever provider answers; _msgs_for() rebuilds it with a
+            # handover note when a different provider takes over — either
+            # after a failed attempt in this request, or when this turn's
+            # provider differs from the one that wrote the last reply.
+            _cur_content = (([{"type": "text", "text": message}]
+                             + ([{"type": "image_url",
+                                  "image_url": {"url": image}}] if image else []))
+                            if image else message)
+            _base_msgs, _sm_info = _build_shared_messages(
+                _shared_hist, message, current_content=_cur_content)
+
+            def _msgs_for(prov, handover_from=None):
+                if not handover_from or handover_from == prov:
+                    return _base_msgs
+                _m, _i = _build_shared_messages(
+                    _shared_hist, message, current_content=_cur_content,
+                    handover_from=handover_from, for_provider=prov)
+                return _m
+
             def _attempt(prov, mdl, timeout, msgs=None):
                 # Per-provider timeout override (console setting).
                 _pto = (_SETTINGS.get("provider_timeouts") or {}).get(prov)
@@ -4417,10 +4690,17 @@ class Handler(BaseHTTPRequestHandler):
                 akey = _ekeys.get(prov) if _ekeys else None
                 if not akey and prov not in RELAY_KEYLESS:
                     return (False, 400, f"no key configured for {prov}")
-                # Cohere uses its native API (not OpenAI-compatible)
+                # Cohere uses its native API (not OpenAI-compatible):
+                # shared memory rides its chat_history parameter instead.
                 if prov == "cohere":
                     try:
                         cohere_body = {"model": mdl, "message": message}
+                        if msgs:
+                            _chist, _cfinal = _cohere_history(msgs)
+                            if _chist:
+                                cohere_body["chat_history"] = _chist
+                            if _cfinal:
+                                cohere_body["message"] = _cfinal
                         req = Request("https://api.cohere.com/v1/chat",
                                       data=json.dumps(cohere_body).encode(),
                                       headers={"Content-Type": "application/json",
@@ -4651,7 +4931,10 @@ class Handler(BaseHTTPRequestHandler):
                         "Tools: web_search {query} - search the web; fetch_url {url} - read a web page; calculate {expression} - exact math.\n"
                         "Use tools when facts may be current or external, or for exact math. One tool per reply. "
                         "When you have enough information, answer normally with the final answer (no tool block).")
-                _msgs = [{"role": "system", "content": _sys}, {"role": "user", "content": message}]
+                _msgs = ([{"role": "system", "content": _sys}]
+                         + [{"role": h["role"], "content": h["content"]}
+                            for h in _shared_hist]
+                         + [{"role": "user", "content": message}])
                 _agent_list = [(p, m) for (p, m) in _attempts[:_max_att] if p != "cohere"] or _attempts[:_max_att]
                 _used_tools = []
                 _final = None
@@ -4704,16 +4987,27 @@ class Handler(BaseHTTPRequestHandler):
                 if _used_tools:
                     _final = (_final or "") + "\n\n---\n\U0001f527 Tools used: " + ", ".join(_used_tools)
                 self._set_json_headers(200)
-                self.wfile.write(json.dumps({"reply": _final, "used_provider": _ap2, "used_model": _am2}).encode())
+                self.wfile.write(json.dumps({"reply": _final, "used_provider": _ap2, "used_model": _am2,
+                                             "memory_turns": len(_shared_hist)}).encode())
                 return
             _last = (502, "Could not reach the provider.")
             _answered = None
+            _handover_from = None
             for _i, (_ap, _am) in enumerate(_attempts[:_max_att]):
-                _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30)
+                # Who is handing over to this attempt? A failed attempt
+                # earlier in THIS request, or — on the first attempt —
+                # the different provider that wrote the previous reply.
+                _hf = _attempts[0][0] if _i > 0 else (
+                    _prev_by_id if _prev_by_id and _prev_by_id != _ap else None)
+                _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30,
+                                       msgs=_msgs_for(_ap, _hf))
                 if _ok:
                     _note_success(_ap)
                     if _i > 0:
                         _audit("Providers", f"Failover handled: {_attempts[0][0]} → {_ap}")
+                        _handover_from = _attempts[0][0]
+                    elif _hf:
+                        _handover_from = _hf
                     _answered = (_ap, _am, _rest[0])
                     break
                 _note_failure(_ap, str(_rest[1]))
@@ -4723,7 +5017,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(200)
                 self.wfile.write(json.dumps({"reply": _answered[2],
                                              "used_provider": _answered[0],
-                                             "used_model": _answered[1]}).encode())
+                                             "used_model": _answered[1],
+                                             "handover": bool(_handover_from),
+                                             "from_provider": _handover_from,
+                                             "memory_turns": _sm_info["turns"],
+                                             "memory_compressed": _sm_info["compressed"]}).encode())
             else:
                 self._set_json_headers(_last[0])
                 self.wfile.write(json.dumps({"error": _last[1]}).encode())
@@ -6241,6 +6539,12 @@ class Handler(BaseHTTPRequestHandler):
                             "t": t[:420000]}
                     if isinstance(m.get("m"), str) and m.get("m"):
                         item["m"] = m["m"][:200]
+                    # Raw provider id that wrote this reply — shared
+                    # memory uses it to detect a cross-turn provider
+                    # switch and hand over cleanly.
+                    if isinstance(m.get("p"), str) and m.get("p"):
+                        item["p"] = _re2.sub(r"[^a-z0-9_]", "",
+                                              m["p"].lower())[:60]
                     msgs.append(item)
                 if not msgs:
                     self._set_json_headers(400)
