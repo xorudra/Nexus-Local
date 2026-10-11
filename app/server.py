@@ -2554,13 +2554,20 @@ class Handler(BaseHTTPRequestHandler):
                                          "error": (out.get("error") or {}).get("message", "failed"),
                                          "latency_ms": latency}).encode())
 
+    def send_header(self, keyword, value):
+        # Choke point for Launch Safety G33: EVERY JSON response this
+        # handler sends is private per-user data, so pin
+        # Cache-Control: no-store the moment a JSON Content-Type goes
+        # out — including manual sends that bypass _set_json_headers
+        # (e.g. _require_session's 401). Non-JSON responses (HTML
+        # pages, icons, vendor JS) keep their own cache headers.
+        super().send_header(keyword, value)
+        if keyword.lower() == "content-type" and value.startswith("application/json"):
+            super().send_header("Cache-Control", "no-store")
+
     def _set_json_headers(self, status: int = 200):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        # API JSON is private per-user data: never let a browser, proxy
-        # or shared cache store it (Launch Safety G33). Static assets
-        # carry their own explicit public TTLs where they are served.
-        self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
     def _send_404_page(self):
