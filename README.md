@@ -2,7 +2,7 @@
 
 Your personal AI dashboard — 19 providers, one login. Runs locally, or as a hosted instance for you and your friends.
 
-**Live demo:** https://nexus-local.onrender.com
+**Live demo:** https://nexus.130-210-56-74.sslip.io
 
 Want to try it without installing? Open the link above. For the full local version with your own keys, follow the setup below.
 
@@ -99,7 +99,7 @@ Keyless providers (Pollinations, AI Horde, Kilo, OVH) work with no setup.
 
 Nexus runs in two shapes, and this section describes both honestly: locally
 via the CLI above (bound to your machine), and as a hosted instance — the
-live demo linked at the top is a real multi-user deployment on Render,
+live demo linked at the top is a real multi-user deployment on Oracle Cloud,
 reached over HTTPS, where the owner and invited friends sign in. The hosted
 instance is not localhost-only, and AI requests always leave the server for
 the provider you picked.
