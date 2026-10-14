@@ -3140,6 +3140,27 @@ class Handler(BaseHTTPRequestHandler):
         # Friends get the same page read-only plus a bring-your-own-key
         # section (rendered client-side for non-admins, backed by
         # /api/mykeys); admins keep full management via Update Keys/Admin.
+        if parsed.path == "/integrations":
+            # Integrations overview: what Nexus is connected to (external
+            # API, alert channels, provider lanes, backup mirror). Any
+            # signed-in user; the page's data endpoints gate themselves
+            # (owner data renders as "Owner-managed" for friends).
+            info = self._session_info()
+            if not info:
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            try:
+                content = (Path(__file__).parent / "integrations.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception as e:
+                self.send_error(500, "internal error")
+            return
         if parsed.path == "/connections":
             info = self._session_info()
             if not info:

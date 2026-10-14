@@ -37,6 +37,7 @@ To use your own keys instead, delete `keys.enc` from the install folder and use 
 
 - **Dashboard** (`/`) — task composer with provider/model picker, image attachments, usage overview
 - **Connections** (`/connections`) — all providers grouped in expanders (Direct, Relay, FreeLLMAPI) with key status and usage
+- **Integrations** (`/integrations`) — everything Nexus is connected to: the external `/v1` API and its DSRclone consumer, webhook + email alert channels, provider lanes, and the encrypted GitHub backup mirror — each with its live status (owner-only data shows as "Owner-managed" for friends)
 - **Update Keys** (`/settings`) — update API keys after login (shows last 4 chars, blank = keep current)
 - **API Access** (`/api-access`, admin only) — status of the external `/v1` API: endpoint, service-key hint, supply-lane readiness, live self-test
 
