@@ -133,7 +133,24 @@ class FailoverFloor(unittest.TestCase):
         self.assertTrue(j.get("ok"))
         return cookie
 
-    def test_01_auto_quality_floors_to_a_keyless_lane(self):
+    def test_01_auto_works_while_the_vault_is_locked(self):
+        # Runs first: nobody has signed in as admin, so the shared
+        # vault is locked and a friend's Auto (quality) request can
+        # only be served by keyless candidates. Before the fix the
+        # quality list named none, the candidate list came up empty
+        # and the request died on 'provider, model, message
+        # required' — a 400 for a perfectly valid request.
+        cookie = self._login(FRIEND_PW)
+        st, j, _ = self._call("POST", "/api/chat",
+                              {"provider": "auto", "model": "",
+                               "message": "Say hi", "mode": "chat"},
+                              cookie=cookie)
+        self.assertNotEqual(st, 400, str(j)[:200])
+        tr = j.get("trace") or []
+        self.assertGreaterEqual(len(tr), 1, str(j)[:300])
+        self.assertEqual(tr[0]["p"], "pollinations")
+
+    def test_02_auto_quality_floors_to_a_keyless_lane(self):
         self._login(MASTER)  # unlock the shared (all-fake) vault
         cookie = self._login(FRIEND_PW)
         st, j, _ = self._call("POST", "/api/chat",

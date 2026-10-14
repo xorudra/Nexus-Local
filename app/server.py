@@ -4710,14 +4710,20 @@ class Handler(BaseHTTPRequestHandler):
                         routing_eff = "save"
                     routing = routing_eff
                     pref_list = (["relay_gemini", "google", "relay_openrouter", "openrouter",
-                                  "relay_nvidia", "nvidia", "mistral", "cohere"]
+                                  "relay_nvidia", "nvidia", "mistral", "cohere",
+                                  "pollinations", "relay_pollinations"]
                                  if routing_eff == "quality" else
                                  ["groq", "relay_groq", "pollinations", "relay_pollinations"])
                 else:  # quality
-                    # Prefer reliable providers first (Google often 503s, nvidia 403s on all chat)
+                    # Prefer reliable providers first (Google often 503s, nvidia 403s on all chat).
+                    # Keyless lanes ride at the tail: without them an
+                    # Auto request while the vault is locked (every
+                    # restart, until the owner signs in) found NO
+                    # candidates at all and died on a misleading 400.
                     pref_list = ["relay_openrouter", "openrouter",
                                  "mistral",
-                                 "relay_gemini", "google", "cohere"]
+                                 "relay_gemini", "google", "cohere",
+                                 "pollinations", "relay_pollinations"]
                 for cand in pref_list:
                     if (_ekeys or {}).get(cand) or cand in RELAY_KEYLESS:
                         cand_model = model or _DEFAULT_MODELS.get(cand, "")
