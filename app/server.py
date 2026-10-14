@@ -1884,13 +1884,13 @@ def _trim_messages(messages, budget=SHARED_MEMORY_MAX_CHARS):
 # ---------------------------------------------------------------------------
 _V1_LANES = [
     ("relay_gemini", "gemini-3.5-flash-lite"),
-    ("relay_openrouter", "apodex/apodex-1.1-mini:free"),
+    ("relay_openrouter", "nvidia/nemotron-3-super-120b-a12b:free"),
     ("relay_groq", "openai/gpt-oss-20b"),
     ("relay_nvidia", "google/gemma-3-12b-it"),
     # FreeLLMAPI provider key set (owner order 2026-10-09: "in supply lane
     # also add FreeLLMAPI providers") — same relay, the vault's plain slots.
-    ("google", "gemini-3.8-flash"),
-    ("openrouter", "apodex/apodex-1.1-mini:free"),
+    ("google", "gemini-3.5-flash-lite"),
+    ("openrouter", "nvidia/nemotron-3-super-120b-a12b:free"),
     ("groq", "openai/gpt-oss-20b"),
     ("nvidia", "google/gemma-3-12b-it"),
     ("relay_pollinations", "openai"),
@@ -4680,10 +4680,10 @@ class Handler(BaseHTTPRequestHandler):
             _DEFAULT_MODELS = {
                 "groq": "openai/gpt-oss-20b",
                 "relay_groq": "openai/gpt-oss-20b",
-                "google": "gemini-3.8-flash",
-                "relay_gemini": "gemini-3.8-flash",
-                "openrouter": "apodex/apodex-1.1-mini:free",
-                "relay_openrouter": "apodex/apodex-1.1-mini:free",
+                "google": "gemini-3.5-flash-lite",
+                "relay_gemini": "gemini-3.5-flash-lite",
+                "openrouter": "nvidia/nemotron-3-super-120b-a12b:free",
+                "relay_openrouter": "nvidia/nemotron-3-super-120b-a12b:free",
                 "nvidia": "google/gemma-3-12b-it",
                 "relay_nvidia": "google/gemma-3-12b-it",
                 "mistral": "mistral-small-latest",
@@ -4913,6 +4913,25 @@ class Handler(BaseHTTPRequestHandler):
                 _k = _RR_COUNTER["i"] % len(_tail)
                 _RR_COUNTER["i"] += 1
                 _attempts = [_attempts[0]] + _tail[_k:] + _tail[:_k]
+            # Keyless floor: the slice the loop will actually run must
+            # contain a lane that needs no key. Without one, a run of
+            # retired default models, rate limits and a hanging lane
+            # fails the request outright while keyless lanes sit
+            # healthy (owner report 2026-10-15: Auto quality burned
+            # all 4 attempts — a retired OpenRouter model twice, a
+            # Mistral rate limit, a Gemini default that hangs — and
+            # Pollinations never got a slot). Swap the slice's last
+            # slot for a keyless lane when none is in it.
+            _slice = _attempts[:_max_att]
+            if len(_slice) >= 2 and not any(p in RELAY_KEYLESS for p, _m in _slice):
+                _floor = next(((p, m) for (p, m) in _attempts[_max_att:]
+                               if p in RELAY_KEYLESS and _lane_ok(p)), None)
+                if _floor is None and _lane_ok("pollinations"):
+                    _floor = ("pollinations",
+                              _DEFAULT_MODELS.get("pollinations", "openai"))
+                if _floor is not None:
+                    _attempts = (_slice[:-1] + [_floor]
+                                 + _attempts[_max_att:])
             if Handler.keys is None:
                 # Locked server: _ekeys holds ONLY the caller's own vault
                 # keys, so an attempt lane can run iff it is keyless or
