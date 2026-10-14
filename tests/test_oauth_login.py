@@ -169,10 +169,13 @@ class FrontendWiringTests(unittest.TestCase):
         self.assertIn("oauth_error", html)
 
     def test_integrations_page_has_oauth_card(self):
+        # Page rebuilt 2026-10-15 (owner's integrations replacement):
+        # the OAuth Sign-in card is rendered from the services array
+        # (kind "nexusoauth") rather than static st-oauth/btn-oauth
+        # elements — assert the wiring that now carries it.
         html = (APP / "integrations.html").read_text()
-        self.assertIn('id="st-oauth"', html)
-        self.assertIn('id="btn-oauth"', html)
         self.assertIn("OAuth Sign-in", html)
+        self.assertIn("nexusoauth", html)
         self.assertIn("/api/oauth/providers", html)
 
     def test_admin_console_has_oauth_fields(self):

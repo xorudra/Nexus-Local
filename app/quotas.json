@@ -478,5 +478,53 @@
       "notes": "",
       "source": ""
     }
+  },
+  "openai": {
+    "display_name": "OpenAI",
+    "reset": "Pay-as-you-go API \u2014 usage is billed by the key owner",
+    "daily_requests": {
+      "limit": null,
+      "notes": "Not published \u2014 the provider does not publish a free-tier allowance for API keys.",
+      "source": null
+    },
+    "monthly_requests": {
+      "limit": null,
+      "notes": "Not published",
+      "source": null
+    },
+    "daily_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    },
+    "monthly_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    }
+  },
+  "anthropic": {
+    "display_name": "Anthropic",
+    "reset": "Pay-as-you-go API \u2014 usage is billed by the key owner",
+    "daily_requests": {
+      "limit": null,
+      "notes": "Not published \u2014 the provider does not publish a free-tier allowance for API keys.",
+      "source": null
+    },
+    "monthly_requests": {
+      "limit": null,
+      "notes": "Not published",
+      "source": null
+    },
+    "daily_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    },
+    "monthly_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    }
   }
 }

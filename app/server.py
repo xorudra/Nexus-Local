@@ -1111,6 +1111,273 @@ def _save_userkeys(label, keys_dict, password):
         pass
 
 
+# ---------------------------------------------------------------------------
+# Integrations (owner order 2026-10-15: the shadcndashboard Integration
+# page, implemented for real). Each user connects services with their
+# OWN credentials; secrets live in a per-user vault
+# app/userintegrations/<label>.enc encrypted with the account password
+# (the My Keys pattern: the password is verified per request that
+# persists, never stored; the decrypted vault rides the session after
+# an explicit unlock). OAuth client apps (Google/Zoom) are the owner's
+# — credentials come from the server env ONLY (NEXUS_INTG_GOOGLE_*,
+# NEXUS_INTG_ZOOM_*), never the repo or settings.
+# ---------------------------------------------------------------------------
+INTG_DIR = Path(__file__).parent / "userintegrations"
+INTG_DIR.mkdir(exist_ok=True)
+
+# API-key services: field name -> label the page shows. The server
+# validates presence + length only; the provider's own API is the
+# judge (see the testers below).
+_INTG_APIKEY_SERVICES = {
+    "linear": ("api_key",),
+    "notion": ("token",),
+    "trello": ("api_key", "token"),
+    "jira": ("site", "email", "token"),
+    "mailchimp": ("api_key",),
+}
+
+
+def _intg_path(label):
+    safe = _re.sub(r"[^a-z0-9_]", "", (label or "").lower())[:30]
+    return INTG_DIR / f"{safe}.enc"
+
+
+def _intg_label(info):
+    """Vault label for a session: friends use their label, the owner
+    a reserved one. None when the session has no usable identity."""
+    if not info:
+        return None
+    if info.get("admin"):
+        return "_owner"
+    label = info.get("label", "")
+    return label if _LABEL_RE.match(label) else None
+
+
+def _load_intg(label, password):
+    try:
+        p = _intg_path(label)
+        if not p.exists():
+            return None
+        d = decrypt_keys(p, password)
+        return d if isinstance(d, dict) else None
+    except Exception:
+        return None
+
+
+def _save_intg(label, data, password):
+    p = _intg_path(label)
+    encrypt_keys(data, password, p)
+    os.chmod(p, 0o600)
+
+
+def _intg_verify(info, password):
+    """Verify an account password for a persistence operation —
+    friends against their stored hash, the owner by decrypting the
+    master vault (the same proof the login itself uses)."""
+    if not password:
+        return False
+    if info.get("admin"):
+        try:
+            decrypt_keys(Path(__file__).parent / "keys.enc", password)
+            return True
+        except Exception:
+            return False
+    label = info.get("label", "")
+    stored = (_load_access() or {}).get(label, "")
+    ok, _up = _verify_password(password, stored)
+    return bool(ok)
+
+
+def _intg_http(url, method="GET", headers=None, data=None, timeout=20):
+    """One provider API call. Returns (status, parsed_json_or_text).
+    Never raises for HTTP errors — the body is the diagnostic."""
+    req = Request(url, data=data, headers=headers or {}, method=method)
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode(errors="replace")
+            try:
+                return resp.status, json.loads(body)
+            except Exception:
+                return resp.status, body
+    except HTTPError as e:
+        body = e.read().decode(errors="replace")
+        try:
+            return e.code, json.loads(body)
+        except Exception:
+            return e.code, body
+    except Exception as e:
+        return 0, str(e)
+
+
+def _intg_err_text(payload):
+    if isinstance(payload, dict):
+        for k in ("message", "error_description", "detail", "title"):
+            v = payload.get(k)
+            if isinstance(v, str) and v:
+                return v[:200]
+        err = payload.get("error")
+        if isinstance(err, dict) and isinstance(err.get("message"), str):
+            return err["message"][:200]
+        if isinstance(err, str) and err:
+            return err[:200]
+        errs = payload.get("errors")
+        if isinstance(errs, list) and errs and isinstance(errs[0], dict):
+            return str(errs[0].get("message") or errs[0])[:200]
+    return str(payload)[:200]
+
+
+# -- Live connection testers: (entry) -> (ok, account, detail) --------
+def _intg_test_linear(e):
+    st, j = _intg_http("https://api.linear.app/graphql", "POST",
+                       {"Authorization": e["api_key"],
+                        "Content-Type": "application/json"},
+                       json.dumps({"query": "{ viewer { name email } }"}).encode())
+    v = ((j.get("data") or {}).get("viewer") if isinstance(j, dict) else None) or {}
+    if st == 200 and v:
+        return True, f"{v.get('name', '')} <{v.get('email', '')}>".strip(), "Linear workspace reachable"
+    return False, "", f"Linear said ({st}): {_intg_err_text(j)}"
+
+
+def _intg_test_notion(e):
+    st, j = _intg_http("https://api.notion.com/v1/users/me", "GET",
+                       {"Authorization": "Bearer " + e["token"],
+                        "Notion-Version": "2022-06-28"})
+    if st == 200 and isinstance(j, dict):
+        bot = j.get("bot") or {}
+        ws = bot.get("workspace_name") or j.get("name") or "Notion workspace"
+        return True, str(ws), "Notion integration token accepted"
+    return False, "", f"Notion said ({st}): {_intg_err_text(j)}"
+
+
+def _intg_test_trello(e):
+    q = urllib.parse.urlencode({"key": e["api_key"], "token": e["token"]})
+    st, j = _intg_http(f"https://api.trello.com/1/members/me?{q}")
+    if st == 200 and isinstance(j, dict) and j.get("username"):
+        return True, f"{j.get('fullName', '')} (@{j['username']})".strip(), "Trello account reachable"
+    return False, "", f"Trello said ({st}): {_intg_err_text(j)}"
+
+
+def _intg_test_jira(e):
+    site = e["site"]
+    auth = base64.b64encode(f"{e['email']}:{e['token']}".encode()).decode()
+    st, j = _intg_http(f"https://{site}/rest/api/3/myself", "GET",
+                       {"Authorization": "Basic " + auth,
+                        "Accept": "application/json"})
+    if st == 200 and isinstance(j, dict) and j.get("displayName"):
+        return True, f"{j['displayName']} · {site}", "Jira site reachable"
+    return False, "", f"Jira said ({st}): {_intg_err_text(j)}"
+
+
+def _intg_test_mailchimp(e):
+    key = e["api_key"]
+    dc = key.rsplit("-", 1)[-1] if "-" in key else ""
+    if not dc or dc == key:
+        return False, "", "That key has no data-centre suffix (it should end in -us<N>)"
+    auth = base64.b64encode(("nexus:" + key).encode()).decode()
+    st, j = _intg_http(f"https://{dc}.api.mailchimp.com/3.0/lists?count=1", "GET",
+                       {"Authorization": "Basic " + auth})
+    if st == 200 and isinstance(j, dict):
+        return True, f"{j.get('total_items', 0)} audience(s) · {dc}", "Mailchimp account reachable"
+    return False, "", f"Mailchimp said ({st}): {_intg_err_text(j)}"
+
+
+_INTG_TESTERS = {"linear": _intg_test_linear, "notion": _intg_test_notion,
+                 "trello": _intg_test_trello, "jira": _intg_test_jira,
+                 "mailchimp": _intg_test_mailchimp}
+
+
+def _intg_creds(provider):
+    cid = os.environ.get(f"NEXUS_INTG_{provider.upper()}_ID", "").strip()
+    sec = os.environ.get(f"NEXUS_INTG_{provider.upper()}_SECRET", "").strip()
+    return (cid, sec) if cid and sec else None
+
+
+# AI provider connections (owner order 2026-10-15): users connect
+# their OWN provider accounts (Gemini, ChatGPT, Claude, and the rest
+# of the Nexus roster) so their chats can run on their own keys.
+# These keys live in the EXISTING per-user key vault (userkeys) — the
+# same store My Keys manages and chat already reads — never in the
+# integrations vault. Keyless lanes need no connection at all.
+_INTG_AI_PROVIDERS = ("aihorde", "anthropic", "cloudflare", "cohere",
+                      "google", "groq", "huggingface", "kilo", "mistral",
+                      "nvidia", "openai", "openrouter", "ovh",
+                      "pollinations", "zhipu")
+_INTG_AI_KEYLESS = {"aihorde", "kilo", "ovh", "pollinations"}
+
+
+def _intg_test_ai(prov, key):
+    """Live-check one provider key against the provider itself.
+    Returns (ok, label, detail); label is what the card may show."""
+    if prov == "anthropic":
+        st, j = _intg_http("https://api.anthropic.com/v1/models", "GET",
+                           {"x-api-key": key, "anthropic-version": "2023-06-01"})
+        if st == 200 and isinstance(j, dict):
+            return True, f"Key accepted · {len(j.get('data') or [])} models", "Anthropic accepted the key"
+        return False, "", f"Anthropic said ({st}): {_intg_err_text(j)}"
+    if prov == "google":
+        st, j = _intg_http("https://generativelanguage.googleapis.com/v1beta/models?key="
+                           + urllib.parse.quote(key, safe=""))
+        if st == 200 and isinstance(j, dict):
+            return True, f"Key accepted · {len(j.get('models') or [])} models", "Google accepted the key"
+        return False, "", f"Google said ({st}): {_intg_err_text(j)}"
+    if prov == "cloudflare":
+        st, j = _intg_http("https://api.cloudflare.com/client/v4/user/tokens/verify",
+                           "GET", {"Authorization": "Bearer " + key})
+        if st == 200 and isinstance(j, dict) and (j.get("success") or
+                                                  (j.get("result") or {}).get("status") == "active"):
+            return True, "Token verified active", "Cloudflare verified the token"
+        return False, "", f"Cloudflare said ({st}): {_intg_err_text(j)}"
+    base = RELAY_UPSTREAMS.get(prov)
+    if not base:
+        return False, "", "no live check available for this provider"
+    st, j = _intg_http(base.rstrip("/") + "/models", "GET",
+                       {"Authorization": "Bearer " + key})
+    if st == 200 and isinstance(j, dict):
+        n = len(j.get("data") or j.get("models") or [])
+        return True, f"Key accepted · {n} models", "The provider accepted the key"
+    return False, "", f"The provider said ({st}): {_intg_err_text(j)}"
+
+
+def _google_access_token(entry):
+    """Refresh a stored Google connection. Returns an access token
+    or raises ValueError with the provider's own words."""
+    creds = _intg_creds("google")
+    if not creds:
+        raise ValueError("the owner's Google app is not configured on this server")
+    data = urllib.parse.urlencode({
+        "client_id": creds[0], "client_secret": creds[1],
+        "refresh_token": entry.get("refresh_token", ""),
+        "grant_type": "refresh_token"}).encode()
+    st, j = _intg_http("https://oauth2.googleapis.com/token", "POST",
+                       {"Content-Type": "application/x-www-form-urlencoded"}, data)
+    if st == 200 and isinstance(j, dict) and j.get("access_token"):
+        return j["access_token"]
+    raise ValueError(f"Google token refresh failed ({st}): {_intg_err_text(j)}")
+
+
+def _zoom_access_token(entry):
+    creds = _intg_creds("zoom")
+    if not creds:
+        raise ValueError("the owner's Zoom app is not configured on this server")
+    if entry.get("refresh_token"):
+        data = urllib.parse.urlencode({
+            "grant_type": "refresh_token",
+            "refresh_token": entry["refresh_token"]}).encode()
+        auth = base64.b64encode(f"{creds[0]}:{creds[1]}".encode()).decode()
+        st, j = _intg_http("https://zoom.us/oauth/token", "POST",
+                           {"Authorization": "Basic " + auth,
+                            "Content-Type": "application/x-www-form-urlencoded"}, data)
+        if st == 200 and isinstance(j, dict) and j.get("access_token"):
+            entry["access_token"] = j["access_token"]
+            if j.get("refresh_token"):
+                entry["refresh_token"] = j["refresh_token"]
+            return j["access_token"]
+        raise ValueError(f"Zoom token refresh failed ({st}): {_intg_err_text(j)}")
+    if entry.get("access_token"):
+        return entry["access_token"]
+    raise ValueError("the Zoom connection has no token — reconnect it")
+
+
 def _session_meta(headers, fallback_ip=""):
     """Bookkeeping stamped onto a new session: a short id (safe to show
     and revoke by — never the token), the client IP and a device label."""
@@ -1608,6 +1875,7 @@ def get_usage_history():
 
 PROVIDER_NAMES = [
     "aihorde",
+    "anthropic",
     "cloudflare",
     "cohere",
     "google",
@@ -1616,6 +1884,7 @@ PROVIDER_NAMES = [
     "kilo",
     "mistral",
     "nvidia",
+    "openai",
     "openrouter",
     "ovh",
     "pollinations",
@@ -1659,6 +1928,7 @@ RELAY_UPSTREAMS = {
     "relay_pollinations": "https://text.pollinations.ai/openai",
     # Individual providers via relay (user's own keys)
     "groq": "https://api.groq.com/openai/v1",
+    "openai": "https://api.openai.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "siliconflow": "https://api.siliconflow.com/v1",
     "nvidia": "https://integrate.api.nvidia.com/v1",
@@ -3034,7 +3304,7 @@ class Handler(BaseHTTPRequestHandler):
                     "</div>"
                     "</div>"
                     "<script>"
-                    "var VALID_KEYS=['freellmapi','relay_groq','relay_gemini','relay_openrouter','relay_nvidia','groq','google','openrouter','nvidia','cloudflare','cohere','huggingface','mistral','zhipu','aihorde','kilo','ovh','pollinations'];"
+                    "var VALID_KEYS=['freellmapi','relay_groq','relay_gemini','relay_openrouter','relay_nvidia','groq','google','openrouter','openai','anthropic','nvidia','cloudflare','cohere','huggingface','mistral','zhipu','aihorde','kilo','ovh','pollinations'];"
                     "function parseBulk(){"
                     "var lines=document.getElementById('bulk').value.split('\\n');"
                     "var found=[],unknown=[];"
@@ -3144,6 +3414,110 @@ class Handler(BaseHTTPRequestHandler):
         # OAuth sign-in (public): which providers are configured, the
         # start redirect (sets a state cookie), and the callback that
         # turns a verified provider email into a normal Nexus session.
+        if parsed.path.startswith("/api/integrations/") and (
+                parsed.path.endswith("/start") or parsed.path.endswith("/callback")):
+            # OAuth connect flows for integrations (Gmail/Meet via
+            # Google, Zoom). The user must already be signed in with
+            # their integrations vault unlocked; tokens land in the
+            # SESSION first and persist only when the user saves with
+            # their password (a callback has no password to encrypt
+            # with — the My Keys pattern, never a stored password).
+            _iparts = parsed.path.strip("/").split("/")
+            _isvc = _iparts[2] if len(_iparts) > 2 else ""
+            _iact = _iparts[3] if len(_iparts) > 3 else ""
+            _iprov = "google" if _isvc in ("google", "gmail", "meet") else (
+                "zoom" if _isvc == "zoom" else "")
+            _icreds = _intg_creds(_iprov) if _iprov else None
+
+            def _intg_fail(msg):
+                self.send_response(302)
+                self.send_header("Location", "/integrations?error=" + _urlquote(msg))
+                self.send_header("Set-Cookie", "intg_state=; Max-Age=0; Secure; Path=/")
+                self.end_headers()
+            if not _iprov or not _icreds:
+                _intg_fail("That connection isn't set up on this server yet.")
+                return
+            _iinfo = self._session_info()
+            if not _iinfo:
+                _intg_fail("Sign in to Nexus first, then connect.")
+                return
+            if not isinstance(_iinfo.get("integrations"), dict):
+                _intg_fail("Unlock your integrations vault on this page first, then connect.")
+                return
+            _ibase = _oauth_public_base(self.headers)
+            _icb = f"{_ibase}/api/integrations/{_iprov}/callback"
+            if _iact == "start":
+                _istate = secrets.token_urlsafe(24)
+                if _iprov == "google":
+                    _ip = {"client_id": _icreds[0], "redirect_uri": _icb,
+                           "response_type": "code",
+                           "scope": "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.events openid email",
+                           "state": _istate, "access_type": "offline",
+                           "prompt": "consent"}
+                    _iurl = "https://accounts.google.com/o/oauth2/v2/auth?" + _urlencode(_ip)
+                else:
+                    _ip = {"client_id": _icreds[0], "redirect_uri": _icb,
+                           "response_type": "code", "state": _istate}
+                    _iurl = "https://zoom.us/oauth/authorize?" + _urlencode(_ip)
+                self.send_response(302)
+                self.send_header("Location", _iurl)
+                self.send_header("Set-Cookie",
+                                 f"intg_state={_iprov}:{_istate}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600")
+                self.end_headers()
+                return
+            # callback
+            _iq = parse_qs(parsed.query or "")
+            _icode = (_iq.get("code") or [""])[0]
+            _istate_q = (_iq.get("state") or [""])[0]
+            _ick = SimpleCookie(self.headers.get("Cookie", ""))
+            _istate_c = _ick.get("intg_state").value if _ick.get("intg_state") else ""
+            if not _icode or not _istate_q or not _istate_c \
+                    or not secrets.compare_digest(f"{_iprov}:{_istate_q}", _istate_c):
+                _intg_fail("The connection didn't complete — try again.")
+                return
+            try:
+                if _iprov == "google":
+                    _idata = urllib.parse.urlencode({
+                        "code": _icode, "client_id": _icreds[0],
+                        "client_secret": _icreds[1], "redirect_uri": _icb,
+                        "grant_type": "authorization_code"}).encode()
+                    _ist, _ij = _intg_http("https://oauth2.googleapis.com/token", "POST",
+                                           {"Content-Type": "application/x-www-form-urlencoded"}, _idata)
+                    if _ist != 200 or not isinstance(_ij, dict) or not _ij.get("refresh_token"):
+                        raise ValueError(_intg_err_text(_ij) if isinstance(_ij, dict)
+                                         else "Google returned no refresh token")
+                    _pst, _pj = _intg_http("https://gmail.googleapis.com/gmail/v1/users/me/profile",
+                                           "GET", {"Authorization": "Bearer " + _ij["access_token"]})
+                    _iinfo["integrations"]["google"] = {
+                        "type": "oauth", "refresh_token": _ij["refresh_token"],
+                        "email": (_pj.get("emailAddress") if isinstance(_pj, dict) else "") or "",
+                        "saved": False}
+                else:
+                    _idata = urllib.parse.urlencode({
+                        "grant_type": "authorization_code", "code": _icode,
+                        "redirect_uri": _icb}).encode()
+                    _iauth = base64.b64encode(f"{_icreds[0]}:{_icreds[1]}".encode()).decode()
+                    _ist, _ij = _intg_http("https://zoom.us/oauth/token", "POST",
+                                           {"Authorization": "Basic " + _iauth,
+                                            "Content-Type": "application/x-www-form-urlencoded"}, _idata)
+                    if _ist != 200 or not isinstance(_ij, dict) or not _ij.get("access_token"):
+                        raise ValueError(_intg_err_text(_ij) if isinstance(_ij, dict)
+                                         else "Zoom returned no token")
+                    _pst, _pj = _intg_http("https://api.zoom.us/v2/users/me", "GET",
+                                           {"Authorization": "Bearer " + _ij["access_token"]})
+                    _iinfo["integrations"]["zoom"] = {
+                        "type": "oauth", "access_token": _ij["access_token"],
+                        "refresh_token": _ij.get("refresh_token", ""),
+                        "email": (_pj.get("email") if isinstance(_pj, dict) else "") or "",
+                        "saved": False}
+            except Exception as _ie:
+                _intg_fail(f"Connection failed: {str(_ie)[:120]}")
+                return
+            self.send_response(302)
+            self.send_header("Location", f"/integrations?connected={_iprov}")
+            self.send_header("Set-Cookie", "intg_state=; Max-Age=0; Secure; Path=/")
+            self.end_headers()
+            return
         if parsed.path == "/api/oauth/providers":
             self._set_json_headers()
             self._send_body(json.dumps(
@@ -3858,6 +4232,10 @@ class Handler(BaseHTTPRequestHandler):
                     gkey = keys.get("google") or keys.get("relay_gemini") or ""
                     url = ("https://generativelanguage.googleapis.com/v1beta/models?key="
                            + _urlquote(gkey, safe="")) if gkey else ""
+                elif provider == "anthropic":
+                    # Native Messages API host; the model list is
+                    # fetched directly with the effective key below.
+                    url = "https://api.anthropic.com/v1/models"
                 elif provider in RELAY_UPSTREAMS:
                     # Route through the integrated relay; it attaches the
                     # user's key and proxies to the upstream.
@@ -3879,6 +4257,11 @@ class Handler(BaseHTTPRequestHandler):
                     req.add_header("X-Relay-Token", RELAY_TOKEN)
                     if vault_key:
                         req.add_header("X-Vault-Key", vault_key)
+                if provider == "anthropic":
+                    if not vault_key:
+                        raise ValueError("no key configured")
+                    req.add_header("x-api-key", vault_key)
+                    req.add_header("anthropic-version", "2023-06-01")
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = js.loads(resp.read())
                     if isinstance(data, list):
@@ -4907,6 +5290,8 @@ class Handler(BaseHTTPRequestHandler):
                 "relay_nvidia": "google/gemma-3-12b-it",
                 "mistral": "mistral-small-latest",
                 "cohere": "command-a-03-2025",
+                "openai": "gpt-5-mini",
+                "anthropic": "claude-sonnet-4-5",
                 "zhipu": "glm-4.5",
                 "ovh": "Meta-Llama-3.3-70B-Instruct",
                 "pollinations": "openai",
@@ -4942,6 +5327,7 @@ class Handler(BaseHTTPRequestHandler):
                     pref_list = ["relay_openrouter", "openrouter",
                                  "mistral",
                                  "relay_gemini", "google", "cohere",
+                                 "openai", "anthropic",
                                  "pollinations", "relay_pollinations"]
                 for cand in pref_list:
                     if (_ekeys or {}).get(cand) or cand in RELAY_KEYLESS:
@@ -5012,6 +5398,42 @@ class Handler(BaseHTTPRequestHandler):
                         with urlopen(req, timeout=timeout) as resp:
                             resp_data = json.loads(resp.read().decode())
                             return (True, resp_data.get("text", ""))
+                    except HTTPError as e:
+                        return (False, e.code, f"provider returned an error ({e.code})")
+                    except Exception:
+                        return (False, 502, "Could not reach the provider.")
+                # Anthropic uses its native Messages API (not
+                # OpenAI-compatible): system turns lift into the
+                # system field, text blocks join into the reply.
+                if prov == "anthropic":
+                    try:
+                        _amsgs, _asys = [], []
+                        for _m in (msgs or []):
+                            _c = _m.get("content")
+                            if not isinstance(_c, str):
+                                continue
+                            if _m.get("role") == "system":
+                                _asys.append(_c)
+                            elif _m.get("role") in ("user", "assistant"):
+                                _amsgs.append({"role": _m["role"], "content": _c})
+                        if not _amsgs or _amsgs[-1]["role"] != "user":
+                            _amsgs.append({"role": "user", "content": message})
+                        _abody = {"model": mdl, "max_tokens": 4096,
+                                  "messages": _amsgs}
+                        if _asys:
+                            _abody["system"] = "\n\n".join(_asys)
+                        req = Request("https://api.anthropic.com/v1/messages",
+                                      data=json.dumps(_abody).encode(),
+                                      headers={"Content-Type": "application/json",
+                                               "x-api-key": akey,
+                                               "anthropic-version": "2023-06-01"},
+                                      method="POST")
+                        with urlopen(req, timeout=timeout) as resp:
+                            resp_data = json.loads(resp.read().decode())
+                            _txt = "".join(
+                                b.get("text", "") for b in resp_data.get("content", [])
+                                if isinstance(b, dict) and b.get("type") == "text")
+                            return (True, _txt)
                     except HTTPError as e:
                         return (False, e.code, f"provider returned an error ({e.code})")
                     except Exception:
@@ -6939,6 +7361,393 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": "unknown action"}).encode())
+            return
+        if parsed.path == "/api/integrations":
+            # Per-user third-party connections (see the INTG block at
+            # module level). Statuses never include secret material.
+            info = self._session_info()
+            if not info:
+                self._set_json_headers(401)
+                self.wfile.write(json.dumps({"error": "not logged in"}).encode())
+                return
+            label = _intg_label(info)
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b"{}"
+            try:
+                data = json.loads(raw_body)
+            except Exception:
+                data = {}
+            action = data.get("action", "status")
+            store = info.get("integrations")
+            if not isinstance(store, dict):
+                store = None
+
+            def _pub():
+                st_ = store or {}
+                svcs = {}
+                g = st_.get("google")
+                for name in ("gmail", "meet"):
+                    svcs[name] = ({"connected": True, "account": g.get("email", ""),
+                                   "saved": bool(g.get("saved"))}
+                                  if g else {"connected": False})
+                z = st_.get("zoom")
+                svcs["zoom"] = ({"connected": True, "account": z.get("email", ""),
+                                 "saved": bool(z.get("saved"))}
+                                if z else {"connected": False})
+                for name in _INTG_APIKEY_SERVICES:
+                    e = st_.get(name)
+                    svcs[name] = ({"connected": True, "account": e.get("_account", "")}
+                                  if e else {"connected": False})
+                return svcs
+
+            def _ai_state():
+                own = info.get("userkeys") or {}
+                if not own and not info.get("admin"):
+                    meta = (_SETTINGS.get("vault_meta") or {}).get(
+                        info.get("label", "")) or []
+                    own = {m.get("provider"): "1" for m in meta
+                           if isinstance(m, dict)}
+                shared = Handler.keys or {}
+                return {p: {"own": bool(own.get(p)),
+                            "shared": bool(shared.get(p)),
+                            "keyless": p in _INTG_AI_KEYLESS}
+                        for p in _INTG_AI_PROVIDERS}
+
+            def _status(extra=None):
+                body = {"unlocked": store is not None, "services": _pub(),
+                        "ai": _ai_state(),
+                        "google_configured": bool(_intg_creds("google")),
+                        "zoom_configured": bool(_intg_creds("zoom")),
+                        "admin": bool(info.get("admin"))}
+                if extra:
+                    body.update(extra)
+                self._set_json_headers()
+                self.wfile.write(json.dumps(body).encode())
+
+            def _err(code, msg):
+                self._set_json_headers(code)
+                self.wfile.write(json.dumps({"error": msg}).encode())
+
+            if action == "status":
+                _status()
+                return
+            if action == "unlock":
+                pw = data.get("password") or ""
+                if label is None or not _intg_verify(info, pw):
+                    _err(401, "wrong password")
+                    return
+                loaded = _load_intg(label, pw)
+                info["integrations"] = loaded if isinstance(loaded, dict) else {}
+                store = info["integrations"]
+                _status()
+                return
+            # AI provider connections use the userkeys vault with a
+            # per-request password (the My Keys pattern) — they do
+            # NOT need the integrations vault unlocked.
+            if action in ("ai_save", "ai_test", "ai_disconnect"):
+                prov = data.get("service")
+                if prov not in _INTG_AI_PROVIDERS:
+                    _err(400, "unknown provider")
+                    return
+                if action == "ai_test":
+                    if prov in _INTG_AI_KEYLESS:
+                        _status({"ok": True, "account": "",
+                                 "detail": "Keyless lane — nothing to test"})
+                        return
+                    eff = dict(Handler.keys or {})
+                    if isinstance(info.get("userkeys"), dict):
+                        eff.update(info["userkeys"])
+                    key = eff.get(prov) or ""
+                    if not key:
+                        _err(400, "no key connected for this provider")
+                        return
+                    ok, acct, detail = _intg_test_ai(prov, key)
+                    _status({"ok": bool(ok), "account": acct, "detail": detail})
+                    return
+                if info.get("admin"):
+                    _err(403, "the owner's provider keys live in Update Keys — this page connects personal accounts")
+                    return
+                flabel = info.get("label", "")
+                if not _LABEL_RE.match(flabel):
+                    _err(400, "invalid label")
+                    return
+                pw = data.get("password") or ""
+                if not _intg_verify(info, pw):
+                    _err(401, "wrong password")
+                    return
+                vault = _load_userkeys(flabel, pw) or {}
+                if action == "ai_save":
+                    if prov in _INTG_AI_KEYLESS:
+                        _err(400, "this lane is keyless — nothing to connect")
+                        return
+                    key = str(data.get("api_key") or "").strip()
+                    if not key or len(key) > 512:
+                        _err(400, "that key looks empty or too long")
+                        return
+                    vault[prov] = key
+                    _save_userkeys(flabel, vault, pw)
+                    info["userkeys"] = dict(vault)
+                    ok, acct, detail = _intg_test_ai(prov, key)
+                    _status({"saved": True, "verified": bool(ok),
+                             "account": acct, "detail": detail})
+                    return
+                # ai_disconnect
+                vault.pop(prov, None)
+                _save_userkeys(flabel, vault, pw)
+                info["userkeys"] = dict(vault)
+                _status()
+                return
+            if store is None:
+                _err(409, "your integrations vault is locked — unlock it first")
+                return
+            if action == "save":
+                svc = data.get("service")
+                fields = data.get("fields") or {}
+                if svc not in _INTG_APIKEY_SERVICES or not isinstance(fields, dict):
+                    _err(400, "unknown service")
+                    return
+                pw = data.get("password") or ""
+                if label is None or not _intg_verify(info, pw):
+                    _err(401, "wrong password")
+                    return
+                entry = {}
+                for f in _INTG_APIKEY_SERVICES[svc]:
+                    v = str(fields.get(f) or "").strip()
+                    if not v or len(v) > 512:
+                        _err(400, f"{f} is empty or too long")
+                        return
+                    entry[f] = v
+                if svc == "jira":
+                    site = _re.sub(r"^https?://", "", entry["site"].lower()).split("/")[0]
+                    if not _re.match(r"^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$", site) or "@" in site:
+                        _err(400, "site should look like yourteam.atlassian.net")
+                        return
+                    entry["site"] = site
+                # Save, then verify live: the account label is only
+                # recorded when the provider itself confirms the key.
+                ok, account, detail = _INTG_TESTERS[svc](entry)
+                if ok:
+                    entry["_account"] = account
+                disk = _load_intg(label, pw) or {}
+                disk[svc] = entry
+                _save_intg(label, disk, pw)
+                info["integrations"] = disk
+                store = disk
+                _status({"saved": True, "verified": bool(ok),
+                         "account": account if ok else "",
+                         "detail": detail})
+                return
+            if action == "test":
+                svc = data.get("service")
+                if svc in _INTG_TESTERS:
+                    entry = store.get(svc)
+                    if not entry:
+                        _err(400, "not connected")
+                        return
+                    ok, account, detail = _INTG_TESTERS[svc](entry)
+                    if ok:
+                        entry["_account"] = account
+                    _status({"ok": bool(ok), "account": account, "detail": detail})
+                    return
+                if svc in ("gmail", "meet", "google"):
+                    entry = store.get("google")
+                    if not entry:
+                        _err(400, "not connected")
+                        return
+                    try:
+                        tok = _google_access_token(entry)
+                        gst, gj = _intg_http(
+                            "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+                            "GET", {"Authorization": "Bearer " + tok})
+                        if gst == 200 and isinstance(gj, dict):
+                            acct = f"{gj.get('emailAddress', '')} · {gj.get('messagesTotal', 0)} messages"
+                            entry["email"] = gj.get("emailAddress", entry.get("email", ""))
+                            _status({"ok": True, "account": acct,
+                                     "detail": "Google connection is live"})
+                        else:
+                            _status({"ok": False, "account": "",
+                                     "detail": f"Google said ({gst}): {_intg_err_text(gj)}"})
+                    except ValueError as ve:
+                        _status({"ok": False, "account": "", "detail": str(ve)})
+                    return
+                if svc == "zoom":
+                    entry = store.get("zoom")
+                    if not entry:
+                        _err(400, "not connected")
+                        return
+                    try:
+                        tok = _zoom_access_token(entry)
+                        zst, zj = _intg_http("https://api.zoom.us/v2/users/me", "GET",
+                                             {"Authorization": "Bearer " + tok})
+                        if zst == 200 and isinstance(zj, dict):
+                            acct = zj.get("email") or zj.get("first_name", "")
+                            entry["email"] = acct
+                            _status({"ok": True, "account": acct,
+                                     "detail": "Zoom connection is live"})
+                        else:
+                            _status({"ok": False, "account": "",
+                                     "detail": f"Zoom said ({zst}): {_intg_err_text(zj)}"})
+                    except ValueError as ve:
+                        _status({"ok": False, "account": "", "detail": str(ve)})
+                    return
+                _err(400, "unknown service")
+                return
+            if action == "disconnect":
+                svc = data.get("service")
+                key = "google" if svc in ("gmail", "meet", "google") else svc
+                if key not in _INTG_APIKEY_SERVICES and key not in ("google", "zoom"):
+                    _err(400, "unknown service")
+                    return
+                pw = data.get("password") or ""
+                if label is None or not _intg_verify(info, pw):
+                    _err(401, "wrong password")
+                    return
+                disk = _load_intg(label, pw) or {}
+                disk.pop(key, None)
+                _save_intg(label, disk, pw)
+                info["integrations"] = disk
+                store = disk
+                _status()
+                return
+            if action == "save_oauth":
+                svc = data.get("service")
+                if svc not in ("google", "zoom"):
+                    _err(400, "unknown service")
+                    return
+                entry = store.get(svc)
+                if not entry:
+                    _err(400, "nothing to save — connect first")
+                    return
+                pw = data.get("password") or ""
+                if label is None or not _intg_verify(info, pw):
+                    _err(401, "wrong password")
+                    return
+                disk = _load_intg(label, pw) or {}
+                entry = dict(entry)
+                entry["saved"] = True
+                disk[svc] = entry
+                _save_intg(label, disk, pw)
+                info["integrations"] = disk
+                store = disk
+                _status()
+                return
+            if action in ("gmail_inbox", "gmail_send", "create_meet"):
+                entry = store.get("google")
+                if not entry:
+                    _err(400, "Google is not connected")
+                    return
+                try:
+                    tok = _google_access_token(entry)
+                except ValueError as ve:
+                    _err(502, str(ve))
+                    return
+                auth = {"Authorization": "Bearer " + tok,
+                        "Content-Type": "application/json"}
+                if action == "gmail_inbox":
+                    lst, lj = _intg_http(
+                        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5",
+                        "GET", auth)
+                    msgs = []
+                    if lst == 200 and isinstance(lj, dict):
+                        for m in (lj.get("messages") or [])[:5]:
+                            mst, mj = _intg_http(
+                                "https://gmail.googleapis.com/gmail/v1/users/me/messages/"
+                                f"{m['id']}?format=metadata&metadataHeaders=From&metadataHeaders=Subject",
+                                "GET", auth)
+                            if mst == 200 and isinstance(mj, dict):
+                                hdrs = {h.get("name", ""): h.get("value", "")
+                                        for h in (mj.get("payload") or {}).get("headers", [])}
+                                msgs.append({"from": hdrs.get("From", "")[:80],
+                                             "subject": hdrs.get("Subject", "(no subject)")[:120]})
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"messages": msgs}).encode())
+                    return
+                if action == "gmail_send":
+                    to = str(data.get("to") or "").strip()
+                    subj = str(data.get("subject") or "").strip()[:200]
+                    body_t = str(data.get("body") or "")[:5000]
+                    if "@" not in to or len(to) > 200 or not subj:
+                        _err(400, "a recipient and a subject are required")
+                        return
+                    raw = base64.urlsafe_b64encode(
+                        f"To: {to}\r\nSubject: {subj}\r\n"
+                        f"Content-Type: text/plain; charset=UTF-8\r\n\r\n{body_t}".encode()).decode()
+                    sst, sj = _intg_http(
+                        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+                        "POST", auth, json.dumps({"raw": raw}).encode())
+                    if sst == 200:
+                        self._set_json_headers()
+                        self.wfile.write(json.dumps({"ok": True}).encode())
+                    else:
+                        _err(502, f"Gmail said ({sst}): {_intg_err_text(sj)}")
+                    return
+                # create_meet
+                title = str(data.get("title") or "Nexus meeting").strip()[:200] or "Nexus meeting"
+                start = str(data.get("start") or "").strip()[:40]
+                try:
+                    minutes = max(5, min(480, int(data.get("minutes") or 30)))
+                except Exception:
+                    minutes = 30
+                try:
+                    dt0 = datetime.datetime.fromisoformat(start.replace("Z", "+00:00"))
+                except Exception:
+                    _err(400, "a valid start time is required")
+                    return
+                if dt0.tzinfo is None:
+                    dt0 = dt0.replace(tzinfo=datetime.timezone.utc)
+                dt1 = dt0 + datetime.timedelta(minutes=minutes)
+                ev = {"summary": title,
+                      "start": {"dateTime": dt0.isoformat()},
+                      "end": {"dateTime": dt1.isoformat()},
+                      "conferenceData": {"createRequest": {
+                          "requestId": secrets.token_hex(8),
+                          "conferenceSolutionKey": {"type": "hangoutsMeet"}}}}
+                cst, cj = _intg_http(
+                    "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1",
+                    "POST", auth, json.dumps(ev).encode())
+                if cst in (200, 201) and isinstance(cj, dict) and cj.get("hangoutLink"):
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "link": cj["hangoutLink"]}).encode())
+                else:
+                    _err(502, f"Google Calendar said ({cst}): {_intg_err_text(cj)}")
+                return
+            if action == "create_zoom_meeting":
+                entry = store.get("zoom")
+                if not entry:
+                    _err(400, "Zoom is not connected")
+                    return
+                try:
+                    tok = _zoom_access_token(entry)
+                except ValueError as ve:
+                    _err(502, str(ve))
+                    return
+                topic = str(data.get("topic") or "Nexus meeting").strip()[:200] or "Nexus meeting"
+                start = str(data.get("start") or "").strip()[:40]
+                try:
+                    minutes = max(5, min(480, int(data.get("minutes") or 40)))
+                except Exception:
+                    minutes = 40
+                try:
+                    dt0 = datetime.datetime.fromisoformat(start.replace("Z", "+00:00"))
+                except Exception:
+                    _err(400, "a valid start time is required")
+                    return
+                if dt0.tzinfo is None:
+                    dt0 = dt0.replace(tzinfo=datetime.timezone.utc)
+                payload = {"topic": topic, "type": 2,
+                           "start_time": dt0.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                           "duration": minutes, "timezone": "UTC"}
+                zst, zj = _intg_http("https://api.zoom.us/v2/users/me/meetings", "POST",
+                                     {"Authorization": "Bearer " + tok,
+                                      "Content-Type": "application/json"},
+                                     json.dumps(payload).encode())
+                if zst in (200, 201) and isinstance(zj, dict) and zj.get("join_url"):
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True, "link": zj["join_url"]}).encode())
+                else:
+                    _err(502, f"Zoom said ({zst}): {_intg_err_text(zj)}")
+                return
+            _err(400, "unknown action")
             return
         if parsed.path == "/api/mykeys":
             # Friend's own key vault: view (names only) and save. Admins use /settings.

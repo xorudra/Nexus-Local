@@ -195,10 +195,10 @@ details.exp .cnt{font-size:11px;color:#8e8e8e;font-weight:400;margin-left:8px}
 </div>
 
 <script>
-const FL = ["groq","google","openrouter","nvidia","cohere","mistral","zhipu","cloudflare","huggingface"];
+const FL = ["groq","google","openrouter","openai","anthropic","nvidia","cohere","mistral","zhipu","cloudflare","huggingface"];
 const RL = ["relay_groq","relay_openrouter","relay_gemini","relay_nvidia"];
 const PROVIDERS = FL.concat(RL);
-const LABELS = {groq:"Groq",google:"Google",openrouter:"OpenRouter",nvidia:"NVIDIA",cohere:"Cohere",mistral:"Mistral",zhipu:"Zhipu",cloudflare:"Cloudflare",huggingface:"Hugging Face",relay_groq:"Groq",relay_openrouter:"OpenRouter",relay_gemini:"Gemini",relay_nvidia:"NVIDIA"};
+const LABELS = {groq:"Groq",google:"Google",openrouter:"OpenRouter",openai:"ChatGPT (OpenAI)",anthropic:"Claude (Anthropic)",nvidia:"NVIDIA",cohere:"Cohere",mistral:"Mistral",zhipu:"Zhipu",cloudflare:"Cloudflare",huggingface:"Hugging Face",relay_groq:"Groq",relay_openrouter:"OpenRouter",relay_gemini:"Gemini",relay_nvidia:"NVIDIA"};
 
 async function api(action, body) {
     const r = await fetch('/api/mykeys', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action, ...body})});

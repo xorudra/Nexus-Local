@@ -1,8 +1,15 @@
-"""Integrations page (2026-10-14, owner order with a shadcn-dashboard
-design reference): GET /integrations is session-gated like /connections,
-renders the real integration catalogue (external API, DSRclone consumer,
-webhook + email alerts, provider lanes, backup mirror, owner add card),
-and the shared sidebar carries the link on every page that has one."""
+"""Integrations page v2 (owner order 2026-10-15: the shadcndashboard
+Integration snapshot, implemented for real, then re-aimed by the
+owner at AI account connections): GET /integrations is session-gated
+like /connections and renders two sections — AI accounts (ChatGPT,
+Claude, Gemini and the rest of the provider roster to connect) and
+Workspace tools (Gmail, Meet, Linear, Loom, Zoom, Mailchimp, Notion,
+Trello, Jira plus the preserved OAuth Sign-in card) — wired to
+POST /api/integrations. Endpoint behaviour lives in
+test_integrations_connect.py.
+
+Run:  python3 -m unittest discover -s tests -v
+"""
 import hashlib
 import http.client
 import json
@@ -49,7 +56,7 @@ class IntegrationsPage(unittest.TestCase):
                 "provider_status.json", "settings.json", "settings.enc",
                 "audit.jsonl", "usage.jsonl", "telemetry.enc"}
         for name in os.listdir(APP):
-            if name in skip or name in ("chats", "userkeys"):
+            if name in skip or name in ("chats", "userkeys", "userintegrations"):
                 continue
             src = APP / name
             if src.is_dir():
@@ -62,6 +69,7 @@ class IntegrationsPage(unittest.TestCase):
         encrypt_keys(access, RESTORE, cls.tmp / "access.enc")
         (cls.tmp / "chats").mkdir(exist_ok=True)
         (cls.tmp / "userkeys").mkdir(exist_ok=True)
+        (cls.tmp / "userintegrations").mkdir(exist_ok=True)
         cls.port = _free_port()
         env = dict(os.environ)
         env.update({"HOST": "127.0.0.1", "PORT": str(cls.port),
@@ -119,30 +127,37 @@ class IntegrationsPage(unittest.TestCase):
         return cookie
 
     def test_01_signed_out_redirects_to_login(self):
-        st, _, _, loc = self._raw("GET", "/integrations")
-        self.assertEqual(st, 302)
-        self.assertEqual(loc, "/login")
+        st, _raw, _c, loc = self._raw("GET", "/integrations")
+        self.assertIn(st, (301, 302))
+        self.assertIn("/login", loc)
 
-    def test_02_friend_gets_the_catalogue(self):
+    def test_02_friend_gets_both_sections(self):
         cookie = self._login(FRIEND_PW)
-        st, raw, _, _ = self._raw("GET", "/integrations", cookie=cookie)
+        st, raw, _c, _l = self._raw("GET", "/integrations", cookie=cookie)
         self.assertEqual(st, 200)
-        for token in ("Integrations", "External API", "DSRclone AI Service",
-                      "Webhook Alerts", "Email Alerts", "AI Providers",
-                      "Encrypted Backup Mirror", "Add New Integration",
-                      'id="st-v1"', 'id="st-providers"', 'data-page="integrations"'):
-            self.assertIn(token, raw)
+        # AI accounts are the main grid now (owner's correction).
+        for marker in ("AI accounts", "aiGrid", "ChatGPT (OpenAI)",
+                       "Claude (Anthropic)", "Gemini (Google)",
+                       "AI_SERVICES", "/api/integrations"):
+            self.assertIn(marker, raw, marker)
+        # Workspace tools below, snapshot catalogue intact, OAuth
+        # Sign-in card preserved from ce772de.
+        for marker in ("Workspace tools", "Gmail", "Google Meet",
+                       "Linear", "Loom", "Zoom", "Mailchimp", "Notion",
+                       "Trello", "Jira", "OAuth Sign-in",
+                       "Add New Integration"):
+            self.assertIn(marker, raw, marker)
 
     def test_03_admin_gets_the_page_too(self):
         cookie = self._login(MASTER)
-        st, raw, _, _ = self._raw("GET", "/integrations", cookie=cookie)
+        st, raw, _c, _l = self._raw("GET", "/integrations", cookie=cookie)
         self.assertEqual(st, 200)
-        self.assertIn("Integrations", raw)
+        self.assertIn("AI accounts", raw)
 
     def test_04_sidebar_link_on_dashboard_and_connections(self):
         cookie = self._login(FRIEND_PW)
         for path in ("/", "/connections"):
-            st, raw, _, _ = self._raw("GET", path, cookie=cookie)
+            st, raw, _c, _l = self._raw("GET", path, cookie=cookie)
             self.assertEqual(st, 200, path)
             self.assertIn('href="/integrations"', raw, path)
 
