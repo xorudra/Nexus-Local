@@ -4414,18 +4414,38 @@ class Handler(BaseHTTPRequestHandler):
                             _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
                             if _img and provider not in ("pollinations", "relay_pollinations"):
                                 _used_p, _used_m = "pollinations", "flux"
+                    # Trace for the composer: what was picked, whether it
+                    # produced the image, and any fallback that ran.
+                    _itr = []
+                    _picked = provider or "auto"
+                    _eff_fail = _fail or ("AI Horde did not finish the image in time"
+                                          if provider == "aihorde" else
+                                          "Nexus has no image-generation route for this provider"
+                                          if provider not in ("cloudflare", "google", "relay_gemini")
+                                          else "did not produce an image")
+                    if _img:
+                        if _used_p != _picked and _picked not in ("auto", ""):
+                            _itr.append({"p": _picked, "m": model, "ok": False,
+                                         "e": str(_eff_fail)[:160]})
+                        _itr.append({"p": _used_p, "m": _used_m, "ok": True})
+                    else:
+                        _itr.append({"p": _picked, "m": model, "ok": False,
+                                     "e": str(_eff_fail)[:160]})
+                        if _may_substitute and _picked not in ("pollinations", "relay_pollinations"):
+                            _itr.append({"p": "pollinations", "m": "flux",
+                                         "ok": False, "e": "image generation failed"})
                     if _img:
                         self._set_json_headers(200)
-                        self.wfile.write(json.dumps({"reply": f"![Generated image]({_img})", "image_url": _img, "used_provider": _used_p, "used_model": _used_m}).encode())
+                        self.wfile.write(json.dumps({"reply": f"![Generated image]({_img})", "image_url": _img, "used_provider": _used_p, "used_model": _used_m, "trace": _itr}).encode())
                     elif provider in ("pollinations", "relay_pollinations"):
                         self._set_json_headers(502)
-                        self.wfile.write(json.dumps({"error": "image generation failed, try again"}).encode())
+                        self.wfile.write(json.dumps({"error": "image generation failed, try again", "trace": _itr}).encode())
                     else:
                         if _fail is None:
                             _fail = ("AI Horde did not finish the image in time" if provider == "aihorde"
                                      else "Nexus has no image-generation route for this provider")
                         self._set_json_headers(502)
-                        self.wfile.write(json.dumps({"error": f"{_disp} couldn't generate this image — {_fail}. Nothing else was substituted; pick Pollinations (flux) under Image mode, or another image provider, and try again."}).encode())
+                        self.wfile.write(json.dumps({"error": f"{_disp} couldn't generate this image — {_fail}. Nothing else was substituted; pick Pollinations (flux) under Image mode, or another image provider, and try again.", "trace": _itr}).encode())
                 except Exception:
                     self._set_json_headers(500)
                     self.wfile.write(json.dumps({"error": "image generation failed, try again"}).encode())
@@ -4519,7 +4539,8 @@ class Handler(BaseHTTPRequestHandler):
                     _b64 = base64.b64encode(_hdr + _pcm_all).decode()
                     self._set_json_headers(200)
                     self.wfile.write(json.dumps({"audio": "data:audio/wav;base64," + _b64,
-                        "reply": "\U0001f50a " + _text[:120], "used_provider": _prov, "used_model": _mdl}).encode())
+                        "reply": "\U0001f50a " + _text[:120], "used_provider": _prov, "used_model": _mdl,
+                        "trace": [{"p": _prov, "m": _mdl, "ok": True}]}).encode())
                 except HTTPError as e:
                     try:
                         _eb = e.read().decode(errors="replace")
@@ -4599,7 +4620,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(200)
                     self.wfile.write(json.dumps({"video": "data:video/mp4;base64," + _b64,
                         "reply": "\U0001f3ac " + _prompt_v[:120],
-                        "used_provider": "huggingface", "used_model": "Lightricks/LTX-Video"}).encode())
+                        "used_provider": "huggingface", "used_model": "Lightricks/LTX-Video",
+                        "trace": [{"p": "huggingface", "m": "Lightricks/LTX-Video", "ok": True}]}).encode())
                 except Exception:
                     self._set_json_headers(500)
                     self.wfile.write(json.dumps({"error": "video generation failed, try again"}).encode())
@@ -5044,19 +5066,25 @@ class Handler(BaseHTTPRequestHandler):
                     _final = (_final or "") + "\n\n---\n\U0001f527 Tools used: " + ", ".join(_used_tools)
                 self._set_json_headers(200)
                 self.wfile.write(json.dumps({"reply": _final, "used_provider": _ap2, "used_model": _am2,
+                                             "trace": [{"p": _ap2, "m": _am2, "ok": True}],
                                              "memory_turns": len(_shared_hist)}).encode())
                 return
             _last = (502, "Could not reach the provider.")
             _answered = None
             _handover_from = None
+            _trace = []  # per-attempt record for the composer's Trace view
             for _i, (_ap, _am) in enumerate(_attempts[:_max_att]):
                 # Who is handing over to this attempt? A failed attempt
                 # earlier in THIS request, or — on the first attempt —
                 # the different provider that wrote the previous reply.
                 _hf = _attempts[0][0] if _i > 0 else (
                     _prev_by_id if _prev_by_id and _prev_by_id != _ap else None)
+                _ta = time.time()
                 _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30,
                                        msgs=_msgs_for(_ap, _hf))
+                _trace.append({"p": _ap, "m": _am, "ok": bool(_ok),
+                               "ms": int((time.time() - _ta) * 1000),
+                               **({} if _ok else {"e": str(_rest[1])[:160]})})
                 if _ok:
                     _note_success(_ap)
                     if _i > 0:
@@ -5074,13 +5102,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"reply": _answered[2],
                                              "used_provider": _answered[0],
                                              "used_model": _answered[1],
+                                             "trace": _trace,
                                              "handover": bool(_handover_from),
                                              "from_provider": _handover_from,
                                              "memory_turns": _sm_info["turns"],
                                              "memory_compressed": _sm_info["compressed"]}).encode())
             else:
                 self._set_json_headers(_last[0])
-                self.wfile.write(json.dumps({"error": _last[1]}).encode())
+                self.wfile.write(json.dumps({"error": _last[1],
+                                             "trace": _trace}).encode())
             return
         if parsed.path == "/api/refresh":
             if not self._require_admin():
@@ -6601,6 +6631,25 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(m.get("p"), str) and m.get("p"):
                         item["p"] = _re2.sub(r"[^a-z0-9_]", "",
                                               m["p"].lower())[:60]
+                    # Composer trace (per-attempt steps): keep a
+                    # strictly-shaped, capped copy so reopened chats can
+                    # replay what happened — never arbitrary client JSON.
+                    if item["r"] == "ai" and isinstance(m.get("tr"), list):
+                        _tr = []
+                        for _s in m["tr"][:8]:
+                            if not isinstance(_s, dict):
+                                continue
+                            _e = {"p": _re2.sub(r"[^a-z0-9_]", "",
+                                                str(_s.get("p") or "").lower())[:60],
+                                  "m": str(_s.get("m") or "")[:80],
+                                  "ok": bool(_s.get("ok"))}
+                            if isinstance(_s.get("ms"), (int, float)) and _s["ms"] >= 0:
+                                _e["ms"] = min(int(_s["ms"]), 3600000)
+                            if isinstance(_s.get("e"), str) and _s["e"]:
+                                _e["e"] = _s["e"][:160]
+                            _tr.append(_e)
+                        if _tr:
+                            item["tr"] = _tr
                     msgs.append(item)
                 if not msgs:
                     self._set_json_headers(400)
