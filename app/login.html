@@ -116,6 +116,12 @@ overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 </div>
 <div id="error">Wrong password. Try again.</div>
 <button class="primary" id="loginBtn">Login</button>
+<div id="oauthError" style="display:none;color:#ff9a9a;font-size:13px;margin-top:10px;text-align:left"></div>
+<div id="oauthBox" style="display:none;margin-top:14px">
+<div style="display:flex;align-items:center;gap:10px;color:#8e8e8e;font-size:12px;margin-bottom:10px"><span style="flex:1;height:1px;background:rgba(255,255,255,.15)"></span>or sign in with<span style="flex:1;height:1px;background:rgba(255,255,255,.15)"></span></div>
+<a id="oauthGoogle" href="/api/oauth/google/start" style="display:none;text-align:center;padding:11px;border:1px solid rgba(255,255,255,.3);border-radius:8px;color:#f2f2f2;text-decoration:none;font-size:14px;margin-bottom:8px">Continue with Google</a>
+<a id="oauthGithub" href="/api/oauth/github/start" style="display:none;text-align:center;padding:11px;border:1px solid rgba(255,255,255,.3);border-radius:8px;color:#f2f2f2;text-decoration:none;font-size:14px">Continue with GitHub</a>
+</div>
 </div>
 <div id="tfaBox" style="display:none">
 <p class="sub" style="margin-bottom:.65rem">Enter the 6-digit code from your authenticator app</p>
@@ -476,6 +482,21 @@ fetch('/api/announcement').then(r=>r.json()).then(j=>{
     el.style.display='block';
   }
 }).catch(function(){});
+</script>
+<script>
+// OAuth sign-in buttons: shown only for providers this instance has
+// configured (server env). Also surfaces callback error messages.
+(function(){
+  var q=new URLSearchParams(location.search);
+  var err=q.get('oauth_error');
+  if(err){var el=document.getElementById('oauthError');el.textContent=err;el.style.display='block';}
+  fetch('/api/oauth/providers').then(function(r){return r.json()}).then(function(j){
+    var any=false;
+    if(j.google){document.getElementById('oauthGoogle').style.display='block';any=true;}
+    if(j.github){document.getElementById('oauthGithub').style.display='block';any=true;}
+    if(any)document.getElementById('oauthBox').style.display='block';
+  }).catch(function(){});
+})();
 </script>
 </body>
 </html>

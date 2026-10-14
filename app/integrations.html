@@ -396,6 +396,15 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
         <div class="foot"><span class="pill" id="st-mirror"><span class="dot"></span><span>Checking…</span></span><a class="btn" href="/admin">Details</a></div>
     </article>
 
+    <article class="card" data-search="oauth sign-in login google github account passwordless sso identity">
+        <div class="top">
+            <div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5 19.5c1.4-3 4-4.5 7-4.5s5.6 1.5 7 4.5"/></svg></div>
+            <div><h3>OAuth Sign-in</h3><div class="kind">Google · GitHub</div></div>
+        </div>
+        <p>Sign in to Nexus with a Google or GitHub account instead of a password — the account's verified email is matched to an owner or friend account the admin has linked. Unlinked accounts get nothing.</p>
+        <div class="foot"><span class="pill" id="st-oauth"><span class="dot"></span><span>Checking…</span></span><a class="btn" id="btn-oauth" href="/admin">Details</a></div>
+    </article>
+
     <article class="card add" id="addCard" data-search="add new integration webhook custom provider api key" style="display:none">
         <div class="top">
             <div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
@@ -451,6 +460,10 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
   function hostOf(u){
     try { return new URL(u).host; } catch (e) { return u; }
   }
+  function hideBtn(id){
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
 
   // External API + its consumer (admin data; friends get owner-managed).
   fetch('/api/v1-access').then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
@@ -473,7 +486,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
   fetch('/api/access', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({action:'settings_get'})})
   .then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
-    if (!j || !j.settings) { ownerManaged('st-webhook'); ownerManaged('st-email'); ownerManaged('st-mirror'); return; }
+    if (!j || !j.settings) { ownerManaged('st-webhook'); ownerManaged('st-email'); ownerManaged('st-mirror'); hideBtn('btn-oauth'); return; }
     var s = j.settings;
     if (s.webhook_url) pill('st-webhook', 'ok', 'Sending to ' + hostOf(s.webhook_url));
     else pill('st-webhook', '', 'Not configured');
@@ -484,7 +497,18 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
     else pill('st-mirror', 'warn', 'Mirror pending');
     canAdmin = true;
     applyFilter();
-  }).catch(function(){ ownerManaged('st-webhook'); ownerManaged('st-email'); ownerManaged('st-mirror'); });
+  }).catch(function(){ ownerManaged('st-webhook'); ownerManaged('st-email'); ownerManaged('st-mirror'); hideBtn('btn-oauth'); });
+
+  // OAuth sign-in providers (endpoint is public; the Details button
+  // points at the admin console, so it hides for friends above).
+  fetch('/api/oauth/providers').then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
+    if (!j) { pill('st-oauth', '', 'Status unavailable'); return; }
+    var on = [];
+    if (j.google) on.push('Google');
+    if (j.github) on.push('GitHub');
+    if (on.length) pill('st-oauth', 'ok', on.join(' + ') + ' enabled');
+    else pill('st-oauth', '', 'Not configured');
+  }).catch(function(){ pill('st-oauth', '', 'Status unavailable'); });
 
   // Provider lanes (visible to every signed-in user).
   fetch('/api/quotas').then(function(r){ return r.ok ? r.json() : null; }).then(function(j){

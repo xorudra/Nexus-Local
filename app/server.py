@@ -40,7 +40,7 @@ from pathlib import Path
 QUOTAS_PATH = Path(__file__).parent / "quotas.json"
 from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, quote as _urlquote
+from urllib.parse import urlparse, parse_qs, quote as _urlquote, urlencode as _urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -159,6 +159,8 @@ _SETTINGS_DEFAULTS = {
     "log_prompts": False,       # keep a short prompt snippet in usage rows
     "friends_byok": True,       # friends may keep their own key vaults
     "auto_backup": "off",       # off | daily | weekly config snapshots
+    "oauth_admin_emails": [],   # verified OAuth emails that sign in as owner
+    "oauth_links": [],          # [{email, label}] OAuth email -> friend label
     # Internal state (never patchable through settings_set):
     "roles": {},                # label -> moderator | viewer (default friend)
     "invites": [],              # {h, role, created, expires, used_by}
@@ -915,6 +917,33 @@ def _validate_settings_patch(patch):
             if v not in (80, 90, 95):
                 return None, "quota_alert_pct must be 80, 90 or 95"
             clean[k] = v
+        elif k == "oauth_admin_emails":
+            if not isinstance(v, list) or len(v) > 10:
+                return None, "oauth_admin_emails must be a list of up to 10 emails"
+            out = []
+            for x in v:
+                if not isinstance(x, str):
+                    return None, "oauth_admin_emails entries must be emails"
+                e = x.strip().lower()
+                if len(e) > 120 or not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", e):
+                    return None, f"invalid email: {x}"
+                out.append(e)
+            clean[k] = out
+        elif k == "oauth_links":
+            if not isinstance(v, list) or len(v) > 50:
+                return None, "oauth_links must be a list of up to 50 entries"
+            out = []
+            for x in v:
+                if not isinstance(x, dict):
+                    return None, "oauth_links entries must be {email, label}"
+                e = str(x.get("email") or "").strip().lower()
+                lab = str(x.get("label") or "").strip()
+                if len(e) > 120 or not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", e):
+                    return None, f"invalid email in oauth_links: {e}"
+                if not _LABEL_RE.match(lab):
+                    return None, f"invalid label in oauth_links: {lab}"
+                out.append({"email": e, "label": lab})
+            clean[k] = out
         elif k in ("skip_failing", "login_lockout", "audit_ips",
                    "log_prompts", "friends_byok"):
             if not isinstance(v, bool):
@@ -1870,6 +1899,103 @@ def _trim_messages(messages, budget=SHARED_MEMORY_MAX_CHARS):
     note = {"role": "system", "content":
             "[Shared memory — summary of earlier turns]\n" + "\n".join(lines)}
     return systems + [note] + keep
+
+# ---------------------------------------------------------------------------
+# OAuth sign-in (owner order 2026-10-15): "Sign in with Google / GitHub"
+# as an alternative login for Nexus itself. Credentials come from the
+# server environment ONLY (NEXUS_OAUTH_GOOGLE_ID/SECRET,
+# NEXUS_OAUTH_GITHUB_ID/SECRET) — never from the repo or settings.
+# An OAuth identity is only an identity: the provider's VERIFIED email
+# is resolved against admin-configured mappings — oauth_admin_emails
+# (owner) and oauth_links (email -> existing friend label). An unlinked
+# email gets NO account and NO session: OAuth never creates accounts,
+# never unlocks the key vault (that still needs the master password),
+# and a friend OAuth session has no password, so password-encrypted
+# saved chats and BYOK vaults stay unavailable in it — chat itself
+# works on the shared lanes exactly like a pre-unlock friend session.
+# ---------------------------------------------------------------------------
+_OAUTH_PROVIDERS = ("google", "github")
+
+
+def _oauth_creds(provider):
+    cid = os.environ.get(f"NEXUS_OAUTH_{provider.upper()}_ID", "").strip()
+    sec = os.environ.get(f"NEXUS_OAUTH_{provider.upper()}_SECRET", "").strip()
+    return (cid, sec) if cid and sec else None
+
+
+def _oauth_public_base(headers):
+    host = (headers.get("Host", "") if headers else "").strip()
+    proto = ""
+    if headers:
+        proto = (headers.get("X-Forwarded-Proto", "") or "").split(",")[0].strip()
+    if not proto:
+        proto = "http" if host.startswith(("127.", "localhost")) else "https"
+    return f"{proto}://{host}"
+
+
+def _oauth_http_json(url, data=None, headers=None, timeout=20):
+    req = Request(url, data=data, headers=headers or {},
+                  method="POST" if data is not None else "GET")
+    with urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _oauth_fetch_email(provider, code, redirect_uri):
+    """Exchange an auth code for the account's VERIFIED email.
+    Returns (email, display_name); raises on any failure."""
+    cid, sec = _oauth_creds(provider)
+    form = urllib.parse.urlencode({
+        "client_id": cid, "client_secret": sec, "code": code,
+        "redirect_uri": redirect_uri,
+        **({"grant_type": "authorization_code"} if provider == "google" else {}),
+    }).encode()
+    tok = _oauth_http_json(
+        "https://oauth2.googleapis.com/token" if provider == "google"
+        else "https://github.com/login/oauth/access_token",
+        data=form,
+        headers={"Content-Type": "application/x-www-form-urlencoded",
+                 "Accept": "application/json"})
+    at = tok.get("access_token")
+    if not at:
+        raise ValueError("no access token")
+    if provider == "google":
+        info = _oauth_http_json(
+            "https://openidconnect.googleapis.com/v1/userinfo",
+            headers={"Authorization": f"Bearer {at}"})
+        if info.get("email_verified") not in (True, "true") or not info.get("email"):
+            raise ValueError("email not verified")
+        return info["email"].strip().lower(), str(info.get("name") or "")
+    emails = _oauth_http_json(
+        "https://api.github.com/user/emails",
+        headers={"Authorization": f"Bearer {at}",
+                 "Accept": "application/vnd.github+json",
+                 "User-Agent": "NexusLocal"})
+    verified = [e for e in emails if isinstance(e, dict) and e.get("verified")
+                and isinstance(e.get("email"), str)]
+    if not verified:
+        raise ValueError("no verified email")
+    pick = next((e for e in verified if e.get("primary")), verified[0])
+    return pick["email"].strip().lower(), ""
+
+
+def _oauth_resolve(email):
+    """Map a verified OAuth email to ('admin', 'Rudra') or
+    ('friend', label) via the admin-configured mappings, else None."""
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    if email in [str(e).lower() for e in (_SETTINGS.get("oauth_admin_emails") or [])]:
+        return ("admin", "Rudra")
+    access = None
+    for link in (_SETTINGS.get("oauth_links") or []):
+        if isinstance(link, dict) and str(link.get("email") or "").lower() == email:
+            label = link.get("label")
+            if access is None:
+                access = _load_access()
+            if isinstance(label, str) and label in access:
+                return ("friend", label)
+    return None
+
 
 # ---------------------------------------------------------------------------
 # External API (owner order 2026-10-09): an OpenAI-compatible surface so
@@ -3014,6 +3140,99 @@ class Handler(BaseHTTPRequestHandler):
                 "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
                 "pw_min": int(_SETTINGS.get("pw_min") or 8),
             }).encode())
+            return
+        # OAuth sign-in (public): which providers are configured, the
+        # start redirect (sets a state cookie), and the callback that
+        # turns a verified provider email into a normal Nexus session.
+        if parsed.path == "/api/oauth/providers":
+            self._set_json_headers()
+            self._send_body(json.dumps(
+                {p: bool(_oauth_creds(p)) for p in _OAUTH_PROVIDERS}).encode())
+            return
+        if parsed.path.startswith("/api/oauth/"):
+            _oparts = parsed.path.strip("/").split("/")
+            _oprov = _oparts[2] if len(_oparts) > 2 else ""
+            _oaction = _oparts[3] if len(_oparts) > 3 else ""
+            _ocreds = _oauth_creds(_oprov) if _oprov in _OAUTH_PROVIDERS else None
+            if not _ocreds or _oaction not in ("start", "callback"):
+                self._set_json_headers(404)
+                self._send_body(json.dumps({"error": "oauth not available"}).encode())
+                return
+            if not _rl_ok("oauth", _client_ip(self.headers, self.client_address[0]), 30, 900):
+                self._set_json_headers(429)
+                self._send_body(json.dumps({"error": "too many attempts, try again later"}).encode())
+                return
+            _obase = _oauth_public_base(self.headers)
+            _ocb = f"{_obase}/api/oauth/{_oprov}/callback"
+            if _oaction == "start":
+                _ostate = secrets.token_urlsafe(24)
+                if _oprov == "google":
+                    _op = {"client_id": _ocreds[0], "redirect_uri": _ocb,
+                           "response_type": "code", "scope": "openid email profile",
+                           "state": _ostate, "access_type": "online",
+                           "prompt": "select_account"}
+                    _ourl = "https://accounts.google.com/o/oauth2/v2/auth?" + _urlencode(_op)
+                else:
+                    _op = {"client_id": _ocreds[0], "redirect_uri": _ocb,
+                           "scope": "read:user user:email", "state": _ostate}
+                    _ourl = "https://github.com/login/oauth/authorize?" + _urlencode(_op)
+                self.send_response(302)
+                self.send_header("Location", _ourl)
+                self.send_header("Set-Cookie",
+                                 f"oauth_state={_ostate}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600")
+                self.end_headers()
+                return
+            # callback
+            _oq = parse_qs(parsed.query or "")
+            _ocode = (_oq.get("code") or [""])[0]
+            _ostate_q = (_oq.get("state") or [""])[0]
+            _ock = SimpleCookie(self.headers.get("Cookie", ""))
+            _ostate_c = _ock.get("oauth_state").value if _ock.get("oauth_state") else ""
+
+            def _oauth_fail(msg):
+                self.send_response(302)
+                self.send_header("Location", "/login?oauth_error=" + _urlquote(msg))
+                self.send_header("Set-Cookie", "oauth_state=; Max-Age=0; Secure; Path=/")
+                self.end_headers()
+            if not _ocode or not _ostate_q or not _ostate_c \
+                    or not secrets.compare_digest(_ostate_q, _ostate_c):
+                _oauth_fail("Sign-in didn't complete — try again.")
+                return
+            try:
+                _oemail, _oname = _oauth_fetch_email(_oprov, _ocode, _ocb)
+            except Exception:
+                _oauth_fail("That provider couldn't verify your account — try again.")
+                return
+            _ores = _oauth_resolve(_oemail)
+            if not _ores:
+                _audit("System", f"OAuth sign-in refused (unlinked email) via {_oprov}",
+                       ip=_client_ip(self.headers, self.client_address[0]))
+                _oauth_fail("That account isn't linked to a Nexus user — "
+                            "ask the admin to link your email first.")
+                return
+            _okind, _olabel = _ores
+            _ois_admin = _okind == "admin"
+            if not _ois_admin:
+                _blocked = _friend_blocked(_olabel)
+                if _blocked:
+                    _oauth_fail("Maintenance mode is on — try again later."
+                                if _blocked == "maintenance"
+                                else "This account is suspended.")
+                    return
+            _otoken = secrets.token_hex(32)
+            _osess = {"ts": time.time(), "label": _olabel,
+                      "admin": _ois_admin, "oauth": _oprov}
+            _osess.update(_session_meta(self.headers, self.client_address[0]))
+            SESSIONS[_otoken] = _osess
+            _audit("System", f"Signed in via OAuth ({_oprov}): {_olabel} "
+                             f"({'admin' if _ois_admin else 'friend'})",
+                   ip=_client_ip(self.headers, self.client_address[0]))
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie",
+                             f"session={_otoken}; HttpOnly; Secure; SameSite=Lax; Path=/")
+            self.send_header("Set-Cookie", "oauth_state=; Max-Age=0; Secure; Path=/")
+            self.end_headers()
             return
         # Public invite signup page (the redeem POST does the real work).
         if parsed.path == "/invite":
