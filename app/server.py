@@ -2584,13 +2584,30 @@ _V1_LANES = [
 ]
 _V1_MODELS_CACHE = {"at": 0.0, "ids": []}
 
-# The service key an admin generates on the API Access page lives in
+# The service keys an admin creates on the API Access page live in
 # v1key.enc, encrypted under the server restore key and mirrored through
-# the friend sync exactly like access.enc, so it survives redeploys. It
-# takes precedence over the NEXUS_V1_API_KEY env var, which stays as the
-# fallback for installs without a restore key.
+# the friend sync exactly like access.enc, so they survive redeploys.
+# Since 2026-10-16 (owner order: implement the reference design's key
+# features) the file holds a LIST of named keys, each with its own
+# created / last-used stamps and a disabled flag. The list takes
+# precedence over the NEXUS_V1_API_KEY env var, which stays as the
+# fallback for installs without any stored keys. The original
+# single-key shape ({"key": ...}) is migrated in place on load — the
+# key value is preserved, so existing consumers keep working.
 V1KEY_PATH = Path(__file__).parent / "v1key.enc"
-_V1KEY = {"key": ""}
+_V1KEYS = {"keys": []}
+_V1KEYS_TOUCH = {"at": 0.0}
+
+
+def _save_v1keys():
+    if not RESTORE_KEY:
+        return False
+    try:
+        encrypt_keys({"keys": _V1KEYS["keys"]}, RESTORE_KEY, V1KEY_PATH)
+        os.chmod(V1KEY_PATH, 0o600)
+        return True
+    except Exception:
+        return False
 
 
 def _load_v1key():
@@ -2598,27 +2615,44 @@ def _load_v1key():
         return
     try:
         d = decrypt_keys(V1KEY_PATH, RESTORE_KEY)
-        if isinstance(d, dict) and d.get("key"):
-            _V1KEY["key"] = d["key"]
     except Exception:
-        pass
+        return
+    if isinstance(d, dict) and isinstance(d.get("keys"), list):
+        _V1KEYS["keys"] = [k for k in d["keys"]
+                           if isinstance(k, dict) and k.get("key")]
+    elif isinstance(d, dict) and d.get("key"):
+        created = d.get("created")
+        if not created:
+            try:
+                created = int(V1KEY_PATH.stat().st_mtime)
+            except Exception:
+                created = int(time.time())
+        _V1KEYS["keys"] = [{"id": secrets.token_hex(4),
+                            "name": "Nexus service key",
+                            "key": d["key"], "created": created,
+                            "last_used": None, "disabled": False}]
+        _save_v1keys()
 
 
-def _generate_v1key():
-    """Mint a fresh service key, persist it (restore-key encrypted), and
-    make it effective immediately. Returns the key, or None when this host
-    has no restore key to store it under."""
+def _create_v1key(name):
+    """Mint a new named service key alongside the existing ones,
+    persist the list, and make it effective immediately. Returns the
+    entry, or None when this host has no restore key to store it
+    under."""
     if not RESTORE_KEY:
         return None
-    key = "nxk-" + secrets.token_hex(24)
-    encrypt_keys({"key": key, "created": int(time.time())}, RESTORE_KEY, V1KEY_PATH)
-    os.chmod(V1KEY_PATH, 0o600)
-    _V1KEY["key"] = key
-    return key
+    entry = {"id": secrets.token_hex(4),
+             "name": (name or "").strip()[:60] or "Service key",
+             "key": "nxk-" + secrets.token_hex(24),
+             "created": int(time.time()), "last_used": None,
+             "disabled": False}
+    _V1KEYS["keys"].append(entry)
+    _save_v1keys()
+    return entry
 
 
 def _v1_key_source():
-    if _V1KEY["key"]:
+    if _V1KEYS["keys"]:
         return "generated"
     if os.environ.get("NEXUS_V1_API_KEY"):
         return "env"
@@ -2626,9 +2660,41 @@ def _v1_key_source():
 
 
 def _v1_api_key():
-    if _V1KEY["key"]:
-        return _V1KEY["key"]
+    """One usable key for status / self-test purposes: the first
+    enabled stored key, else the env fallback."""
+    for k in _V1KEYS["keys"]:
+        if not k.get("disabled"):
+            return k["key"]
+    if _V1KEYS["keys"]:
+        return ""
     return os.environ.get("NEXUS_V1_API_KEY", "")
+
+
+def _v1_match(bearer):
+    """Resolve a bearer token: the stored key entry it belongs to,
+    the string "env" for the environment fallback, or None. Stored
+    keys win outright — once any exist, the env fallback no longer
+    authenticates (the pre-list contract). A match on a stored key
+    stamps its last_used; the stamp is persisted at most about once
+    a minute, the in-memory value is immediate."""
+    if not bearer:
+        return None
+    if _V1KEYS["keys"]:
+        for k in _V1KEYS["keys"]:
+            if k.get("disabled"):
+                continue
+            if _hmac.compare_digest(bearer, k["key"]):
+                k["last_used"] = int(time.time())
+                now = time.time()
+                if now - _V1KEYS_TOUCH["at"] > 60:
+                    _V1KEYS_TOUCH["at"] = now
+                    _save_v1keys()
+                return k
+        return None
+    env = os.environ.get("NEXUS_V1_API_KEY", "")
+    if env and _hmac.compare_digest(bearer, env):
+        return "env"
+    return None
 
 
 def _v1_lane_key(lane):
@@ -3084,20 +3150,17 @@ class Handler(BaseHTTPRequestHandler):
     # -- External /v1 API (see the module-level note above _V1_LANES) --
 
     def _v1_authorized(self):
-        key = _v1_api_key()
-        if not key:
-            return False
         auth = self.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return False
-        return _hmac.compare_digest(auth[len("Bearer "):].strip(), key)
+        return _v1_match(auth[len("Bearer "):].strip()) is not None
 
     def _v1_gate(self):
         """Shared gate for /v1 routes. Returns True when the request may
         proceed; otherwise the error response has already been written.
         A disabled endpoint (no key configured) answers 404 so the
         surface stays invisible."""
-        if not _v1_api_key():
+        if not _V1KEYS["keys"] and not os.environ.get("NEXUS_V1_API_KEY"):
             self._set_json_headers(404)
             self._send_body(json.dumps({"error": {"message": "not found", "type": "not_found"}}).encode())
             return False
@@ -3184,21 +3247,32 @@ class Handler(BaseHTTPRequestHandler):
         lanes = [{"lane": lane, "model": mdl,
                   "ready": (lane in RELAY_KEYLESS) or unlocked}
                  for lane, mdl in _V1_LANES]
-        # The generated key's creation time is the v1key.enc write
-        # time — real data for the API Keys table's Created column
-        # (owner's supplied design, 2026-10-15). Env keys have no
-        # file, so they honestly report null.
-        key_created = None
-        if _v1_key_source() == "generated":
-            try:
-                key_created = int(V1KEY_PATH.stat().st_mtime)
-            except Exception:
-                key_created = None
+        # The keys table (owner's supplied design, 2026-10-15;
+        # multi-key features 2026-10-16): every stored key with its
+        # real created / last-used stamps. The env fallback appears
+        # as a row only while it is the live key (no stored keys) —
+        # once stored keys exist it no longer authenticates.
+        keys = []
+        for k in _V1KEYS["keys"]:
+            keys.append({"id": k["id"], "name": k["name"],
+                         "key_full": k["key"],
+                         "key_last4": k["key"][-4:],
+                         "created": k.get("created"),
+                         "last_used": k.get("last_used"),
+                         "disabled": bool(k.get("disabled")),
+                         "source": "generated"})
+        env = os.environ.get("NEXUS_V1_API_KEY", "")
+        if env and not _V1KEYS["keys"]:
+            keys.append({"id": "env", "name": "Environment key",
+                         "key_full": env, "key_last4": env[-4:],
+                         "created": None, "last_used": None,
+                         "disabled": False, "source": "env"})
         body = {"enabled": bool(key),
+                "keys": keys,
                 "key_last4": key[-4:] if key else "",
                 "key_full": key,
                 "key_source": _v1_key_source(),
-                "key_created": key_created,
+                "key_created": keys[0]["created"] if keys else None,
                 "can_generate": bool(RESTORE_KEY),
                 "base_url": f"{proto}://{host}/v1",
                 "consumer": "DSRclone AI service",
@@ -3208,29 +3282,72 @@ class Handler(BaseHTTPRequestHandler):
         self._send_body(json.dumps(body).encode())
 
     def _v1_access_generate(self):
-        """Admin-only: mint a new /v1 service key (replaces the current
-        one — consumers must be given the new key). Stored restore-key
-        encrypted (v1key.enc) and synced like the friend list."""
+        """Admin-only: create a NEW named /v1 service key alongside
+        the existing ones (multi-key, owner order 2026-10-16; this
+        endpoint's name predates it). Stored restore-key encrypted
+        (v1key.enc) and synced like the friend list."""
         info = self._session_info()
         if not info or not info.get("admin"):
             self._set_json_headers(403)
             self._send_body(json.dumps({"error": "admin only"}).encode())
             return
-        key = _generate_v1key()
-        if not key:
+        data = {}
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length:
+                data = json.loads(self.rfile.read(length) or b"{}")
+        except Exception:
+            data = {}
+        entry = _create_v1key(data.get("name", ""))
+        if not entry:
             self._set_json_headers(400)
-            self._send_body(json.dumps({"error": "key generation needs the server restore key (NEXUS_RESTORE_KEY) to store the key safely; on this host, set the key via the NEXUS_V1_API_KEY environment variable instead"}).encode())
+            self._send_body(json.dumps({"error": "key creation needs the server restore key (NEXUS_RESTORE_KEY) to store the key safely; on this host, set the key via the NEXUS_V1_API_KEY environment variable instead"}).encode())
             return
         _append_usage({"ts": datetime.datetime.now().isoformat(),
-                       "type": "v1key_generated"})
-        _audit("Vault", "/v1 service key generated")
-        try:
-            created = int(V1KEY_PATH.stat().st_mtime)
-        except Exception:
-            created = None
+                       "type": "v1key_created"})
+        _audit("Vault", f"/v1 service key created: {entry['name']}")
         self._set_json_headers()
-        self._send_body(json.dumps({"ok": True, "key": key, "source": "generated",
-                                    "key_created": created}).encode())
+        self._send_body(json.dumps({"ok": True, "key": entry["key"],
+                                    "id": entry["id"],
+                                    "name": entry["name"],
+                                    "source": "generated",
+                                    "key_created": entry["created"]}).encode())
+
+    def _v1_access_keystate(self, action):
+        """Admin-only: disable / enable / delete one stored key by
+        id (owner order 2026-10-16). The env fallback is not a
+        stored key and cannot be managed here."""
+        info = self._session_info()
+        if not info or not info.get("admin"):
+            self._set_json_headers(403)
+            self._send_body(json.dumps({"error": "admin only"}).encode())
+            return
+        data = {}
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length:
+                data = json.loads(self.rfile.read(length) or b"{}")
+        except Exception:
+            data = {}
+        entry = None
+        for k in _V1KEYS["keys"]:
+            if k["id"] == data.get("id", ""):
+                entry = k
+                break
+        if entry is None:
+            self._set_json_headers(404)
+            self._send_body(json.dumps({"error": "no such key"}).encode())
+            return
+        if action == "delete":
+            _V1KEYS["keys"].remove(entry)
+        else:
+            entry["disabled"] = (action == "disable")
+        _save_v1keys()
+        verb = {"disable": "disabled", "enable": "enabled",
+                "delete": "deleted"}[action]
+        _audit("Vault", f"/v1 service key {verb}: {entry['name']}")
+        self._set_json_headers()
+        self._send_body(json.dumps({"ok": True}).encode())
 
     def _v1_access_test(self):
         """Admin-only live self-test: one tiny nexus-auto completion
@@ -4930,6 +5047,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/v1-access/generate":
             self._v1_access_generate()
+            return
+        if parsed.path in ("/api/v1-access/disable",
+                           "/api/v1-access/enable",
+                           "/api/v1-access/delete"):
+            self._v1_access_keystate(parsed.path.rsplit("/", 1)[1])
             return
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"

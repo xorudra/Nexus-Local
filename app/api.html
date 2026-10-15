@@ -53,6 +53,16 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'He
 .keycell .keyrow{margin-top:7px}
 .keys-table td.u{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:#d9d9de;white-space:nowrap;padding-top:14px}
 .keys-table td:has(.pill){padding-top:12px}
+.head-actions{display:flex;gap:10px;align-items:center;flex:none;flex-wrap:wrap}
+#key-search{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:8px 12px;font-size:13.5px;font-family:inherit;width:170px;outline:none}
+#key-search:focus{border-color:rgba(255,255,255,.4)}
+#create-row{display:flex;gap:10px;align-items:center;padding:14px 24px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
+#create-row input{flex:1;min-width:200px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:9px 12px;font-size:13.5px;font-family:inherit;outline:none}
+.keys-table .acts{white-space:nowrap}
+.mini-btn{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.04);color:#d9d9de;border-radius:7px;padding:5px 12px;font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit;margin-right:6px;transition:background .2s}
+.mini-btn:hover{background:rgba(255,255,255,.09);color:#fff}
+.mini-btn.danger{border-color:rgba(231,76,60,.45);color:#ff9a9a}
+.mini-btn.danger:hover{background:rgba(231,76,60,.12)}
 .keyrow input{flex:1;min-width:0;box-sizing:border-box;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-right:none;border-radius:10px 0 0 10px;color:#e8e8ee;padding:9px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:13px;outline:none}
 .keyrow button{border-radius:0 10px 10px 0;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.04);color:#d9d9de;padding:0 18px;font-size:13.5px;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1)}
 .keyrow button:hover{background:rgba(255,255,255,.09);color:#fff}
@@ -213,30 +223,28 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
         <p class="desc">API keys are used to authenticate requests to the Nexus /v1 API.
         Anyone holding this key can call your endpoint — keep it like a password.</p>
       </div>
-      <button id="gen-btn" class="btn-primary" onclick="genKey()">Generate API key</button>
+      <div class="head-actions">
+        <input type="search" id="key-search" placeholder="Search keys" aria-label="Search keys" oninput="renderKeys()">
+        <button id="gen-btn" class="btn-primary" onclick="toggleCreate()">Create API key</button>
+      </div>
+    </div>
+    <div id="create-row" style="display:none">
+      <input type="text" id="new-name" maxlength="60" placeholder="Key name — e.g. DSRclone, Testing" aria-label="New key name">
+      <button class="btn-primary" onclick="createKey()">Create</button>
+      <button class="btn-ghost" onclick="toggleCreate()">Cancel</button>
     </div>
     <div class="keys-body">
       <div class="tblwrap"><table class="keys-table">
-        <thead><tr><th>Name</th><th>Status</th><th>Created</th><th>Source</th></tr></thead>
-        <tbody><tr>
-          <td class="keycell">
-            <div class="keyname">Nexus service key</div>
-            <div class="keyrow">
-              <input type="text" id="key-full" readonly value="" aria-label="Full service key (admin only)">
-              <button type="button" onclick="copyKey()">Copy</button>
-            </div>
-          </td>
-          <td><span id="status-pill" class="pill off">loading</span></td>
-          <td class="u" id="key-created">—</td>
-          <td class="u" id="key-source">—</td>
-        </tr></tbody>
+        <thead><tr><th>Name</th><th>Status</th><th>Created</th><th>Last used</th><th>Action</th></tr></thead>
+        <tbody id="keys-rows"><tr><td colspan="5" class="u">loading…</td></tr></tbody>
       </table></div>
     </div>
     <div class="card-foot">
       <div id="gen-result"></div>
-      <p class="note" style="margin-top:10px">Generating a new key replaces the current one <b>immediately</b> —
-      DSRclone stops connecting until its AI service is given the new key. A generated key is stored
-      encrypted on the server and syncs like your friend list, so it survives restarts.</p>
+      <p class="note" style="margin-top:10px">Every project can hold its own key. Disabling a key stops it
+      <b>immediately</b> without touching the others; deleting removes it for good — anything still using it
+      (like DSRclone) stops connecting. Keys are stored encrypted on the server and sync like your friend
+      list, so they survive restarts.</p>
     </div>
   </div>
 
@@ -291,56 +299,101 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function fmtDate(ts){return new Date(ts*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
-fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
-  var pill=document.getElementById('status-pill');
-  if(d.enabled){pill.textContent='ENABLED';pill.className='pill on';}
-  else{pill.textContent='NOT CONFIGURED';pill.className='pill off';}
-  document.getElementById('base-url').textContent=d.base_url;
-  document.getElementById('key-hint').textContent=d.enabled?('••••••••'+d.key_last4):'not set';
-  document.getElementById('key-source').textContent=d.key_source==='generated'?'generated on this page':(d.key_source==='env'?'server environment':'—');
-  document.getElementById('key-created').textContent=d.key_created?fmtDate(d.key_created):'—';
-  document.getElementById('key-full').value=d.key_full||'';
-  if(!d.can_generate){var gb=document.getElementById('gen-btn');gb.disabled=true;gb.title='Needs the server restore key';}
-  document.getElementById('consumer').textContent=d.consumer;
-  document.getElementById('vault').textContent=d.vault_unlocked?'unlocked':'locked (keyless lanes only)';
-  document.getElementById('lanes').innerHTML=d.lanes.map(function(l){
-    return '<tr><td>'+esc(l.lane)+'</td><td>'+esc(l.model)+'</td><td class="'+(l.ready?'ready':'notready')+'">'+(l.ready?'ready':'needs unlock')+'</td></tr>';
-  }).join('');
-  document.getElementById('example').textContent=
+var KEYS=[];
+function fmtDateTime(ts){var d=new Date(ts*1000);return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});}
+function rowHtml(k){
+  var pill=k.disabled?'<span class="pill off">DISABLED</span>':'<span class="pill on">ENABLED</span>';
+  var acts;
+  if(k.source==='env'){
+    acts='<span class="u">server environment</span>';
+  }else{
+    acts='<button type="button" class="mini-btn" data-act="'+(k.disabled?'enable':'disable')+'" data-id="'+esc(k.id)+'">'+(k.disabled?'Enable':'Disable')+'</button>'
+        +'<button type="button" class="mini-btn danger" data-act="delete" data-id="'+esc(k.id)+'">Delete</button>';
+  }
+  return '<tr><td class="keycell"><div class="keyname">'+esc(k.name)+'</div>'
+    +'<div class="keyrow"><input type="text" readonly value="'+esc(k.key_full)+'" aria-label="Service key (admin only)">'
+    +'<button type="button" data-act="copy">Copy</button></div></td>'
+    +'<td>'+pill+'</td>'
+    +'<td class="u">'+(k.created?fmtDate(k.created):'—')+'</td>'
+    +'<td class="u">'+(k.last_used?fmtDateTime(k.last_used):'Never')+'</td>'
+    +'<td class="acts">'+acts+'</td></tr>';
+}
+function renderKeys(){
+  var q=(document.getElementById('key-search').value||'').toLowerCase();
+  var rows=KEYS.filter(function(k){return !q||k.name.toLowerCase().indexOf(q)>=0;});
+  document.getElementById('keys-rows').innerHTML=rows.length?rows.map(rowHtml).join('')
+    :'<tr><td colspan="5" class="u">'+(KEYS.length?'No keys match your search.':'No keys yet — create one above.')+'</td></tr>';
+}
+function loadInfo(){
+  fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
+    KEYS=d.keys||[];
+    renderKeys();
+    document.getElementById('base-url').textContent=d.base_url;
+    document.getElementById('key-hint').textContent=d.enabled?('••••••••'+d.key_last4+' (first enabled key)'):'not set';
+    if(!d.can_generate){var gb=document.getElementById('gen-btn');gb.disabled=true;gb.title='Needs the server restore key';}
+    document.getElementById('consumer').textContent=d.consumer;
+    document.getElementById('vault').textContent=d.vault_unlocked?'unlocked':'locked (keyless lanes only)';
+    document.getElementById('lanes').innerHTML=d.lanes.map(function(l){
+      return '<tr><td>'+esc(l.lane)+'</td><td>'+esc(l.model)+'</td><td class="'+(l.ready?'ready':'notready')+'">'+(l.ready?'ready':'needs unlock')+'</td></tr>';
+    }).join('');
+    document.getElementById('example').textContent=
 'curl '+d.base_url+'/chat/completions \\\n'+
 '  -H "Authorization: Bearer <your service key>" \\\n'+
 '  -H "Content-Type: application/json" \\\n'+
 '  -d \'{"model": "nexus-auto", "messages": [{"role": "user", "content": "Hello"}]}\'';
-}).catch(function(){
-  document.getElementById('status-pill').textContent='ERROR';
+  }).catch(function(){
+    document.getElementById('keys-rows').innerHTML='<tr><td colspan="5" class="u">Could not load the keys.</td></tr>';
+  });
+}
+document.getElementById('keys-rows').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b){return;}
+  var act=b.getAttribute('data-act'), id=b.getAttribute('data-id');
+  if(act==='copy'){
+    var inp=b.closest('tr').querySelector('input');
+    if(!inp||!inp.value){return;}
+    inp.select();
+    if(navigator.clipboard){navigator.clipboard.writeText(inp.value);}
+    else{document.execCommand('copy');}
+    document.getElementById('gen-result').textContent='Copied.';
+    return;
+  }
+  if(act==='delete'){
+    var k=null; KEYS.forEach(function(x){if(x.id===id)k=x;});
+    if(!confirm('Delete key "'+(k?k.name:'')+'"? Anything still using it (like DSRclone) stops connecting, and this cannot be undone.')){return;}
+  }
+  keyState(id,act);
 });
-function copyKey(){
-  var inp=document.getElementById('key-full');
-  if(!inp.value){return;}
-  inp.select();
-  if(navigator.clipboard){navigator.clipboard.writeText(inp.value);}
-  else{document.execCommand('copy');}
-  document.getElementById('gen-result').textContent='Copied.';
-}
-function genKey(){
-  if(!confirm('Generate a NEW service key? The current key stops working immediately, and DSRclone disconnects until its AI service gets the new key.')){return;}
-  var btn=document.getElementById('gen-btn'), out=document.getElementById('gen-result');
-  btn.disabled=true; out.textContent='Generating…';
-  fetch('/api/v1-access/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+function keyState(id,act){
+  var out=document.getElementById('gen-result');
+  fetch('/api/v1-access/'+act,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
   .then(function(r){return r.json()}).then(function(d){
-    btn.disabled=false;
-    if(d.ok){
-      document.getElementById('key-full').value=d.key;
-      document.getElementById('key-source').textContent='generated on this page';
-      if(d.key_created){document.getElementById('key-created').textContent=fmtDate(d.key_created);}
-      document.getElementById('key-hint').textContent='••••••••'+d.key.slice(-4);
-      var pill=document.getElementById('status-pill');pill.textContent='ENABLED';pill.className='pill on';
-      out.textContent='✓ New key is active. Now update DSRclone\u2019s AI service with this key so it reconnects.';
-    }else{
-      out.textContent='✗ '+(d.error||'generation failed');
-    }
-  }).catch(function(){btn.disabled=false;out.textContent='✗ Generate request failed.';});
+    if(d.ok){ out.textContent='✓ Done.'; loadInfo(); }
+    else{ out.textContent='✗ '+(d.error||'action failed'); }
+  }).catch(function(){ out.textContent='✗ Request failed.'; });
 }
+function toggleCreate(){
+  var row=document.getElementById('create-row');
+  var show=row.style.display==='none';
+  row.style.display=show?'flex':'none';
+  if(show){document.getElementById('new-name').focus();}
+}
+function createKey(){
+  var name=document.getElementById('new-name').value.trim();
+  var out=document.getElementById('gen-result');
+  out.textContent='Creating…';
+  fetch('/api/v1-access/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})})
+  .then(function(r){return r.json()}).then(function(d){
+    if(d.ok){
+      out.textContent='✓ Key "'+d.name+'" created — copy it from the table into the project that needs it.';
+      document.getElementById('new-name').value='';
+      toggleCreate();
+      loadInfo();
+    }else{
+      out.textContent='✗ '+(d.error||'creation failed');
+    }
+  }).catch(function(){out.textContent='✗ Create request failed.';});
+}
+loadInfo();
 function runTest(){
   var btn=document.getElementById('test-btn'), out=document.getElementById('test-result');
   btn.disabled=true; out.textContent='Testing — asking the lanes for a reply…';

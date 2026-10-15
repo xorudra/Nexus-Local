@@ -197,20 +197,23 @@ class V1FreeLLanesTests(unittest.TestCase):
 
 
 class V1GenerateKeyTests(unittest.TestCase):
-    """Admin-generated service keys (owner order 2026-10-09): stored
-    restore-key encrypted, effective immediately, env key as fallback."""
+    """Admin-created service keys (owner orders 2026-10-09 + the
+    multi-key features 2026-10-16): named keys in one restore-key
+    encrypted list, disable/enable/delete semantics, last-used
+    stamps, and in-place migration of the original single-key
+    file shape."""
 
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp(prefix="nexus-v1key-"))
         self._orig = (server.RESTORE_KEY, server.V1KEY_PATH,
-                      server._V1KEY["key"])
+                      list(server._V1KEYS["keys"]))
         server.RESTORE_KEY = "test-restore-key"
         server.V1KEY_PATH = self._tmp / "v1key.enc"
-        server._V1KEY["key"] = ""
+        server._V1KEYS["keys"] = []
 
     def tearDown(self):
         (server.RESTORE_KEY, server.V1KEY_PATH,
-         server._V1KEY["key"]) = self._orig
+         server._V1KEYS["keys"]) = self._orig
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def _handler(self, auth_header=None):
@@ -220,25 +223,53 @@ class V1GenerateKeyTests(unittest.TestCase):
             h.headers["Authorization"] = auth_header
         return h
 
-    def test_generate_persists_and_wins_over_env(self):
-        key = server._generate_v1key()
-        self.assertTrue(key.startswith("nxk-"))
+    def test_create_persists_and_wins_over_env(self):
+        entry = server._create_v1key("DSRclone")
+        self.assertTrue(entry["key"].startswith("nxk-"))
         self.assertTrue(server.V1KEY_PATH.exists())
         with mock.patch.dict(os.environ, {"NEXUS_V1_API_KEY": FIXTURE_KEY}):
-            self.assertEqual(server._v1_api_key(), key)
+            self.assertEqual(server._v1_api_key(), entry["key"])
             self.assertEqual(server._v1_key_source(), "generated")
-            self.assertTrue(self._handler(f"Bearer {key}")._v1_authorized())
-            # The old env key is replaced, not merged.
+            self.assertTrue(self._handler(f"Bearer {entry['key']}")._v1_authorized())
+            # Stored keys win outright: the env key no longer authenticates.
             self.assertFalse(self._handler(f"Bearer {FIXTURE_KEY}")._v1_authorized())
-        # A fresh boot reloads the generated key from disk.
-        server._V1KEY["key"] = ""
+        # A fresh boot reloads the list from disk.
+        server._V1KEYS["keys"] = []
         server._load_v1key()
-        self.assertEqual(server._V1KEY["key"], key)
+        self.assertEqual([k["key"] for k in server._V1KEYS["keys"]], [entry["key"]])
+        self.assertEqual(server._V1KEYS["keys"][0]["name"], "DSRclone")
 
-    def test_generate_needs_restore_key(self):
+    def test_create_needs_restore_key(self):
         server.RESTORE_KEY = ""
-        self.assertIsNone(server._generate_v1key())
+        self.assertIsNone(server._create_v1key("x"))
         self.assertEqual(server._v1_key_source(), "none")
+
+    def test_migration_from_single_key_shape(self):
+        server.encrypt_keys({"key": FIXTURE_KEY, "created": 4242},
+                            "test-restore-key", server.V1KEY_PATH)
+        server._load_v1key()
+        self.assertEqual(len(server._V1KEYS["keys"]), 1)
+        k = server._V1KEYS["keys"][0]
+        self.assertEqual(k["key"], FIXTURE_KEY)
+        self.assertEqual(k["created"], 4242)
+        self.assertTrue(self._handler(f"Bearer {FIXTURE_KEY}")._v1_authorized())
+        # The file on disk has been rewritten in the list shape.
+        d = server.decrypt_keys(server.V1KEY_PATH, "test-restore-key")
+        self.assertIn("keys", d)
+
+    def test_disable_enable_delete_and_last_used(self):
+        a = server._create_v1key("A")
+        b = server._create_v1key("B")
+        self.assertIsNone(a["last_used"])
+        self.assertTrue(self._handler(f"Bearer {a['key']}")._v1_authorized())
+        self.assertIsNotNone(a["last_used"])
+        a["disabled"] = True
+        self.assertFalse(self._handler(f"Bearer {a['key']}")._v1_authorized())
+        self.assertTrue(self._handler(f"Bearer {b['key']}")._v1_authorized())
+        a["disabled"] = False
+        self.assertTrue(self._handler(f"Bearer {a['key']}")._v1_authorized())
+        server._V1KEYS["keys"].remove(b)
+        self.assertFalse(self._handler(f"Bearer {b['key']}")._v1_authorized())
 
 
 if __name__ == "__main__":
