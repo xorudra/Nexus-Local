@@ -16,12 +16,15 @@
 body {
     margin: 0;
     font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-    background-color: #050507;
-    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,255,255,.07), transparent 70%);
+    background-color: #0a0a0a;
+    /* Proactiv-style spotlight canvas (owner-supplied Aceternity
+       template, 2026-10-15): a soft white glow at the top with a
+       whisper of the template's cyan at the hero's heart. */
+    background-image:
+        radial-gradient(ellipse 55% 38% at 50% -6%, rgba(255,255,255,.09), transparent 70%),
+        radial-gradient(ellipse 34% 26% at 50% 0%, rgba(56,189,248,.05), transparent 70%);
     color: #dde;
     overflow-x: hidden;
-    background-color: #050507;
-    background-image: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,255,255,.07), transparent 70%);
 }
 
 /* Header */
@@ -29,11 +32,10 @@ body {
     animation: fadeDown .6s cubic-bezier(.2,.7,.3,1) both;
     display: flex;
     align-items: center;
-    padding: 20px 32px;
+    padding: 16px 32px;
     padding-left: 70px;
-    background: #0c0c0e;
-    border-bottom: 1px solid rgba(255,255,255,.18);
-    box-shadow: 0 1px 0 rgba(0,0,0,.8);
+    background: transparent;
+    border-bottom: 1px solid rgba(255,255,255,.08);
 }
 
 .header h1 {
@@ -87,34 +89,66 @@ body {
     color: #fff;
 }
 
-/* Hero */
+/* Hero — Proactiv-style (owner-supplied Aceternity template,
+   2026-10-15): open canvas instead of a boxed card, the
+   template's glowing icon chip, a giant two-line headline
+   whose first line runs grey-to-white, and the combined
+   usage strip as the quiet subline underneath. */
 .hero {
     position: relative;
-    overflow: hidden;
     animation: fadeUp .7s cubic-bezier(.2,.7,.3,1) both;
-    background: #0d0d11;
-    padding: 32px 48px;
-    margin: 20px auto;
+    padding: 62px 24px 10px;
+    margin: 0 auto;
     max-width: 1560px;
-    border-radius: 14px;
-    border: 1px solid rgba(255,255,255,.14);
-    box-shadow: 0 16px 48px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+    text-align: center;
 }
+
+.hero-chip {
+    width: 46px;
+    height: 46px;
+    margin: 0 auto 26px;
+    border-radius: 13px;
+    background: #101013;
+    border: 1px solid rgba(255,255,255,.14);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 16px 36px -8px rgba(56,189,248,.5), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.hero-chip svg { width: 30px; height: 12px; }
 
 .hero h2 {
     margin: 0 0 12px 0;
-    font-size: clamp(28px, 5vw, 40px);
-    color: #fff;
+    font-size: clamp(34px, 7.2vw, 82px);
+    color: #fafafa;
     font-family: 'Space Grotesk', sans-serif;
-    letter-spacing: -.01em;
-    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: -.03em;
+    line-height: 1.05;
 }
 
-.hero::after{content:"";position:absolute;right:-20px;top:50%;width:340px;height:137px;
-background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20100%2036%27%3E%3Cpath%20d%3D%27M0%2C14%20L24%2C3%20L39%2C9%20L44%2C1%20L46.5%2C7%20L50%2C5%20L53.5%2C7%20L56%2C1%20L61%2C9%20L76%2C3%20L100%2C14%20L90%2C20%20L83%2C16%20L75%2C24%20L67%2C18%20L59%2C28%20L54%2C22%20L50%2C30%20L46%2C22%20L41%2C28%20L33%2C18%20L25%2C24%20L17%2C16%20L10%2C20%20Z%27%20fill%3D%27%23f2f2f2%27/%3E%3C/svg%3E") no-repeat center/contain;opacity:.06;pointer-events:none;animation:batDrift 11s ease-in-out infinite}
-.hero h2 span.accent {
-    color: #f2f2f2;
+.hero h2 .grad {
+    background: linear-gradient(180deg, #8a8a93, #fafafa);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
 }
+.hero h2 span.accent {
+    color: #fafafa;
+}
+
+#combined-usage { margin-top: 30px; }
+#combined-usage h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+    color: #a1a1a1;
+    margin: 0 0 6px;
+}
+#combined-usage .usage { color: #a1a1a1; font-size: 13.5px; }
+#combined-usage .spark { margin: 10px auto 6px; }
+#combined-usage .trend-today { color: #d9d9de; font-size: 13.5px; }
 
 /* Provider cards */
 .provider-grid {
@@ -256,21 +290,24 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
     font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
 }
 
-/* Composer card */
+/* Composer card — framed like the Proactiv template's product
+   visual: a large-radius panel lifted off the canvas by a deep
+   shadow and a whisper of cyan in the glow. */
 .composer {
     animation: fadeUp .7s .12s cubic-bezier(.2,.7,.3,1) both;
-    background: #101014;
-    border-radius: 12px;
-    padding: 20px;
-    margin: 20px auto;
+    background: #0d0d10;
+    border-radius: 20px;
+    padding: 22px;
+    margin: 26px auto 20px;
     max-width: 1560px;
-    border: 1px solid #121214;
+    border: 1px solid rgba(255,255,255,.1);
+    box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 120px rgba(56,189,248,.05), inset 0 1px 0 rgba(255,255,255,.05);
 }
 
 .composer h2 {
     margin: 0 0 12px 0;
-    font-size: 18px;
-    letter-spacing: .06em;
+    font-size: 17px;
+    letter-spacing: 0;
     color: #fff;
     font-family: 'Space Grotesk', sans-serif; font-weight: 600;
 }
@@ -346,13 +383,14 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
         padding: 16px 16px 16px 70px;
     }
 
-    .hero, .provider-grid, .composer {
+    .provider-grid, .composer {
         margin: 16px;
         padding: 24px;
     }
 
-    .hero h2 {
-        font-size: 2rem;
+    .hero {
+        margin: 8px 16px;
+        padding: 38px 12px 4px;
     }
 
     .composer button {
@@ -544,6 +582,11 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 .chat-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .chat-bar button{width:auto;flex:none;background:#101012;border:1px solid rgba(255,255,255,.25);color:#f2f2f2;border-radius:9px;padding:7px 12px;font-size:13px;cursor:pointer;font-family:inherit}
 .chat-bar button:hover{border-color:#f2f2f2}
+/* The template's single cyan CTA, mapped to the page's primary
+   action (Proactiv restyle, 2026-10-15). */
+#chat-new{background:#38bdf8;border-color:transparent;color:#082f49;font-weight:600}
+#chat-new:hover{background:#56c8f9;border-color:transparent}
+.picker:focus{border-color:rgba(56,189,248,.55);outline:none}
 #chat-title{flex:1;text-align:center;color:#8e8e8e;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #chats-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .2s;z-index:1500}
 #chats-backdrop.open{opacity:1;pointer-events:auto}
@@ -723,8 +766,8 @@ try{ if(sessionStorage.getItem('nexus_terms_notice')==='1'){ var _tn=document.ge
 </div>
 
 <div class="hero">
-    <div class="eyebrow">USAGE OVERVIEW</div>
-    <h2>Your providers, <span class="accent">actually</span> under control</h2>
+    <div class="hero-chip"><svg viewBox="0 0 100 36" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#38bdf8"/></svg></div>
+    <h2><span class="grad">Your providers,</span><br><span class="accent">actually</span> under control</h2>
     <div id="combined-usage"></div>
 </div>
 
