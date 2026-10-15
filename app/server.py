@@ -12,7 +12,8 @@ Features
   * GET  /api/quotas   -> provider list with placeholder quota structures
   * GET  /api/usage    -> aggregate usage stats
   * POST /api/chat     -> chat via provider APIs
-  * GET  /            -> dashboard.html (requires login)
+  * GET  /            -> dashboard.html (session) or the public landing.html
+  * GET  /home        -> landing.html (public home page)
   * GET  /login        -> login.html
   * POST /api/login    -> password auth, creates session
   * POST /api/logout   -> end session
@@ -3973,6 +3974,20 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_error(500, "internal error")
             return
+        # Public home page (owner order 2026-10-15: "a Home page
+        # like other webs have", after the Aceternity Proactiv
+        # template). Pure presentation — no data, no session.
+        if parsed.path == "/home":
+            try:
+                content = (Path(__file__).parent / "landing.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception:
+                self.send_error(500, "internal error")
+            return
         # Public login page
         if parsed.path == "/login":
             key_path = Path(__file__).parent / "keys.enc"
@@ -4129,9 +4144,19 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     self.send_error(500, "internal error")
             else:
-                self.send_response(302)
-                self.send_header("Location", "/login")
-                self.end_headers()
+                # Signed-out visitors land on the public home page
+                # (owner order 2026-10-15); signing in from there
+                # leads to the dashboard as before. The dashboard
+                # itself stays session-gated.
+                try:
+                    content = (Path(__file__).parent / "landing.html").read_text(encoding="utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                    self.end_headers()
+                    self._send_body(content.encode())
+                except Exception:
+                    self.send_error(500, "internal error")
             return
         # API endpoints
         if parsed.path == "/api/status":
