@@ -390,32 +390,37 @@ padding:10px 14px;font-size:14px;line-height:1.55;word-wrap:break-word}
 .msg-system .msg-body{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.3);color:#ff9a9a;
 border-radius:10px;padding:8px 14px;font-size:13px}
 .msg-meta{font-size:11px;color:#f2f2f2;margin-bottom:4px;letter-spacing:.08em;font-family:'Space Grotesk',sans-serif}
-/* Trace — the steps behind a reply (shadcn Trace pattern in Nexus
-   dress): a collapsible card between the provider label and the
-   answer. One row per attempt: icon, sentence title, muted
-   description (model · duration), error detail under failures. */
-.trace{margin:2px 0 8px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:rgba(255,255,255,.025);overflow:hidden;max-width:100%}
-.trace-head{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:8px 12px;background:none;border:none;cursor:pointer;color:#c9c9d1;font-family:inherit;text-align:left}
-.trace-head:hover{background:rgba(255,255,255,.04)}
-.trace-head .trace-word{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#f2f2f2}
-.trace-head .trace-desc{font-size:12px;color:#8e8e8e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.trace-head .trace-chev{margin-left:auto;flex:none;color:#8e8e8e;transition:transform .2s cubic-bezier(.4,0,.2,1)}
-.trace.open .trace-head .trace-chev{transform:rotate(90deg)}
-.trace-steps{display:none;padding:2px 12px 10px;flex-direction:column;gap:7px}
-.trace.open .trace-steps{display:flex}
-.trace-line{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:#d9d9de;flex-wrap:wrap}
-.trace-ico{flex:none;width:16px;height:16px;display:flex;align-items:center;justify-content:center;margin-top:1px;color:#a1a1aa}
-.trace-line[data-st="error"] .trace-ico{color:#f87171}
-.trace-title{flex:0 1 auto}
-.trace-line[data-st="running"] .trace-title{background:linear-gradient(90deg,#8e8e8e 25%,#f2f2f2 50%,#8e8e8e 75%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:traceShimmer 1.6s linear infinite}
-.trace-ldesc{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8e8e8e;margin-top:2px}
-.trace-detail{flex-basis:100%;padding-left:25px;font-size:12.5px;line-height:1.5;color:#d98c8c;word-wrap:break-word}
-.trace-spin{width:12px;height:12px;border-radius:50%;border:2px solid rgba(255,255,255,.18);border-top-color:#f2f2f2;animation:traceSpin .8s linear infinite}
+/* Trace — the steps behind a reply (shadcn Trace design, owner-
+   pasted 2026-10-15): a rail timeline between the provider label
+   and the answer. One row per attempt: status icon on the rail,
+   tense-switched sentence title, muted description (model ·
+   duration), failure reason in a code block under failed rows. */
+.trace{margin:2px 0 10px;max-width:100%;display:flex;flex-direction:column}
+.trace-row{position:relative;padding-bottom:10px}
+.trace-row:last-child{padding-bottom:2px}
+.trace-row::before{content:'';position:absolute;left:10.5px;top:24px;bottom:-1px;width:1.5px;background:rgba(255,255,255,.13)}
+.trace-row:last-child::before{display:none}
+.trace-line{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:#d9d9de;width:100%;box-sizing:border-box;background:none;border:none;padding:0;font-family:inherit;text-align:left}
+button.trace-line{cursor:pointer}
+.trace-ico{flex:none;width:22px;height:22px;border-radius:50%;background:#050505;display:flex;align-items:center;justify-content:center;color:#a1a1aa;position:relative;z-index:1}
+.trace-row[data-st="error"] .trace-ico{color:#f87171}
+.trace-row[data-st="running"] .trace-ico{color:#e4e4e7}
+.trace-ico svg{display:block}
+.trace-ico .spin{animation:traceSpin 1s linear infinite}
+.trace-title{flex:0 1 auto;padding-top:3px}
+.trace-row[data-st="running"] .trace-title{background:linear-gradient(90deg,#8e8e8e 25%,#f2f2f2 50%,#8e8e8e 75%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:traceShimmer 1.6s linear infinite}
+.trace-ldesc{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8e8e8e;padding-top:5px}
+.trace-chev{margin-left:auto;flex:none;color:#8e8e8e;transition:transform .2s cubic-bezier(.4,0,.2,1);margin-top:4px}
+.trace-row.open .trace-chev{transform:rotate(90deg)}
+.trace-detail{display:none;margin:6px 0 2px 31px}
+.trace-row.open .trace-detail{display:block}
+.trace-code{background:#0a0a0c;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;color:#d9d9de;max-height:256px;overflow-y:auto}
+.trace-code.err{border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.06);color:#f3b4b4}
 @keyframes traceSpin{to{transform:rotate(360deg)}}
 @keyframes traceShimmer{to{background-position:-200% 0}}
 @media (prefers-reduced-motion: reduce){
-  .trace-line[data-st="running"] .trace-title{animation:none;color:#c9c9d1}
-  .trace-spin{animation-duration:2.4s}
+  .trace-row[data-st="running"] .trace-title{animation:none;color:#c9c9d1}
+  .trace-ico .spin{animation-duration:2.4s}
 }
 .typing{display:flex;gap:6px;padding:13px 15px;background:#101012;border:1px solid rgba(255,255,255,.12);border-radius:16px}
 .typing span{width:8px;height:8px;border-radius:50%;background:#f2f2f2;animation:blink 1.2s infinite}
@@ -1043,92 +1048,87 @@ function md(text){
   return '<p class="md-p">' + h + '</p>';
 }
 // Trace: the steps behind a reply, built from the server's
-// per-attempt record (j.trace) — one row per attempt with a status,
-// a sentence title, a muted model · duration description, and the
-// failure reason under failed rows. While a request is in flight a
-// live trace (request sent + waiting, with a ticking timer) stands
-// in for the typing dots; the reader's expand/collapse click wins.
-const TRACE_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>';
-const TRACE_X = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
+// per-attempt record (j.trace) — shadcn Trace design (owner-pasted
+// 2026-10-15): a rail timeline of status rows above the answer.
+// Each row is a status icon on the rail (spinner while running,
+// circle-check when done, circle-alert on failure) plus a sentence
+// title that switches tense with the state, a muted model ·
+// duration description, and — on failed rows — the reason in a
+// destructive code block under a per-row collapsible (failed rows
+// start open, like the reference's failed tool row). While a
+// request is in flight a live trace (request sent + waiting, with
+// a ticking timer) stands in for the typing dots.
+const TRACE_ICO_OK = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>';
+const TRACE_ICO_ERR = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
+const TRACE_ICO_RUN = '<svg class="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
 const TRACE_CHEV = '<svg class="trace-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg>';
 function traceStepRow(st,title,desc,detail){
-  const ico = st === 'running' ? '<span class="trace-spin"></span>'
-    : st === 'error' ? TRACE_X
+  const ico = st === 'running' ? TRACE_ICO_RUN
+    : st === 'error' ? TRACE_ICO_ERR
     : st === 'pending' ? '<span style="width:7px;height:7px;border-radius:50%;background:#52525b"></span>'
-    : TRACE_CHECK;
-  return '<div class="trace-line" data-st="' + st + '"><span class="trace-ico">' + ico + '</span>'
+    : TRACE_ICO_OK;
+  const line = '<span class="trace-ico">' + ico + '</span>'
     + '<span class="trace-title">' + esc(title) + '</span>'
-    + (desc ? '<span class="trace-ldesc">' + esc(desc) + '</span>' : '')
-    + (detail ? '<div class="trace-detail">' + esc(detail) + '</div>' : '') + '</div>';
+    + (desc ? '<span class="trace-ldesc">' + esc(desc) + '</span>' : '');
+  if (detail){
+    return '<div class="trace-row open" data-st="' + st + '"><button type="button" class="trace-line" aria-expanded="true">'
+      + line + TRACE_CHEV + '</button>'
+      + '<div class="trace-detail"><div class="trace-code err">' + esc(detail) + '</div></div></div>';
+  }
+  return '<div class="trace-row" data-st="' + st + '"><div class="trace-line">' + line + '</div></div>';
 }
 function traceName(p){ return p === 'auto' ? 'Auto routing' : friendlyName(p || ''); }
-function traceSummary(steps){
-  let ms = 0, anyMs = false, failed = 0;
-  steps.forEach(s => { if (typeof s.ms === 'number') { ms += s.ms; anyMs = true; } if (!s.ok) failed++; });
-  return steps.length + (steps.length === 1 ? ' step' : ' steps')
-    + (anyMs ? ' · ' + (ms / 1000).toFixed(1) + 's' : '')
-    + (failed ? ' · ' + failed + ' failed' : '');
-}
 function finalStepRow(s){
   const desc = (s.m || '') + (typeof s.ms === 'number' ? (s.m ? ' · ' : '') + (s.ms / 1000).toFixed(1) + 's' : '');
   return s.ok
     ? traceStepRow('done', 'Answered by ' + traceName(s.p), desc, '')
-    : traceStepRow('error', traceName(s.p) + ' failed', desc, s.e || '');
+    : traceStepRow('error', 'Failed on ' + traceName(s.p), desc, s.e || '');
 }
-function wireTraceHead(el){
-  const head = el.querySelector('.trace-head');
-  if (!head) return;
-  head.addEventListener('click', () => {
-    el.classList.toggle('open');
-    head.setAttribute('aria-expanded', el.classList.contains('open') ? 'true' : 'false');
-  });
-}
-function buildTrace(steps, open){
+function buildTrace(steps){
   const el = document.createElement('div');
-  el.className = 'trace' + (open ? ' open' : '');
-  el.innerHTML = '<button type="button" class="trace-head" aria-expanded="' + (open ? 'true' : 'false') + '">'
-    + '<span class="trace-word">Trace</span><span class="trace-desc">' + esc(traceSummary(steps)) + '</span>'
-    + TRACE_CHEV + '</button><div class="trace-steps">' + steps.map(finalStepRow).join('') + '</div>';
-  wireTraceHead(el);
+  el.className = 'trace';
+  el.innerHTML = steps.map(finalStepRow).join('');
+  el.querySelectorAll('button.trace-line').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.trace-row');
+      row.classList.toggle('open');
+      btn.setAttribute('aria-expanded', row.classList.contains('open') ? 'true' : 'false');
+    });
+  });
   return el;
 }
 function startLiveTrace(provider, model){
   const el = document.createElement('div');
-  el.className = 'trace open';
-  el.innerHTML = '<button type="button" class="trace-head" aria-expanded="true">'
-    + '<span class="trace-word">Trace</span><span class="trace-desc">working…</span>' + TRACE_CHEV + '</button>'
-    + '<div class="trace-steps">'
-    + traceStepRow('done', provider === 'auto' ? 'Request sent via Auto routing' : 'Request sent to ' + traceName(provider), model || '', '')
-    + traceStepRow('running', 'Waiting for ' + (provider === 'auto' ? 'a provider' : traceName(provider)) + ' to answer', '0.0s', '')
-    + '</div>';
-  wireTraceHead(el);
+  el.className = 'trace';
+  el.innerHTML = traceStepRow('done', provider === 'auto' ? 'Request sent via Auto routing' : 'Request sent to ' + traceName(provider), model || '', '')
+    + traceStepRow('running', 'Waiting for ' + (provider === 'auto' ? 'a provider' : traceName(provider)) + ' to answer', '0.0s', '');
   thread.appendChild(el); thread.scrollTop = thread.scrollHeight;
-  const descEl = el.querySelector('.trace-line[data-st="running"] .trace-ldesc');
+  const descEl = el.querySelector('.trace-row[data-st="running"] .trace-ldesc');
   const t0 = Date.now();
   const timer = setInterval(() => { if (descEl) descEl.textContent = ((Date.now() - t0) / 1000).toFixed(1) + 's'; }, 100);
   return { el: el,
     stop(){ clearInterval(timer); },
-    finish(steps){ clearInterval(timer); const fresh = buildTrace(steps, steps.some(s => !s.ok)); el.replaceWith(fresh); return fresh; } };
+    finish(steps){ clearInterval(timer); const fresh = buildTrace(steps); el.replaceWith(fresh); return fresh; } };
 }
 function addMsg(kind,text,meta,trace){
   const div=document.createElement('div');div.className='msg msg-'+kind;
   const bodyHtml = kind === 'ai' ? md(text) : esc(text).replace(/\n/g,'<br>');
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body">'+bodyHtml+'</div>';
   if (kind === 'ai' && Array.isArray(trace) && trace.length){
-    div.insertBefore(buildTrace(trace, trace.some(s=>!s.ok)), div.querySelector('.msg-body'));
+    div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
   }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addAudioMsg(src,meta,trace){
   const div=document.createElement('div');div.className='msg msg-ai';
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><audio controls src="'+src+'" style="width:100%;max-width:340px"></audio></div>';
-  if (Array.isArray(trace) && trace.length) div.insertBefore(buildTrace(trace, trace.some(s=>!s.ok)), div.querySelector('.msg-body'));
+  if (Array.isArray(trace) && trace.length) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addVideoMsg(src,meta,trace){
   const div=document.createElement('div');div.className='msg msg-ai';
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><video controls src="'+src+'" style="width:100%;max-width:420px;border-radius:12px"></video></div>';
-  if (Array.isArray(trace) && trace.length) div.insertBefore(buildTrace(trace, trace.some(s=>!s.ok)), div.querySelector('.msg-body'));
+  if (Array.isArray(trace) && trace.length) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addTyping(){
