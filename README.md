@@ -1,4 +1,4 @@
-# Nexus
+# Nexus-Local
 
 Your personal AI dashboard — 19 providers, one login. Runs locally, or as a hosted instance for you and your friends.
 
