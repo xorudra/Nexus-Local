@@ -1,9 +1,10 @@
 """Public home page (owner order 2026-10-15: "a Home page like
 other webs have", built after the supplied Aceternity Proactiv
-template): GET /home serves landing.html to anyone, GET / serves
-it to signed-out visitors, and signed-in users still get the
-dashboard at /. The page is pure presentation — no data, no
-session — while everything real stays session-gated.
+template; owner order 2026-10-16: "make home page default page
+of nexus"): GET / serves landing.html to EVERYONE — it is the
+default page — and the app lives at GET /dashboard, session-
+gated exactly as / was before. The page is pure presentation —
+no data, no session — while everything real stays gated.
 
 Run:  python3 -m unittest discover -s tests -v
 """
@@ -142,9 +143,23 @@ class LandingPage(unittest.TestCase):
         self.assertNotIn("TASK COMPOSER", raw)
         self.assertEqual(loc, "")
 
-    def test_03_root_signed_in_gets_dashboard(self):
+    def test_03_root_signed_in_also_gets_landing(self):
+        # The home page is the default page for everyone now
+        # (owner order 2026-10-16); the app moved to /dashboard.
         cookie = self._login(FRIEND_PW)
         st, raw, _c, _l = self._raw("GET", "/", cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertIn("from one Nexus", raw)
+        self.assertNotIn("TASK COMPOSER", raw)
+
+    def test_05_dashboard_requires_login(self):
+        st, _raw, _c, loc = self._raw("GET", "/dashboard")
+        self.assertIn(st, (301, 302))
+        self.assertIn("/login", loc)
+
+    def test_06_dashboard_signed_in(self):
+        cookie = self._login(FRIEND_PW)
+        st, raw, _c, _l = self._raw("GET", "/dashboard", cookie=cookie)
         self.assertEqual(st, 200)
         self.assertIn("TASK COMPOSER", raw)
         self.assertNotIn("Start chatting", raw)

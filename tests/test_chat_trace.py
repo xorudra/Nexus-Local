@@ -194,7 +194,7 @@ class ChatTrace(unittest.TestCase):
 
     def test_03_dashboard_has_the_trace_renderer(self):
         cookie = self._login(FRIEND_PW)
-        st, j, _ = self._call("GET", "/", cookie=cookie)
+        st, j, _ = self._call("GET", "/dashboard", cookie=cookie)
         self.assertEqual(st, 200)
         html = j["_raw"]
         for token in ("function buildTrace", "function startLiveTrace",

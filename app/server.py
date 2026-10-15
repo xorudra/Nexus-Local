@@ -12,8 +12,9 @@ Features
   * GET  /api/quotas   -> provider list with placeholder quota structures
   * GET  /api/usage    -> aggregate usage stats
   * POST /api/chat     -> chat via provider APIs
-  * GET  /            -> dashboard.html (session) or the public landing.html
+  * GET  /            -> landing.html (the public home page, the default page)
   * GET  /home        -> landing.html (public home page)
+  * GET  /dashboard   -> dashboard.html (requires login)
   * GET  /login        -> login.html
   * POST /api/login    -> password auth, creates session
   * POST /api/logout   -> end session
@@ -3439,7 +3440,7 @@ class Handler(BaseHTTPRequestHandler):
                 **_session_meta(self.headers, self.client_address[0]),
             }
             self.send_response(302)
-            self.send_header("Location", "/")
+            self.send_header("Location", "/dashboard")
             self.send_header("Set-Cookie",
                              f"session={stok}; HttpOnly; Secure; SameSite=Lax; Path=/")
             self.end_headers()
@@ -3942,7 +3943,7 @@ class Handler(BaseHTTPRequestHandler):
                              f"({'admin' if _ois_admin else 'friend'})",
                    ip=_client_ip(self.headers, self.client_address[0]))
             self.send_response(302)
-            self.send_header("Location", "/")
+            self.send_header("Location", "/dashboard")
             self.send_header("Set-Cookie",
                              f"session={_otoken}; HttpOnly; Secure; SameSite=Lax; Path=/")
             self.send_header("Set-Cookie", "oauth_state=; Max-Age=0; Secure; Path=/")
@@ -4125,8 +4126,29 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, "internal error")
             return
-        # Root redirects based on session
+        # Root: the public home page is Nexus's default page
+        # (owner order 2026-10-16 — "make home page default page
+        # of nexus"). Everyone lands here first, signed in or
+        # not; the app itself lives at /dashboard below.
         if parsed.path == "/":
+            key_path = Path(__file__).parent / "keys.enc"
+            if not key_path.exists():
+                self.send_response(302)
+                self.send_header("Location", "/setup")
+                self.end_headers()
+                return
+            try:
+                content = (Path(__file__).parent / "landing.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception:
+                self.send_error(500, "internal error")
+            return
+        # The app itself: the dashboard, session-gated as always.
+        if parsed.path == "/dashboard":
             key_path = Path(__file__).parent / "keys.enc"
             if not key_path.exists():
                 self.send_response(302)
@@ -4144,19 +4166,9 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     self.send_error(500, "internal error")
             else:
-                # Signed-out visitors land on the public home page
-                # (owner order 2026-10-15); signing in from there
-                # leads to the dashboard as before. The dashboard
-                # itself stays session-gated.
-                try:
-                    content = (Path(__file__).parent / "landing.html").read_text(encoding="utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html")
-                    self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-                    self.end_headers()
-                    self._send_body(content.encode())
-                except Exception:
-                    self.send_error(500, "internal error")
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
             return
         # API endpoints
         if parsed.path == "/api/status":
@@ -5066,7 +5078,7 @@ class Handler(BaseHTTPRequestHandler):
             Handler.keys = keys  # refresh in-memory
             register_custom_providers(keys)
             self.send_response(302)
-            self.send_header("Location", "/")
+            self.send_header("Location", "/dashboard")
             self.end_headers()
             return
         if parsed.path == "/api/transcribe":

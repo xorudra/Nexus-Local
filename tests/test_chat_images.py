@@ -175,11 +175,11 @@ class ChatImageFixes(unittest.TestCase):
         self.assertIn("C" * 1000, got[3]["t"])
 
     def test_03_dashboard_retries_failed_hotlinked_images(self):
-        st, j = self.friend.call("GET", "/")
+        st, j = self.friend.call("GET", "/dashboard")
         raw = j.get("_raw", "")
         if not raw:
             conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=15)
-            conn.request("GET", "/", headers={"Cookie": self.friend.cookie})
+            conn.request("GET", "/dashboard", headers={"Cookie": self.friend.cookie})
             resp = conn.getresponse()
             raw = resp.read().decode("utf-8", "replace")
             conn.close()

@@ -194,7 +194,7 @@ class ViewPassTests(unittest.TestCase):
     def test_02_open_link_and_read_pages(self):
         status, body, headers, viewer = self._open_link(self.url1)
         self.assertEqual(status, 302, body)
-        self.assertEqual(headers.get("location"), "/")
+        self.assertEqual(headers.get("location"), "/dashboard")
         self.assertTrue(viewer)
         self.__class__.viewer = viewer
         for path in ("/", "/admin", "/settings", "/connections"):

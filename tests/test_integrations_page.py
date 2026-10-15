@@ -156,7 +156,7 @@ class IntegrationsPage(unittest.TestCase):
 
     def test_04_sidebar_link_on_dashboard_and_connections(self):
         cookie = self._login(FRIEND_PW)
-        for path in ("/", "/connections"):
+        for path in ("/dashboard", "/connections"):
             st, raw, _c, _l = self._raw("GET", path, cookie=cookie)
             self.assertEqual(st, 200, path)
             self.assertIn('href="/integrations"', raw, path)
