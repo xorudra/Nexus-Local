@@ -611,7 +611,7 @@ class Console2Tests(unittest.TestCase):
             st, _, _, payload = self._req("GET", path)
             return st, payload.decode("utf-8", "replace")
         for path, needle in (("/terms", "Terms of use"),
-                             ("/privacy", "Privacy at Nexus Local")):
+                             ("/privacy", "Privacy at Nexus")):
             st, text = page(path)
             self.assertEqual(st, 200, path)
             self.assertIn(needle, text)

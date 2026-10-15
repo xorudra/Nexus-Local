@@ -129,7 +129,10 @@ class LandingPage(unittest.TestCase):
         for marker in ("Chat with every AI,", "from one Nexus",
                        "Start chatting", 'href="/login"',
                        "One shared memory", "Automatic failover",
-                       "Perfect set of tools", "An API of its own"):
+                       "Perfect set of tools", "An API of its own",
+                       "Your providers,", "shot-frame",
+                       "Frequently asked questions",
+                       "Is Nexus free to use?"):
             self.assertIn(marker, raw, marker)
 
     def test_02_root_signed_out_gets_landing(self):

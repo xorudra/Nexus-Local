@@ -1,4 +1,4 @@
-// Nexus Local — k6 smoke/load script (Launch Safety Standard G34).
+// Nexus — k6 smoke/load script (Launch Safety Standard G34).
 //
 // Run ONLY against a locally booted instance or staging — NEVER
 // production. Boot a local copy first, e.g.:

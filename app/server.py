@@ -133,7 +133,7 @@ _SETTINGS_DEFAULTS = {
     "provider_limits": {},
     "session_minutes": None,  # None = follow NEXUS_SESSION_EXPIRY env
     "retention_days": 30,
-    "instance_name": "Nexus Local",
+    "instance_name": "Nexus",
     # Console v2 (owner design 2026-10-10): every default below
     # reproduces the pre-v2 behaviour until the admin changes it.
     "global_cap": 0,            # instance-wide friend requests/day; 0 = off
@@ -366,7 +366,7 @@ def _fire_webhook(event, data=None):
     if not url or not _webhook_url_ok(url):
         return False
     payload = {"event": event, "ts": datetime.datetime.now().isoformat(),
-               "instance": _SETTINGS.get("instance_name", "Nexus Local"),
+               "instance": _SETTINGS.get("instance_name", "Nexus"),
                "alert_email": _SETTINGS.get("alert_email", "")}
     if data:
         payload.update(data)
@@ -3285,7 +3285,7 @@ class Handler(BaseHTTPRequestHandler):
         body = (
             "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-            "<title>404 — Nexus Local</title>"
+            "<title>404 — Nexus</title>"
             "<link rel=\"icon\" href=\"/favicon.ico\" sizes=\"any\"></head>"
             "<body style=\"margin:0;min-height:100vh;display:flex;align-items:center;"
             "justify-content:center;background:#050505;color:#fff;"
@@ -3517,7 +3517,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                    "<title>Nexus Local - Setup</title><link rel='icon' href='/favicon.ico' sizes='any'><link rel='icon' type='image/svg+xml' href='/favicon.svg'><link rel='apple-touch-icon' href='/apple-touch-icon.png'><style>@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');"
+                    "<title>Nexus - Setup</title><link rel='icon' href='/favicon.ico' sizes='any'><link rel='icon' type='image/svg+xml' href='/favicon.svg'><link rel='apple-touch-icon' href='/apple-touch-icon.png'><style>@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');"
                     "*{box-sizing:border-box}"
                     "body{background-color:#050507;background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,255,255,.07), transparent 70%);color:#e6e9f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;margin:0;padding:0}"
                     ".wrap{max-width:600px;margin:0 auto;padding:20px 16px 40px}"
@@ -3713,14 +3713,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(json.dumps({
                 "announcement": _SETTINGS.get("announcement", ""),
                 "maintenance": bool(_SETTINGS.get("maintenance")),
-                "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
+                "instance_name": _SETTINGS.get("instance_name", "Nexus"),
             }).encode())
             return
         if parsed.path == "/api/invite/info":
             self._set_json_headers()
             self._send_body(json.dumps({
                 "registration": _SETTINGS.get("registration", "invite"),
-                "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
+                "instance_name": _SETTINGS.get("instance_name", "Nexus"),
                 "pw_min": int(_SETTINGS.get("pw_min") or 8),
             }).encode())
             return
@@ -4048,7 +4048,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                    "<title>Nexus Local - Update Keys</title><link rel='icon' href='/favicon.ico' sizes='any'><link rel='icon' type='image/svg+xml' href='/favicon.svg'><link rel='apple-touch-icon' href='/apple-touch-icon.png'><style>@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');"
+                    "<title>Nexus - Update Keys</title><link rel='icon' href='/favicon.ico' sizes='any'><link rel='icon' type='image/svg+xml' href='/favicon.svg'><link rel='apple-touch-icon' href='/apple-touch-icon.png'><style>@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');"
                     "*{box-sizing:border-box}"
                     "body{background-color:#050507;background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,255,255,.07), transparent 70%);color:#e6e9f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;margin:0;padding:0}"
                     ".wrap{max-width:600px;margin:0 auto;padding:20px 16px 40px}"
@@ -6823,7 +6823,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "cap": (_SETTINGS.get("user_caps") or {}).get(l)} for l in sorted(access.keys())],
                     "sessions": sessions,
                     "maintenance": bool(_SETTINGS.get("maintenance")),
-                    "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
+                    "instance_name": _SETTINGS.get("instance_name", "Nexus"),
                     "announcement": _SETTINGS.get("announcement", ""),
                     "you": {"kind": _kind, "label": _clabel, "sid": _my_sid},
                 }).encode())
@@ -7367,7 +7367,7 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "no webhook URL configured"}).encode())
                         return
-                    if not _fire_webhook("test", {"note": "Nexus Local webhook test"}):
+                    if not _fire_webhook("test", {"note": "Nexus webhook test"}):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "webhook URL is not a public http(s) address"}).encode())
                         return

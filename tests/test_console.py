@@ -360,7 +360,7 @@ class ConsoleTests(unittest.TestCase):
         self.assertEqual(j["access"], [])
         status, j = self._access("settings_get", self.admin)
         self.assertEqual(j["settings"]["daily_cap"], 200)
-        self.assertEqual(j["settings"]["instance_name"], "Nexus Local")
+        self.assertEqual(j["settings"]["instance_name"], "Nexus")
 
 
 if __name__ == "__main__":
