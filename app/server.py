@@ -1291,6 +1291,225 @@ def _intg_creds(provider):
     sec = os.environ.get(f"NEXUS_INTG_{provider.upper()}_SECRET", "").strip()
     return (cid, sec) if cid and sec else None
 
+# ----------------------------------------------------------------------
+# AI account sign-ins (owner order 2026-10-15, OmniRoute-style):
+# users sign in with their ChatGPT / Claude / Google accounts through
+# the OAuth flows the providers built for their own CLI tools (Codex,
+# Claude Code, Gemini CLI). Tokens live in the integrations vault,
+# ride the session after login/unlock, refresh in place, and power
+# three extra chat lanes. The product shows the account-risk note:
+# the providers reserve this access for their own tools.
+_AIOAUTH_CARD = {"codex": "openai", "claude_oauth": "anthropic",
+                 "gemini_cli": "google"}
+_AIOAUTH_CLIENTS = {
+    "codex": {
+        "auth": "https://auth.openai.com/oauth/authorize",
+        "token": "https://auth.openai.com/oauth/token",
+        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+        "redirect": "http://localhost:1455/auth/callback",
+        "scope": "openid email profile offline_access", "pkce": True,
+        "extra": {"prompt": "login", "id_token_add_organizations": "true",
+                  "codex_cli_simplified_flow": "true"},
+    },
+    "claude_oauth": {
+        "auth": "https://claude.ai/oauth/authorize",
+        "token": "https://platform.claude.com/v1/oauth/token",
+        "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+        "redirect": "http://localhost:54545/callback",
+        "scope": ("user:profile user:inference user:sessions:claude_code "
+                  "user:mcp_servers user:file_upload"),
+        "pkce": True, "extra": {"code": "true"}, "json_exchange": True,
+    },
+    "gemini_cli": {
+        "auth": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token": "https://oauth2.googleapis.com/token",
+        "client_id": ("681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j"
+                      ".apps.googleusercontent.com"),
+        "client_secret": "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",
+        "redirect": "https://codeassist.google.com/authcode",
+        "scope": ("https://www.googleapis.com/auth/cloud-platform "
+                  "https://www.googleapis.com/auth/userinfo.email "
+                  "https://www.googleapis.com/auth/userinfo.profile"),
+        "pkce": False,
+        "extra": {"access_type": "offline", "prompt": "consent"},
+    },
+}
+_AIOAUTH_MODELS = {
+    "codex": ["gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex",
+              "gpt-5-codex"],
+    "claude_oauth": ["claude-sonnet-4-5-20250929", "claude-opus-4-5-20251101",
+                     "claude-haiku-4-5-20251001"],
+    "gemini_cli": ["gemini-2.5-pro", "gemini-2.5-flash",
+                   "gemini-3-flash-preview", "gemini-3-pro-preview",
+                   "gemini-3.5-flash"],
+}
+
+
+def _pkce_pair():
+    verifier = secrets.token_urlsafe(48)
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    return verifier, challenge
+
+
+def _jwt_claims(token):
+    try:
+        part = token.split(".")[1]
+        part += "=" * (-len(part) % 4)
+        return json.loads(base64.urlsafe_b64decode(part))
+    except Exception:
+        return {}
+
+
+def _intg_http_form(url, fields):
+    """POST application/x-www-form-urlencoded; (status, json|text)."""
+    body = urllib.parse.urlencode(fields).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "NexusLocal"})
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+            try:
+                return resp.status, json.loads(raw)
+            except ValueError:
+                return resp.status, raw[:300]
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "replace") if e.fp else ""
+        try:
+            return e.code, json.loads(raw)
+        except ValueError:
+            return e.code, raw[:300]
+    except Exception:
+        return 0, ""
+
+
+def _aioauth_url(lane, state, challenge):
+    cfg = _AIOAUTH_CLIENTS[lane]
+    q = {"client_id": cfg["client_id"], "response_type": "code",
+         "redirect_uri": cfg["redirect"], "scope": cfg["scope"],
+         "state": state}
+    q.update(cfg.get("extra") or {})
+    if cfg.get("pkce"):
+        q["code_challenge"] = challenge
+        q["code_challenge_method"] = "S256"
+    return cfg["auth"] + "?" + urllib.parse.urlencode(q)
+
+
+def _aioauth_exchange(lane, code, verifier):
+    """Swap an auth code for a token dict. Raises ValueError(detail)."""
+    cfg = _AIOAUTH_CLIENTS[lane]
+    if cfg.get("json_exchange"):
+        st, j = _intg_http(cfg["token"], "POST",
+                           {"Content-Type": "application/json"},
+                           {"grant_type": "authorization_code", "code": code,
+                            "client_id": cfg["client_id"],
+                            "redirect_uri": cfg["redirect"],
+                            "code_verifier": verifier})
+    else:
+        body = {"grant_type": "authorization_code", "code": code,
+                "client_id": cfg["client_id"],
+                "redirect_uri": cfg["redirect"]}
+        if cfg.get("pkce"):
+            body["code_verifier"] = verifier
+        if cfg.get("client_secret"):
+            body["client_secret"] = cfg["client_secret"]
+        st, j = _intg_http_form(cfg["token"], body)
+    if st != 200 or not isinstance(j, dict) or not j.get("access_token"):
+        raise ValueError("the provider refused the code (%s): %s"
+                         % (st, _intg_err_text(j)))
+    tok = {"access": j["access_token"],
+           "refresh": j.get("refresh_token") or "",
+           "expires": int(time.time()) + int(j.get("expires_in") or 3600),
+           "email": "", "account_id": "", "project": ""}
+    if lane == "codex" and j.get("id_token"):
+        claims = _jwt_claims(j["id_token"])
+        auth = claims.get("https://api.openai.com/auth") or {}
+        tok["account_id"] = auth.get("chatgpt_account_id") or ""
+        tok["email"] = claims.get("email") or ""
+    if lane == "claude_oauth" and isinstance(j.get("account"), dict):
+        tok["email"] = j["account"].get("email_address") or ""
+    return tok
+
+
+def _aioauth_refresh(lane, tok):
+    cfg = _AIOAUTH_CLIENTS[lane]
+    rt = tok.get("refresh") or ""
+    if not rt:
+        return None
+    if cfg.get("json_exchange"):
+        st, j = _intg_http(cfg["token"], "POST",
+                           {"Content-Type": "application/json"},
+                           {"grant_type": "refresh_token",
+                            "refresh_token": rt,
+                            "client_id": cfg["client_id"]})
+    else:
+        body = {"grant_type": "refresh_token", "refresh_token": rt,
+                "client_id": cfg["client_id"]}
+        if cfg.get("client_secret"):
+            body["client_secret"] = cfg["client_secret"]
+        st, j = _intg_http_form(cfg["token"], body)
+    if st != 200 or not isinstance(j, dict) or not j.get("access_token"):
+        return None
+    out = dict(tok)
+    out["access"] = j["access_token"]
+    if j.get("refresh_token"):
+        out["refresh"] = j["refresh_token"]
+    out["expires"] = int(time.time()) + int(j.get("expires_in") or 3600)
+    return out
+
+
+def _aioauth_fresh(info, lane):
+    """The session's token for a sign-in lane, refreshed in place
+    when it is about to expire. None when not connected/expired."""
+    store = (info or {}).get("integrations") or {}
+    tok = (store.get("ai_oauth") or {}).get(lane)
+    if not isinstance(tok, dict) or not tok.get("access"):
+        return None
+    if int(tok.get("expires") or 0) < time.time() + 90:
+        new = _aioauth_refresh(lane, tok)
+        if new:
+            store.setdefault("ai_oauth", {})[lane] = new
+            return new
+        if int(tok.get("expires") or 0) < time.time():
+            return None
+    return tok
+
+
+def _gemini_project(access):
+    """Discover (or onboard) the Code Assist project for a token."""
+    hdr = {"Authorization": "Bearer " + access,
+           "Content-Type": "application/json", "User-Agent": "GeminiCLI/0.1"}
+    meta = {"ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED",
+            "pluginType": "GEMINI"}
+    st, j = _intg_http(
+        "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "POST", hdr, {"metadata": meta})
+    if st != 200 or not isinstance(j, dict):
+        return ""
+    proj = j.get("cloudaicompanionProject")
+    if isinstance(proj, dict):
+        proj = proj.get("id") or ""
+    if proj:
+        return str(proj)
+    tier = "free-tier"
+    for t in (j.get("allowedTiers") or []):
+        if isinstance(t, dict) and t.get("isDefault"):
+            tier = t.get("id") or tier
+    for _ in range(4):
+        st2, j2 = _intg_http(
+            "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
+            "POST", hdr, {"tierId": tier, "metadata": meta})
+        if st2 == 200 and isinstance(j2, dict) and j2.get("done"):
+            p2 = (j2.get("response") or {}).get("cloudaicompanionProject")
+            if isinstance(p2, dict):
+                p2 = p2.get("id") or ""
+            if p2:
+                return str(p2)
+        time.sleep(2)
+    return ""
+
+
 
 # AI provider connections (owner order 2026-10-15): users connect
 # their OWN provider accounts (Gemini, ChatGPT, Claude, and the rest
@@ -1876,8 +2095,11 @@ def get_usage_history():
 PROVIDER_NAMES = [
     "aihorde",
     "anthropic",
+    "claude_oauth",
     "cloudflare",
+    "codex",
     "cohere",
+    "gemini_cli",
     "google",
     "groq",
     "huggingface",
@@ -2715,6 +2937,13 @@ class Handler(BaseHTTPRequestHandler):
         uk = info.get("userkeys")
         if isinstance(uk, dict) and uk:
             base.update(uk)
+        # AI sign-in tokens ride as JSON strings under their lane
+        # names; the chat branches parse them back.
+        ao = (info.get("integrations") or {}).get("ai_oauth") or {}
+        if isinstance(ao, dict):
+            for lane, tok in ao.items():
+                if isinstance(tok, dict) and tok.get("access"):
+                    base[lane] = json.dumps(tok)
         return base
 
     def _require_admin(self):
@@ -3410,6 +3639,33 @@ class Handler(BaseHTTPRequestHandler):
                 "instance_name": _SETTINGS.get("instance_name", "Nexus Local"),
                 "pw_min": int(_SETTINGS.get("pw_min") or 8),
             }).encode())
+            return
+        # AI account sign-in starts: bounce to the provider's own
+        # OAuth page (the Codex / Claude Code / Gemini CLI client
+        # registrations). No server-side app of ours is involved —
+        # the code comes back to the user, who pastes it into the
+        # Integrations page, where it is exchanged and vaulted.
+        _aio = _re.match(r"^/api/integrations/aioauth/"
+                         r"(codex|claude_oauth|gemini_cli)/start$",
+                         parsed.path)
+        if _aio:
+            if not self._session_info():
+                self.send_response(302)
+                self.send_header("Location", "/integrations?error="
+                                 + _urlquote("Sign in to Nexus first, "
+                                             "then connect."))
+                self.end_headers()
+                return
+            _lane = _aio.group(1)
+            _nonce = secrets.token_hex(8)
+            _verifier, _challenge = _pkce_pair()
+            self.send_response(302)
+            self.send_header("Location",
+                             _aioauth_url(_lane, _nonce, _challenge))
+            self.send_header("Set-Cookie",
+                             f"aio_state={_lane}:{_nonce}:{_verifier}; "
+                             "Path=/; HttpOnly; Max-Age=900; SameSite=Lax")
+            self.end_headers()
             return
         # OAuth sign-in (public): which providers are configured, the
         # start redirect (sets a state cookie), and the callback that
@@ -4222,6 +4478,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             provider = parse_qs(parsed.query).get("provider", [""])[0]
             models = []
+            if provider in _AIOAUTH_MODELS:
+                # Sign-in lanes serve their known model lists; there
+                # is no discovery endpoint on the CLI backends.
+                _ao = (self._session_info() or {}).get("integrations") or {}
+                _connected = isinstance(
+                    (_ao.get("ai_oauth") or {}).get(provider), dict)
+                self._set_json_headers(200)
+                self.wfile.write(json.dumps(
+                    {"models": _AIOAUTH_MODELS[provider] if _connected
+                     else []}).encode())
+                return
             try:
                 import urllib.request, json as js
                 keys = self._effective_keys()
@@ -5292,6 +5559,9 @@ class Handler(BaseHTTPRequestHandler):
                 "cohere": "command-a-03-2025",
                 "openai": "gpt-5-mini",
                 "anthropic": "claude-sonnet-4-5",
+                "codex": "gpt-5.1-codex-max",
+                "claude_oauth": "claude-sonnet-4-5-20250929",
+                "gemini_cli": "gemini-2.5-pro",
                 "zhipu": "glm-4.5",
                 "ovh": "Meta-Llama-3.3-70B-Instruct",
                 "pollinations": "openai",
@@ -5436,6 +5706,193 @@ class Handler(BaseHTTPRequestHandler):
                             return (True, _txt)
                     except HTTPError as e:
                         return (False, e.code, f"provider returned an error ({e.code})")
+                    except Exception:
+                        return (False, 502, "Could not reach the provider.")
+                # AI sign-in lanes (owner order 2026-10-15): the
+                # stored OAuth token (a JSON string in _ekeys) is
+                # refreshed when stale, then spent against the
+                # provider's own CLI backend.
+                if prov in _AIOAUTH_CLIENTS:
+                    _info = self._session_info() or {}
+                    _tok = _aioauth_fresh(_info, prov)
+                    if not _tok:
+                        return (False, 401, "sign-in expired — "
+                                            "reconnect it on the "
+                                            "Integrations page")
+                    _access = _tok["access"]
+                    try:
+                        if prov == "claude_oauth":
+                            _cmsgs, _csys = [], []
+                            for _m in (msgs or []):
+                                _c = _m.get("content")
+                                if not isinstance(_c, str):
+                                    continue
+                                if _m.get("role") == "system":
+                                    _csys.append(_c)
+                                elif _m.get("role") in ("user", "assistant"):
+                                    _cmsgs.append({"role": _m["role"],
+                                                   "content": _c})
+                            if not _cmsgs or _cmsgs[-1]["role"] != "user":
+                                _cmsgs.append({"role": "user",
+                                               "content": message})
+                            _csystem = [{"type": "text", "text":
+                                         "You are Claude Code, "
+                                         "Anthropic's official CLI "
+                                         "for Claude."}]
+                            if _csys:
+                                _csystem.append(
+                                    {"type": "text",
+                                     "text": "\n\n".join(_csys)})
+                            _cbody = {"model": mdl, "max_tokens": 4096,
+                                      "messages": _cmsgs,
+                                      "system": _csystem}
+                            req = Request(
+                                "https://api.anthropic.com/v1/messages",
+                                data=json.dumps(_cbody).encode(),
+                                headers={
+                                    "Content-Type": "application/json",
+                                    "Authorization": f"Bearer {_access}",
+                                    "anthropic-version": "2023-06-01",
+                                    "anthropic-beta": "claude-code-20250219,"
+                                                      "oauth-2025-04-20",
+                                    "x-app": "cli",
+                                    "User-Agent": "claude-cli/2.1.0 "
+                                                  "(external, cli)"},
+                                method="POST")
+                            with urlopen(req, timeout=timeout) as resp:
+                                resp_data = json.loads(resp.read().decode())
+                                _txt = "".join(
+                                    b.get("text", "")
+                                    for b in resp_data.get("content", [])
+                                    if isinstance(b, dict)
+                                    and b.get("type") == "text")
+                                return (True, _txt)
+                        if prov == "codex":
+                            _xinstr, _xinput = [], []
+                            for _m in (msgs or []):
+                                _c = _m.get("content")
+                                if not isinstance(_c, str):
+                                    continue
+                                if _m.get("role") == "system":
+                                    _xinstr.append(_c)
+                                elif _m.get("role") in ("user", "assistant"):
+                                    _xt = "input_text" if _m["role"] == "user" \
+                                        else "output_text"
+                                    _xinput.append(
+                                        {"type": "message",
+                                         "role": _m["role"],
+                                         "content": [{"type": _xt,
+                                                      "text": _c}]})
+                            if not _xinput:
+                                _xinput.append(
+                                    {"type": "message", "role": "user",
+                                     "content": [{"type": "input_text",
+                                                  "text": message}]})
+                            _xbody = {
+                                "model": mdl,
+                                "instructions": "\n\n".join(_xinstr)
+                                                or "You are a helpful "
+                                                   "assistant.",
+                                "input": _xinput,
+                                "stream": True, "store": False}
+                            _xhdr = {
+                                "Content-Type": "application/json",
+                                "Authorization": f"Bearer {_access}",
+                                "Originator": "codex-tui",
+                                "User-Agent": "codex-tui/0.154.0 "
+                                              "(Mac OS 26.5.2; arm64)"}
+                            if _tok.get("account_id"):
+                                _xhdr["Chatgpt-Account-Id"] = \
+                                    _tok["account_id"]
+                            req = Request(
+                                "https://chatgpt.com/backend-api/codex"
+                                "/responses",
+                                data=json.dumps(_xbody).encode(),
+                                headers=_xhdr, method="POST")
+                            with urlopen(req, timeout=timeout) as resp:
+                                _raw = resp.read().decode("utf-8",
+                                                          "replace")
+                            _deltas, _final = [], ""
+                            for _line in _raw.splitlines():
+                                _line = _line.strip()
+                                if not _line.startswith("data:"):
+                                    continue
+                                try:
+                                    _ev = json.loads(_line[5:].strip())
+                                except Exception:
+                                    continue
+                                if _ev.get("type") == \
+                                        "response.output_text.delta":
+                                    _deltas.append(_ev.get("delta") or "")
+                                elif _ev.get("type") == "response.completed":
+                                    for _o in (_ev.get("response") or {}
+                                               ).get("output") or []:
+                                        for _cc in _o.get("content") or []:
+                                            if isinstance(_cc, dict) and \
+                                                    _cc.get("text"):
+                                                _final += _cc["text"]
+                            _txt = "".join(_deltas) or _final
+                            if not _txt:
+                                return (False, 502, "the provider "
+                                                    "answered with no "
+                                                    "text")
+                            return (True, _txt)
+                        # gemini_cli: Code Assist wrapped format.
+                        _gconts, _gsys = [], []
+                        for _m in (msgs or []):
+                            _c = _m.get("content")
+                            if not isinstance(_c, str):
+                                continue
+                            if _m.get("role") == "system":
+                                _gsys.append(_c)
+                            elif _m.get("role") in ("user", "assistant"):
+                                _gconts.append(
+                                    {"role": "model"
+                                             if _m["role"] == "assistant"
+                                             else "user",
+                                     "parts": [{"text": _c}]})
+                        if not _gconts:
+                            _gconts.append({"role": "user",
+                                            "parts": [{"text": message}]})
+                        _greq = {"contents": _gconts,
+                                 "generationConfig":
+                                     {"maxOutputTokens": 4096}}
+                        if _gsys:
+                            _greq["systemInstruction"] = \
+                                {"parts": [{"text": "\n\n".join(_gsys)}]}
+                        _gbody = {"model": mdl,
+                                  "project": _tok.get("project") or "",
+                                  "request": _greq}
+                        req = Request(
+                            "https://cloudcode-pa.googleapis.com"
+                            "/v1internal:generateContent",
+                            data=json.dumps(_gbody).encode(),
+                            headers={
+                                "Content-Type": "application/json",
+                                "Authorization": f"Bearer {_access}",
+                                "User-Agent": "GeminiCLI/0.1"},
+                            method="POST")
+                        with urlopen(req, timeout=timeout) as resp:
+                            resp_data = json.loads(resp.read().decode())
+                        _inner = resp_data.get("response") or resp_data
+                        _txt = ""
+                        for _cand in _inner.get("candidates") or []:
+                            for _p in (_cand.get("content") or {}
+                                       ).get("parts") or []:
+                                if isinstance(_p, dict) and _p.get("text"):
+                                    _txt += _p["text"]
+                        if not _txt:
+                            return (False, 502, "the provider answered "
+                                                "with no text")
+                        return (True, _txt)
+                    except HTTPError as e:
+                        if e.code in (401, 403):
+                            return (False, e.code,
+                                    "provider rejected the sign-in "
+                                    f"({e.code}) — reconnect it on the "
+                                    "Integrations page")
+                        return (False, e.code,
+                                f"provider returned an error ({e.code})")
                     except Exception:
                         return (False, 502, "Could not reach the provider.")
                 # Base URL per provider type
@@ -6065,6 +6522,16 @@ class Handler(BaseHTTPRequestHandler):
                 uk = _load_userkeys(label, password)
                 if uk:
                     sess["userkeys"] = uk
+                # The integrations vault rides the session too, so
+                # connected tools and AI sign-ins work in chat
+                # without a separate unlock step.
+                try:
+                    iv = _load_intg("_owner" if master_ok else label,
+                                    password)
+                    if isinstance(iv, dict):
+                        sess["integrations"] = iv
+                except Exception:
+                    pass
             SESSIONS[token] = sess
             if master_ok:
                 Handler.keys = dec_keys
@@ -7408,10 +7875,21 @@ class Handler(BaseHTTPRequestHandler):
                     own = {m.get("provider"): "1" for m in meta
                            if isinstance(m, dict)}
                 shared = Handler.keys or {}
-                return {p: {"own": bool(own.get(p)),
-                            "shared": bool(shared.get(p)),
-                            "keyless": p in _INTG_AI_KEYLESS}
-                        for p in _INTG_AI_PROVIDERS}
+                ao = (info.get("integrations") or {}).get("ai_oauth") or {}
+                out = {}
+                for p in _INTG_AI_PROVIDERS:
+                    row = {"own": bool(own.get(p)),
+                           "shared": bool(shared.get(p)),
+                           "keyless": p in _INTG_AI_KEYLESS,
+                           "oauth": False, "oauth_account": ""}
+                    for lane, card in _AIOAUTH_CARD.items():
+                        if card == p:
+                            tok = ao.get(lane)
+                            if isinstance(tok, dict) and tok.get("access"):
+                                row["oauth"] = True
+                                row["oauth_account"] = tok.get("email") or ""
+                    out[p] = row
+                return out
 
             def _status(extra=None):
                 body = {"unlocked": store is not None, "services": _pub(),
@@ -7496,6 +7974,93 @@ class Handler(BaseHTTPRequestHandler):
                 _save_userkeys(flabel, vault, pw)
                 info["userkeys"] = dict(vault)
                 _status()
+                return
+            # AI account sign-ins (Codex / Claude Code / Gemini CLI
+            # OAuth). Tokens live in the integrations vault; the
+            # password opens it for this one save, same as above.
+            if action in ("oauth_paste", "oauth_disconnect"):
+                lane = data.get("service")
+                if lane not in _AIOAUTH_CLIENTS:
+                    _err(400, "unknown sign-in")
+                    return
+                pw = data.get("password") or ""
+                if label is None or not _intg_verify(info, pw):
+                    _err(401, "wrong password")
+                    return
+                store2 = _load_intg(label, pw)
+                if store2 is None:
+                    store2 = {}
+                if action == "oauth_disconnect":
+                    (store2.get("ai_oauth") or {}).pop(lane, None)
+                    try:
+                        _save_intg(label, store2, pw)
+                    except Exception:
+                        _err(500, "could not save")
+                        return
+                    info["integrations"] = store2
+                    _status()
+                    return
+                text = str(data.get("text") or "").strip()
+                code, st8 = "", ""
+                if "://" in text:
+                    q = urllib.parse.parse_qs(
+                        urllib.parse.urlparse(text).query)
+                    code = (q.get("code") or [""])[0]
+                    st8 = (q.get("state") or [""])[0]
+                elif "#" in text:
+                    code, st8 = text.split("#", 1)
+                else:
+                    code = text
+                code, st8 = code.strip(), st8.strip()
+                ck = ""
+                for part in (self.headers.get("Cookie") or "").split(";"):
+                    part = part.strip()
+                    if part.startswith("aio_state="):
+                        ck = part[len("aio_state="):]
+                cparts = ck.split(":")
+                verifier = ""
+                if len(cparts) == 3 and cparts[0] == lane:
+                    if st8 and st8 != cparts[1]:
+                        _err(400, "that code belongs to a different "
+                                  "sign-in attempt — click Sign in and "
+                                  "paste the fresh code")
+                        return
+                    verifier = cparts[2]
+                if not code:
+                    _err(400, "paste the code (or the full address) "
+                              "from the provider page first")
+                    return
+                if _AIOAUTH_CLIENTS[lane].get("pkce") and not verifier:
+                    _err(400, "sign-in session expired — click Sign in "
+                              "and paste the new code")
+                    return
+                try:
+                    tok = _aioauth_exchange(lane, code, verifier)
+                except ValueError as ve:
+                    _err(400, str(ve))
+                    return
+                if lane == "gemini_cli":
+                    st3, uj = _intg_http(
+                        "https://www.googleapis.com/oauth2/v2/userinfo",
+                        "GET",
+                        {"Authorization": "Bearer " + tok["access"]})
+                    if st3 == 200 and isinstance(uj, dict):
+                        tok["email"] = uj.get("email") or ""
+                    tok["project"] = _gemini_project(tok["access"])
+                    if not tok["project"]:
+                        _err(400, "Google signed you in, but Code "
+                                  "Assist did not grant a project — "
+                                  "try again in a minute")
+                        return
+                store2.setdefault("ai_oauth", {})[lane] = tok
+                try:
+                    _save_intg(label, store2, pw)
+                except Exception:
+                    _err(500, "could not save the connection")
+                    return
+                info["integrations"] = store2
+                _status({"connected": lane,
+                         "account": tok.get("email") or ""})
                 return
             if store is None:
                 _err(409, "your integrations vault is locked — unlock it first")

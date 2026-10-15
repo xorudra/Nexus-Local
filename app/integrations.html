@@ -252,6 +252,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 .sheet label{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#8e8e8e;margin:14px 0 6px}
 .sheet input,.sheet textarea,.sheet select{width:100%;box-sizing:border-box;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.16);border-radius:9px;color:#f2f2f2;padding:9px 12px;font:13.5px 'Space Grotesk',sans-serif}
 .sheet .hint{font-size:12px;color:#77777f;margin-top:5px}
+.sheet .risk{font-size:12.5px;line-height:1.55;color:#fcd34d;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:10px 12px;margin:10px 0}
 .sheet .row{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px;align-items:center}
 .sheet .mono{font-family:'JetBrains Mono',monospace;font-size:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:3px 7px;color:#e8e8e8;word-break:break-all}
 .sheet .result{font-size:13px;margin-top:13px;line-height:1.55;display:none}
@@ -456,9 +457,9 @@ var SERVICES = [
  {id:'oauth', key:'oauth', name:'OAuth Sign-in', kind:'nexusoauth', site:'/admin', desc:'Sign in to Nexus with a Google or GitHub account instead of a password \u2014 the account\u2019s verified email is matched to an owner or friend account the admin has linked.', search:'oauth sign-in login google github sso passwordless account'}
 ];
 var AI_SERVICES = [
- {id:'openai', kind:'ai', name:'ChatGPT (OpenAI)', mono:'GPT', site:'https://platform.openai.com', desc:'Connect your OpenAI account \u2014 your chats can run on GPT models with your own key.', search:'chatgpt openai gpt chat gpt-5', help:'At platform.openai.com \u2192 API keys. Usage is billed by OpenAI to your account.'},
- {id:'anthropic', kind:'ai', name:'Claude (Anthropic)', mono:'Cl', site:'https://console.anthropic.com', desc:'Connect your Anthropic account \u2014 your chats can run on Claude models with your own key.', search:'claude anthropic sonnet opus', help:'At console.anthropic.com \u2192 API keys. Usage is billed by Anthropic to your account.'},
- {id:'google', kind:'ai', name:'Gemini (Google)', mono:'Ge', site:'https://aistudio.google.com', desc:'Connect your Google AI Studio account \u2014 Gemini models with your own key; a free tier is available.', search:'gemini google ai studio flash', help:'At aistudio.google.com \u2192 Get API key. The free tier needs no card.'},
+ {id:'openai', kind:'ai', name:'ChatGPT (OpenAI)', mono:'GPT', site:'https://platform.openai.com', desc:'Connect your OpenAI account \u2014 sign in with your ChatGPT subscription (via Codex) or use your own API key.', search:'chatgpt openai gpt chat gpt-5 sign in codex', help:'At platform.openai.com \u2192 API keys. Usage is billed by OpenAI to your account.', signin:'codex', signname:'ChatGPT account', signbtn:'ChatGPT', toolname:'Codex', signhelp:'After you approve, your browser tries to open a localhost page that cannot load \u2014 that is expected. Copy the FULL address from the address bar and paste it here.'},
+ {id:'anthropic', kind:'ai', name:'Claude (Anthropic)', mono:'Cl', site:'https://console.anthropic.com', desc:'Connect your Anthropic account \u2014 sign in with your Claude subscription (via Claude Code) or use your own API key.', search:'claude anthropic sonnet opus sign in claude code', help:'At console.anthropic.com \u2192 API keys. Usage is billed by Anthropic to your account.', signin:'claude_oauth', signname:'Claude account', signbtn:'Claude', toolname:'Claude Code', signhelp:'After you approve, Claude shows you a code that looks like code#state. Copy the whole thing and paste it here.'},
+ {id:'google', kind:'ai', name:'Gemini (Google)', mono:'Ge', site:'https://aistudio.google.com', desc:'Connect your Google account \u2014 sign in (via Gemini CLI, free tier included) or use your own AI Studio key.', search:'gemini google ai studio flash sign in gemini cli', help:'At aistudio.google.com \u2192 Get API key. The free tier needs no card.', signin:'gemini_cli', signname:'Google account', signbtn:'Google', toolname:'Gemini CLI', signhelp:'After you approve, Google shows you a code on the codeassist page. Copy it and paste it here.'},
  {id:'groq', kind:'ai', name:'Groq', mono:'Gr', site:'https://console.groq.com', desc:'Very fast open-model inference with your own Groq key \u2014 a free tier is available.', search:'groq llama fast inference', help:'At console.groq.com \u2192 API keys.'},
  {id:'openrouter', kind:'ai', name:'OpenRouter', mono:'OR', site:'https://openrouter.ai', desc:'One key for hundreds of models, including the free :free lanes Nexus already uses.', search:'openrouter models free aggregator', help:'At openrouter.ai \u2192 Keys.'},
  {id:'mistral', kind:'ai', name:'Mistral', mono:'Mi', site:'https://console.mistral.ai', desc:'Mistral AI models with your own key.', search:'mistral le chat', help:'At console.mistral.ai \u2192 API keys.'},
@@ -509,6 +510,7 @@ function aiState(d){
   if (!a) return {cls:'', text:'Checking\u2026'};
   if (a.keyless) return {cls:'ok', text:'Keyless \u00b7 ready to use'};
   if (a.own) return {cls:'ok', text:'Connected \u00b7 your key'};
+  if (a.oauth) return {cls:'ok', text:'Connected \u00b7 signed in'};
   if (a.shared) return {cls:'ok', text:'Available \u00b7 Nexus shared key'};
   return {cls:'', text:'Not connected'};
 }
@@ -634,6 +636,29 @@ function openPanel(id, focus){
       h += '<p>This gateway is part of Nexus\u2019s plumbing: it connects from the Setup page, where its URL and unified key live.</p><div class="row"><a class="btnw" href="/setup">Open Setup</a></div>';
     } else if (a.keyless){
       h += '<p>This lane needs no key and no account \u2014 it already works in your chats, including while the shared vault is locked.</p><div class="row"><a class="btng" href="/">Open Dashboard</a></div>';
+    } else if (d.signin){
+      var RISK = '<div class="risk"><b>Read before you sign in:</b> this connection uses the same access as ' + esc(d.toolname) + ', the provider\u2019s own tool. Their terms reserve that access for their own tools, so connecting it to Nexus can put your ' + esc(d.signname) + ' at risk of limits or suspension. The officially supported route for apps is an API key. If a sign-in stops working, the provider may have expired it \u2014 just sign in again.</div>';
+      if (a.oauth){
+        h += '<p>Signed in' + (a.oauth_account ? ' as <b>' + esc(a.oauth_account) + '</b>' : '') + ' with your ' + esc(d.signname) + '. In chat, pick the <b>Sign-in</b> lane for this provider to run on your subscription. The token is encrypted in your vault.</p>' +
+          pwBlock('pPw') + '<div class="row"><button class="btng danger" id="pOauthDisc">Disconnect sign-in</button></div>';
+      } else {
+        h += RISK +
+          '<div class="row"><a class="btnw" href="/api/integrations/aioauth/' + d.signin + '/start" target="_blank" rel="noopener">Sign in with ' + esc(d.signbtn) + '</a></div>' +
+          '<label for="pf-code">Code from ' + esc(d.toolname) + '</label><textarea id="pf-code" rows="2" placeholder="Paste the code or the full address here"></textarea><div class="hint">' + esc(d.signhelp) + '</div>' +
+          pwBlock('pPw') + '<div class="row"><button class="btnw" id="pOauthDone">Complete sign-in</button></div>';
+      }
+      if (state.admin){
+        h += '<p style="margin-top:14px">Owner API keys are managed in Update Keys \u2014 this page connects personal accounts.</p><div class="row"><a class="btng" href="/admin">Open Admin console</a></div>' + resultLine();
+      } else {
+        h += '<p style="margin-top:14px"><b>Or use an API key instead</b> \u2014 the route the providers officially support for apps:</p>';
+        if (a.own) h += '<p>Connected with <b>your key</b> \u2014 your chats prefer it over the Nexus shared key' + (a.shared ? ', which stays as a fallback' : '') + '. The key itself is never shown again; paste a new one to replace it.</p>';
+        else if (a.shared) h += '<p>Nexus has a shared key for this provider, so it already works in your chats. Connect your own key to run on your own account instead.</p>';
+        else h += '<p>Paste your own API key and your chats can run on this provider with your account.</p>';
+        h += '<label for="pf-key">API key</label><input id="pf-key" autocomplete="off" placeholder="' + (a.own ? '\u2022\u2022\u2022\u2022 saved \u2014 paste to replace' : 'Paste your key') + '"><div class="hint">' + esc(d.help || '') + '</div>';
+        h += pwBlock('pPw2') + '<div class="row"><button class="btnw" id="pAiSave">' + (a.own ? 'Replace key' : 'Connect') + '</button>' +
+          ((a.own || a.shared) ? '<button class="btng" id="pAiTest">Test connection</button>' : '') +
+          (a.own ? '<button class="btng danger" id="pAiDisc">Disconnect</button>' : '') + '</div>' + resultLine();
+      }
     } else if (state.admin){
       h += '<p>' + (a.shared ? 'A Nexus shared key is configured, so this provider is available to everyone.' : 'No Nexus shared key is configured for this provider.') + ' Owner keys are managed in Update Keys \u2014 this page connects personal accounts.</p><div class="row"><a class="btnw" href="/admin">Open Admin console</a></div>' + resultLine();
     } else {
@@ -791,7 +816,7 @@ function wirePanel(d, focus){
   });
   var pas = document.getElementById('pAiSave');
   if (pas) pas.addEventListener('click', function(){
-    var pwv = document.getElementById('pPw').value;
+    var pwv = (document.getElementById('pPw2') || document.getElementById('pPw')).value;
     setResult('Saving and verifying with ' + d.name + '\u2026', '');
     api({action:'ai_save', service:d.id, api_key: document.getElementById('pf-key').value, password: pwv}).then(function(r){
       if (r.status !== 200){ setResult(esc(r.j.error || 'Save failed.'), 'err'); return; }
@@ -810,12 +835,37 @@ function wirePanel(d, focus){
   });
   var pad = document.getElementById('pAiDisc');
   if (pad) pad.addEventListener('click', function(){
-    var pwEl = document.getElementById('pPw');
+    var pwEl = document.getElementById('pPw2') || document.getElementById('pPw');
     if (!pwEl || !pwEl.value){ setResult('Enter your Nexus password above to disconnect.', 'err'); return; }
     var pwv = pwEl.value;
     api({action:'ai_disconnect', service:d.id, password: pwv}).then(function(r){
       if (r.status !== 200){ setResult(esc(r.j.error || 'Disconnect failed.'), 'err'); return; }
       applyState(r.j); setResult('Disconnected \u2014 your key was removed from your vault.', 'ok');
+      setTimeout(function(){ openPanel(d.id); }, 900);
+    });
+  });
+  var pod = document.getElementById('pOauthDone');
+  if (pod) pod.addEventListener('click', function(){
+    var pwEl = document.getElementById('pPw');
+    if (!pwEl || !pwEl.value){ setResult('Enter your Nexus password \u2014 the sign-in token is encrypted with it.', 'err'); return; }
+    var pwv = pwEl.value;
+    setResult('Exchanging the code with ' + d.name + '\u2026', '');
+    var txtv = document.getElementById('pf-code').value;
+    api({action:'oauth_paste', service:d.signin, text:txtv, password: pwv}).then(function(r){
+      if (r.status !== 200){ setResult(esc(r.j.error || 'Sign-in failed.'), 'err'); return; }
+      applyState(r.j);
+      setResult('Signed in' + (r.j.account ? ' as ' + esc(r.j.account) : '') + ' \u2014 in chat, pick the Sign-in lane for this provider.', 'ok');
+      setTimeout(function(){ openPanel(d.id); }, 1200);
+    });
+  });
+  var podc = document.getElementById('pOauthDisc');
+  if (podc) podc.addEventListener('click', function(){
+    var pwEl = document.getElementById('pPw');
+    if (!pwEl || !pwEl.value){ setResult('Enter your Nexus password above to disconnect.', 'err'); return; }
+    var pwv = pwEl.value;
+    api({action:'oauth_disconnect', service:d.signin, password: pwv}).then(function(r){
+      if (r.status !== 200){ setResult(esc(r.j.error || 'Disconnect failed.'), 'err'); return; }
+      applyState(r.j); setResult('Sign-in disconnected \u2014 the stored token was removed from your vault.', 'ok');
       setTimeout(function(){ openPanel(d.id); }, 900);
     });
   });

@@ -119,6 +119,30 @@
       "source": null
     }
   },
+  "gemini_cli": {
+    "display_name": "Gemini (Sign-in)",
+    "reset": "Monthly \u2014 Google Code Assist free tier",
+    "daily_requests": {
+      "limit": 1000,
+      "source": "docs",
+      "notes": "Google publishes ~1K requests/day for personal Gemini CLI (Code Assist) accounts."
+    },
+    "daily_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    },
+    "monthly_requests": {
+      "limit": 180000,
+      "source": "docs",
+      "notes": "Google publishes ~180K completions/month for personal Gemini CLI (Code Assist) accounts."
+    },
+    "monthly_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    }
+  },
   "groq": {
     "display_name": "Groq",
     "reset": "Rolling \u2014 not published",
@@ -503,6 +527,30 @@
       "source": null
     }
   },
+  "codex": {
+    "display_name": "ChatGPT (Codex sign-in)",
+    "reset": "Subscription windows (5-hour + weekly) \u2014 set by your ChatGPT plan",
+    "daily_requests": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    },
+    "daily_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    },
+    "monthly_requests": {
+      "limit": null,
+      "source": null,
+      "notes": "ChatGPT Plus/Pro sign-in via Codex. OpenAI does not publish exact window numbers."
+    },
+    "monthly_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    }
+  },
   "anthropic": {
     "display_name": "Anthropic",
     "reset": "Pay-as-you-go API \u2014 usage is billed by the key owner",
@@ -520,6 +568,30 @@
       "limit": null,
       "notes": "not published",
       "source": null
+    },
+    "monthly_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    }
+  },
+  "claude_oauth": {
+    "display_name": "Claude (Sign-in)",
+    "reset": "Subscription windows (5-hour + weekly) \u2014 set by your Claude plan",
+    "daily_requests": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    },
+    "daily_tokens": {
+      "limit": null,
+      "notes": "not published",
+      "source": null
+    },
+    "monthly_requests": {
+      "limit": null,
+      "source": null,
+      "notes": "Claude Pro/Max sign-in via Claude Code. Anthropic does not publish exact window numbers."
     },
     "monthly_tokens": {
       "limit": null,
