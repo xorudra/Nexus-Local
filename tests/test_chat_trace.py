@@ -198,7 +198,8 @@ class ChatTrace(unittest.TestCase):
         self.assertEqual(st, 200)
         html = j["_raw"]
         for token in ("function buildTrace", "function startLiveTrace",
-                      "trace-line", "traceSummary"):
+                      "trace-line", "trace-row", "trace-code",
+                      "Failed on ", "Answered by "):
             self.assertIn(token, html)
 
 
