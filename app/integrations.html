@@ -211,10 +211,17 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
    with gear + Details). */
 .page-header{max-width:1560px}
 .wrap2{max-width:1560px;margin:0 auto;padding:18px 32px 30px;animation:fadeUp .7s cubic-bezier(.2,.7,.3,1) both}
-.toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:6px 0 18px}
-.toolbar .bar{flex:1;min-width:200px;max-width:420px;margin:0}
-.addbtn{display:inline-flex;align-items:center;gap:7px;background:#f5f5f5;color:#0a0a0b;border:1px solid #f5f5f5;border-radius:9px;padding:9px 16px;font:600 13.5px 'Space Grotesk',sans-serif;cursor:pointer;margin-left:auto}
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 18px}
+.toolbar .bar{position:relative;flex:1 1 230px;max-width:460px;margin:0}
+.toolbar .bar svg.ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:#8e8e8e;pointer-events:none}
+.toolbar .bar input{width:100%;box-sizing:border-box;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.15);border-radius:12px;color:#f2f2f2;font:14px 'Space Grotesk',sans-serif;padding:12px 14px 12px 40px;outline:none;transition:border-color .2s,background .2s,box-shadow .2s}
+.toolbar .bar input::placeholder{color:#71717a}
+.toolbar .bar input:focus{border-color:rgba(255,255,255,.45);background:rgba(255,255,255,.08);box-shadow:0 0 0 3px rgba(255,255,255,.08)}
+.toolbar .bar input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
+.addbtn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex:none;background:#f5f5f5;color:#0a0a0b;border:1px solid #f5f5f5;border-radius:12px;padding:0;cursor:pointer}
 .addbtn:hover{background:#fff}
+.addbtn .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.count-note{margin-left:auto}
 .unlockbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.06);border-radius:12px;padding:12px 14px;margin:0 0 16px;font-size:13.5px;color:#e8e8e8}
 .unlockbar input{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.16);border-radius:8px;color:#f2f2f2;padding:8px 11px;font:13px 'Space Grotesk',sans-serif;min-width:210px}
 .banner{display:none;border-radius:12px;padding:12px 14px;margin:0 0 16px;font-size:13.5px}
@@ -254,7 +261,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 .sheet .hint{font-size:12px;color:#77777f;margin-top:5px}
 .sheet .risk{font-size:12.5px;line-height:1.55;color:#fcd34d;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:10px 12px;margin:10px 0}
 .sheet .row{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px;align-items:center}
-.sheet .mono{font-family:'JetBrains Mono',monospace;font-size:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:3px 7px;color:#e8e8e8;word-break:break-all}
+.sheet .code{display:inline-block;max-width:100%;box-sizing:border-box;font-family:'JetBrains Mono',monospace;font-size:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:3px 7px;color:#e8e8e8;word-break:break-all;vertical-align:middle}
 .sheet .result{font-size:13px;margin-top:13px;line-height:1.55;display:none}
 .sheet .result.ok{display:block;color:#b9f5cd}
 .sheet .result.err{display:block;color:#fecaca}
@@ -277,7 +284,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 .sect{font-size:19px;font-weight:600;color:#fff;margin:24px 0 4px}
 #aiSect .sect{margin-top:2px}
 .sectsub{font-size:13.5px;color:#9a9aa2;margin:0 0 14px;line-height:1.55;max-width:780px}
-.mono{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);font:600 12.5px 'Space Grotesk',sans-serif;color:#e8e8e8;letter-spacing:.04em;flex:none}
+.mono{display:flex;align-items:center;justify-content:center;width:40px;height:40px;box-sizing:border-box;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);font:600 12.5px 'Space Grotesk',sans-serif;color:#e8e8e8;letter-spacing:.04em;flex:none}
 .addrow .icon .mono{width:26px;height:26px;font-size:9.5px;border-radius:7px}
 .sheet h3 .icon .mono{width:30px;height:30px;font-size:10.5px}
 </style>
@@ -420,9 +427,9 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
     <span class="hint" id="unlockErr" style="color:#fca5a5"></span>
   </div>
   <div class="toolbar">
-    <div class="bar"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search integrations…" aria-label="Search integrations"></div>
+    <div class="bar"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search integrations…" aria-label="Search integrations"></div>
+    <button class="addbtn" id="addBtn" aria-label="Add New Integration" title="Add New Integration"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span class="sr">Add New Integration</span></button>
     <span class="count-note" id="countNote"></span>
-    <button class="addbtn" id="addBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Add New Integration</button>
   </div>
   <div id="aiSect">
     <h2 class="sect">AI accounts</h2>
@@ -692,8 +699,8 @@ function openPanel(id, focus){
       h += '<p><b style="color:#fde68a">Owner setup needed.</b> Connecting ' + (prov === 'google' ? 'Google' : 'Zoom') + ' accounts uses an OAuth app registered by the Nexus owner. Until it exists on this server, there is nothing real to connect to.</p>';
       if (state.admin){
         h += '<p>As the owner: create the OAuth app (free), then add these to the server environment file and restart Nexus:</p>' +
-          '<p><span class="mono">NEXUS_INTG_' + prov.toUpperCase() + '_ID</span> <span class="mono">NEXUS_INTG_' + prov.toUpperCase() + '_SECRET</span></p>' +
-          '<p>Redirect URI to register: <span class="mono">' + esc(location.origin) + '/api/integrations/' + prov + '/callback</span></p>';
+          '<p><span class="code">NEXUS_INTG_' + prov.toUpperCase() + '_ID</span> <span class="code">NEXUS_INTG_' + prov.toUpperCase() + '_SECRET</span></p>' +
+          '<p>Redirect URI to register: <span class="code">' + esc(location.origin) + '/api/integrations/' + prov + '/callback</span></p>';
       }
     } else if (!entry.connected){
       h += '<div class="row"><a class="btnw" href="/api/integrations/' + prov + '/start">Connect with ' + (prov === 'google' ? 'Google' : 'Zoom') + '</a></div>' +
