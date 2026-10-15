@@ -7,6 +7,7 @@ paste guards, disconnect persistence — works for real.
 
 Run:  python3 -m unittest discover -s tests -v
 """
+import base64
 import hashlib
 import http.client
 import json
@@ -284,6 +285,7 @@ class AiOauthCodexCatalog(unittest.TestCase):
 
     LIVE_PW = "live-pass-123"
     EMPTY_PW = "empty-pass-123"
+    STORED_PW = "stored-pass-123"
 
     @classmethod
     def setUpClass(cls):
@@ -325,7 +327,8 @@ class AiOauthCodexCatalog(unittest.TestCase):
                                 ".png")):
                 shutil.copy(src, cls.tmp / name)
         access = {"livepal": _hash_pw(cls.LIVE_PW),
-                  "emptypal": _hash_pw(cls.EMPTY_PW)}
+                  "emptypal": _hash_pw(cls.EMPTY_PW),
+                  "storedpal": _hash_pw(cls.STORED_PW)}
         encrypt_keys({"groq": "sk-fake"}, MASTER, cls.tmp / "keys.enc")
         encrypt_keys(access, MASTER, cls.tmp / "users.enc")
         encrypt_keys(access, RESTORE, cls.tmp / "access.enc")
@@ -333,11 +336,26 @@ class AiOauthCodexCatalog(unittest.TestCase):
         (cls.tmp / "userkeys").mkdir(exist_ok=True)
         (cls.tmp / "userintegrations").mkdir(exist_ok=True)
         future = int(time.time()) + 3600
-        for label, pw, acct in (("livepal", cls.LIVE_PW, "acct-live"),
-                                ("emptypal", cls.EMPTY_PW, "acct-empty")):
-            tok = {"access": "fake-token", "refresh": "fake-refresh",
+
+        def b64(o):
+            return base64.urlsafe_b64encode(
+                json.dumps(o).encode()).rstrip(b"=").decode()
+
+        # livepal: no stored plan — the plan rides inside the access
+        # token JWT, like a real Codex token.
+        jwt_access = (b64({"alg": "none"}) + "." + b64(
+            {"https://api.openai.com/auth":
+             {"chatgpt_plan_type": "free",
+              "chatgpt_account_id": "acct-live"}}) + ".sig")
+        for label, pw, acct, plan, acc in (
+                ("livepal", cls.LIVE_PW, "acct-live", "", jwt_access),
+                ("emptypal", cls.EMPTY_PW, "acct-empty", "free",
+                 "fake-token"),
+                ("storedpal", cls.STORED_PW, "acct-stored", "plus",
+                 "fake-token")):
+            tok = {"access": acc, "refresh": "fake-refresh",
                    "expires": future, "email": label + "@example.com",
-                   "account_id": acct, "project": "", "plan": "free"}
+                   "account_id": acct, "project": "", "plan": plan}
             encrypt_keys({"ai_oauth": {"codex": tok}}, pw,
                          cls.tmp / "userintegrations" / (label + ".enc"))
         cls.port = _free_port()
@@ -419,6 +437,13 @@ class AiOauthCodexCatalog(unittest.TestCase):
         models = self._models(cookie)
         self.assertIn("gpt-5.1-codex-max", models)
         self.assertIn("gpt-5.2-codex", models)
+
+    def test_03_stored_plan_filters_the_other_way(self):
+        cookie = self._login(self.STORED_PW)
+        # a plus plan keeps the free + plus entries, still drops
+        # the hidden one — the stored-plan capture path
+        self.assertEqual(self._models(cookie),
+                         ["gpt-free-ok", "gpt-plus-only", "gpt-noplans"])
 
 
 if __name__ == "__main__":

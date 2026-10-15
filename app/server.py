@@ -1519,6 +1519,12 @@ def _codex_live_models(info):
     if st != 200 or not isinstance(j, dict):
         return None
     plan = (tok.get("plan") or "").lower()
+    if not plan:
+        # Sign-ins made before plan capture carry no stored plan —
+        # the access token itself is a JWT holding the same claim.
+        auth = _jwt_claims(tok.get("access") or "").get(
+            "https://api.openai.com/auth") or {}
+        plan = (auth.get("chatgpt_plan_type") or "").lower()
     out = []
     for m in (j.get("models") or []):
         if not isinstance(m, dict):
