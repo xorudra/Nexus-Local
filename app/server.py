@@ -1421,11 +1421,12 @@ def _aioauth_exchange(lane, code, verifier):
     tok = {"access": j["access_token"],
            "refresh": j.get("refresh_token") or "",
            "expires": int(time.time()) + int(j.get("expires_in") or 3600),
-           "email": "", "account_id": "", "project": ""}
+           "email": "", "account_id": "", "project": "", "plan": ""}
     if lane == "codex" and j.get("id_token"):
         claims = _jwt_claims(j["id_token"])
         auth = claims.get("https://api.openai.com/auth") or {}
         tok["account_id"] = auth.get("chatgpt_account_id") or ""
+        tok["plan"] = auth.get("chatgpt_plan_type") or ""
         tok["email"] = claims.get("email") or ""
     if lane == "claude_oauth" and isinstance(j.get("account"), dict):
         tok["email"] = j["account"].get("email_address") or ""
@@ -1456,6 +1457,15 @@ def _aioauth_refresh(lane, tok):
     if j.get("refresh_token"):
         out["refresh"] = j["refresh_token"]
     out["expires"] = int(time.time()) + int(j.get("expires_in") or 3600)
+    if lane == "codex" and j.get("id_token"):
+        claims = _jwt_claims(j["id_token"])
+        auth = claims.get("https://api.openai.com/auth") or {}
+        if auth.get("chatgpt_account_id"):
+            out["account_id"] = auth["chatgpt_account_id"]
+        if auth.get("chatgpt_plan_type"):
+            out["plan"] = auth["chatgpt_plan_type"]
+        if claims.get("email"):
+            out["email"] = claims["email"]
     return out
 
 
@@ -1474,6 +1484,57 @@ def _aioauth_fresh(info, lane):
         if int(tok.get("expires") or 0) < time.time():
             return None
     return tok
+
+
+_CODEX_MODELS_CACHE = {}
+
+
+def _codex_live_models(info):
+    """The models this ChatGPT account may actually use, from
+    OpenAI's own Codex catalog: entries the catalog hides, and
+    entries whose available_in_plans excludes the account's plan,
+    are dropped (owner ask 2026-10-15: show only eligible models).
+    Cached 10 min per account. None when the catalog cannot be
+    reached or yields nothing — the caller falls back to the
+    static list, and chat still fails honestly per attempt."""
+    tok = _aioauth_fresh(info, "codex")
+    if not tok:
+        return None
+    key = (tok.get("account_id") or tok.get("email")
+           or (tok.get("access") or "")[:24])
+    now = time.time()
+    hit = _CODEX_MODELS_CACHE.get(key)
+    if hit and now - hit[0] < 600:
+        return hit[1]
+    hdr = {"Authorization": "Bearer " + tok["access"],
+           "Accept": "application/json",
+           "Originator": "codex-tui",
+           "User-Agent": "codex-tui/0.154.0 (Mac OS 26.5.2; arm64)"}
+    if tok.get("account_id"):
+        hdr["Chatgpt-Account-Id"] = tok["account_id"]
+    url = os.environ.get("NEXUS_CODEX_MODELS_URL") or (
+        "https://chatgpt.com/backend-api/codex/models"
+        "?client_version=0.154.0")
+    st, j = _intg_http(url, "GET", hdr, None, timeout=12)
+    if st != 200 or not isinstance(j, dict):
+        return None
+    plan = (tok.get("plan") or "").lower()
+    out = []
+    for m in (j.get("models") or []):
+        if not isinstance(m, dict):
+            continue
+        slug = m.get("slug") or m.get("id") or ""
+        if not slug or m.get("visibility") == "hide":
+            continue
+        plans = m.get("available_in_plans")
+        if plan and isinstance(plans, list) and plans and \
+                plan not in [str(p).lower() for p in plans]:
+            continue
+        out.append(slug)
+    if not out:
+        return None
+    _CODEX_MODELS_CACHE[key] = (now, out)
+    return out
 
 
 def _gemini_project(access):
@@ -4479,15 +4540,22 @@ class Handler(BaseHTTPRequestHandler):
             provider = parse_qs(parsed.query).get("provider", [""])[0]
             models = []
             if provider in _AIOAUTH_MODELS:
-                # Sign-in lanes serve their known model lists; there
-                # is no discovery endpoint on the CLI backends.
-                _ao = (self._session_info() or {}).get("integrations") or {}
+                # Sign-in lanes serve their known model lists —
+                # except Codex, whose backend publishes a per-account
+                # catalog: when connected, serve only the models the
+                # account is eligible for (static list as fallback).
+                # Claude Code / Gemini CLI expose no such catalog.
+                _info = self._session_info() or {}
+                _ao = _info.get("integrations") or {}
                 _connected = isinstance(
                     (_ao.get("ai_oauth") or {}).get(provider), dict)
+                _models = _AIOAUTH_MODELS[provider] if _connected else []
+                if _connected and provider == "codex":
+                    _live = _codex_live_models(_info)
+                    if _live:
+                        _models = _live
                 self._set_json_headers(200)
-                self.wfile.write(json.dumps(
-                    {"models": _AIOAUTH_MODELS[provider] if _connected
-                     else []}).encode())
+                self.wfile.write(json.dumps({"models": _models}).encode())
                 return
             try:
                 import urllib.request, json as js

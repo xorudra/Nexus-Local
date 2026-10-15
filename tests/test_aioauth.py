@@ -265,5 +265,161 @@ class AiOauth(unittest.TestCase):
         self.assertIn("Sign-in", names)
 
 
+class AiOauthCodexCatalog(unittest.TestCase):
+    """Owner ask 2026-10-15: a signed-in user should only be SHOWN
+    the models their account is eligible for. The Codex backend
+    publishes a per-account catalog (visibility + available_in_plans);
+    a local stub plays that catalog here. acct-live gets a filtered
+    list; acct-empty's catalog is unusable, so the static list must
+    come back as the honest fallback."""
+
+    CATALOG = {"models": [
+        {"slug": "gpt-free-ok", "visibility": "list",
+         "available_in_plans": ["free", "plus"]},
+        {"slug": "gpt-plus-only", "visibility": "list",
+         "available_in_plans": ["plus", "pro"]},
+        {"slug": "gpt-hidden", "visibility": "hide",
+         "available_in_plans": ["free", "plus", "pro"]},
+        {"slug": "gpt-noplans", "visibility": "list"}]}
+
+    LIVE_PW = "live-pass-123"
+    EMPTY_PW = "empty-pass-123"
+
+    @classmethod
+    def setUpClass(cls):
+        import http.server
+        import threading
+
+        class Stub(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.headers.get("Chatgpt-Account-Id") == "acct-empty":
+                    payload = {"models": []}
+                else:
+                    payload = AiOauthCodexCatalog.CATALOG
+                body = json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        cls.stub = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+        cls.stub_port = cls.stub.server_address[1]
+        threading.Thread(target=cls.stub.serve_forever, daemon=True).start()
+
+        cls.tmp = Path(tempfile.mkdtemp(prefix="nexus-catalog-"))
+        skip = {"access.json", "keys.enc", "users.enc", "access.enc",
+                "provider_status.json", "settings.json", "settings.enc",
+                "audit.jsonl", "usage.jsonl", "telemetry.enc"}
+        for name in os.listdir(APP):
+            if name in skip or name in ("chats", "userkeys",
+                                       "userintegrations"):
+                continue
+            src = APP / name
+            if src.is_dir():
+                shutil.copytree(src, cls.tmp / name)
+            elif name.endswith((".py", ".json", ".html", ".ico", ".svg",
+                                ".png")):
+                shutil.copy(src, cls.tmp / name)
+        access = {"livepal": _hash_pw(cls.LIVE_PW),
+                  "emptypal": _hash_pw(cls.EMPTY_PW)}
+        encrypt_keys({"groq": "sk-fake"}, MASTER, cls.tmp / "keys.enc")
+        encrypt_keys(access, MASTER, cls.tmp / "users.enc")
+        encrypt_keys(access, RESTORE, cls.tmp / "access.enc")
+        (cls.tmp / "chats").mkdir(exist_ok=True)
+        (cls.tmp / "userkeys").mkdir(exist_ok=True)
+        (cls.tmp / "userintegrations").mkdir(exist_ok=True)
+        future = int(time.time()) + 3600
+        for label, pw, acct in (("livepal", cls.LIVE_PW, "acct-live"),
+                                ("emptypal", cls.EMPTY_PW, "acct-empty")):
+            tok = {"access": "fake-token", "refresh": "fake-refresh",
+                   "expires": future, "email": label + "@example.com",
+                   "account_id": acct, "project": "", "plan": "free"}
+            encrypt_keys({"ai_oauth": {"codex": tok}}, pw,
+                         cls.tmp / "userintegrations" / (label + ".enc"))
+        cls.port = _free_port()
+        env = dict(os.environ)
+        env.update({"HOST": "127.0.0.1", "PORT": str(cls.port),
+                    "NEXUS_RELAY_PORT": str(_free_port()),
+                    "NEXUS_RESTORE_KEY": RESTORE,
+                    "NEXUS_CODEX_MODELS_URL":
+                        f"http://127.0.0.1:{cls.stub_port}/models",
+                    "PYTHONPATH": str(cls.tmp),
+                    "no_proxy": "127.0.0.1,localhost",
+                    "NO_PROXY": "127.0.0.1,localhost"})
+        cls.log = open(cls.tmp / "server.log", "wb")
+        cls.proc = subprocess.Popen(
+            [sys.executable, str(cls.tmp / "server.py")],
+            cwd=str(cls.tmp), env=env,
+            stdout=cls.log, stderr=subprocess.STDOUT)
+        for _ in range(80):
+            try:
+                with urllib.request.urlopen(
+                        f"http://127.0.0.1:{cls.port}/health",
+                        timeout=3) as r:
+                    if r.status == 200:
+                        break
+            except Exception:
+                time.sleep(0.25)
+        else:
+            raise RuntimeError("fixture server did not start")
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.proc.terminate()
+            cls.proc.wait(timeout=10)
+        except Exception:
+            try:
+                cls.proc.kill()
+            except Exception:
+                pass
+        cls.stub.shutdown()
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def _raw(self, method, path, cookie="", body=None, timeout=60):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port,
+                                          timeout=timeout)
+        headers = {"Content-Type": "application/json"}
+        if cookie:
+            headers["Cookie"] = cookie
+        conn.request(method, path,
+                     body=json.dumps(body) if body is not None else None,
+                     headers=headers)
+        resp = conn.getresponse()
+        raw = resp.read().decode("utf-8", "replace")
+        sc = resp.getheader("Set-Cookie") or ""
+        conn.close()
+        return resp.status, raw, sc.split(";")[0]
+
+    def _login(self, password):
+        st, raw, cookie = self._raw("POST", "/api/login",
+                                    body={"password": password})
+        self.assertEqual(st, 200, raw[:200])
+        return cookie
+
+    def _models(self, cookie):
+        st, raw, _c = self._raw("GET", "/api/models?provider=codex",
+                                cookie=cookie)
+        self.assertEqual(st, 200)
+        return json.loads(raw)["models"]
+
+    def test_01_only_eligible_models_shown(self):
+        cookie = self._login(self.LIVE_PW)
+        # hidden entry dropped, plus-only entry dropped for a free
+        # plan, plan-less + free entries kept, catalog order kept
+        self.assertEqual(self._models(cookie),
+                         ["gpt-free-ok", "gpt-noplans"])
+
+    def test_02_unusable_catalog_falls_back_to_static(self):
+        cookie = self._login(self.EMPTY_PW)
+        models = self._models(cookie)
+        self.assertIn("gpt-5.1-codex-max", models)
+        self.assertIn("gpt-5.2-codex", models)
+
+
 if __name__ == "__main__":
     unittest.main()
