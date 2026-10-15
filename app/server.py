@@ -3182,10 +3182,21 @@ class Handler(BaseHTTPRequestHandler):
         lanes = [{"lane": lane, "model": mdl,
                   "ready": (lane in RELAY_KEYLESS) or unlocked}
                  for lane, mdl in _V1_LANES]
+        # The generated key's creation time is the v1key.enc write
+        # time — real data for the API Keys table's Created column
+        # (owner's supplied design, 2026-10-15). Env keys have no
+        # file, so they honestly report null.
+        key_created = None
+        if _v1_key_source() == "generated":
+            try:
+                key_created = int(V1KEY_PATH.stat().st_mtime)
+            except Exception:
+                key_created = None
         body = {"enabled": bool(key),
                 "key_last4": key[-4:] if key else "",
                 "key_full": key,
                 "key_source": _v1_key_source(),
+                "key_created": key_created,
                 "can_generate": bool(RESTORE_KEY),
                 "base_url": f"{proto}://{host}/v1",
                 "consumer": "DSRclone AI service",
@@ -3211,8 +3222,13 @@ class Handler(BaseHTTPRequestHandler):
         _append_usage({"ts": datetime.datetime.now().isoformat(),
                        "type": "v1key_generated"})
         _audit("Vault", "/v1 service key generated")
+        try:
+            created = int(V1KEY_PATH.stat().st_mtime)
+        except Exception:
+            created = None
         self._set_json_headers()
-        self._send_body(json.dumps({"ok": True, "key": key, "source": "generated"}).encode())
+        self._send_body(json.dumps({"ok": True, "key": key, "source": "generated",
+                                    "key_created": created}).encode())
 
     def _v1_access_test(self):
         """Admin-only live self-test: one tiny nexus-auto completion

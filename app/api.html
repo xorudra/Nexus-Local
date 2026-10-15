@@ -13,12 +13,14 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
 /* API Access — shadcn API Keys page composition (owner-supplied
-   reference 2026-10-15) in Nexus dress: breadcrumb + page title,
-   a service-key card whose header carries the primary Generate
-   action, the key in a joined mono field with a Copy segment,
-   then status, supply lanes and a usage card. Tokens follow the
-   reference: #FAFAFA text, #A1A1A1 muted, white/10 borders,
-   8-10px radii, near-white primary button. */
+   full snapshot 2026-10-15) in Nexus dress: breadcrumb + page
+   title, an API Keys card whose header carries the Generate
+   action and whose table holds the one real Nexus key (name
+   label + joined mono field with a Copy segment, status pill,
+   created date, source), then endpoint status, supply lanes
+   and a usage card. Tokens follow the reference: #FAFAFA text,
+   #A1A1A1 muted, white/10 borders, 8-10px radii, near-white
+   primary button. */
 body{margin:0;font-family:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background-color:#050507;background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,255,255,.07), transparent 70%);color:#dde;overflow-x:hidden}
 .wrap{max-width:1560px;margin:0 auto;padding:26px 20px 60px}
 .crumb{font-size:12.5px;color:#8e8e8e;margin-bottom:10px}
@@ -41,6 +43,13 @@ body{margin:0;font-family:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Sego
 .pill.on{background:rgba(46,204,113,.14);color:#2ecc71;border:1px solid rgba(46,204,113,.4)}
 .pill.off{background:rgba(231,76,60,.12);color:#e74c3c;border:1px solid rgba(231,76,60,.4)}
 .keyrow{display:flex;margin-top:18px}
+.keys-table td{vertical-align:top}
+.keys-table .keycell{min-width:270px}
+.keys-table th:first-child{width:46%}
+.keyname{font-size:14px;font-weight:500;color:#fafafa}
+.keycell .keyrow{margin-top:7px}
+.keys-table td.u{font-family:'Space Grotesk',sans-serif;font-size:13px;color:#d9d9de;white-space:nowrap;padding-top:14px}
+.keys-table td:has(.pill){padding-top:12px}
 .keyrow input{flex:1;min-width:0;box-sizing:border-box;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-right:none;border-radius:10px 0 0 10px;color:#e8e8ee;padding:9px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:13px;outline:none}
 .keyrow button{border-radius:0 10px 10px 0;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.04);color:#d9d9de;padding:0 18px;font-size:13.5px;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1)}
 .keyrow button:hover{background:rgba(255,255,255,.09);color:#fff}
@@ -197,16 +206,27 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
   <div class="card">
     <div class="card-head">
       <div class="tt">
-        <h2>Service key</h2>
+        <h2>API Keys</h2>
         <p class="desc">API keys are used to authenticate requests to the Nexus /v1 API.
         Anyone holding this key can call your endpoint — keep it like a password.</p>
       </div>
-      <button id="gen-btn" class="btn-primary" onclick="genKey()">Generate new key</button>
+      <button id="gen-btn" class="btn-primary" onclick="genKey()">Generate API key</button>
     </div>
-    <div class="keyrow">
-      <input type="text" id="key-full" readonly value="" aria-label="Full service key (admin only)">
-      <button type="button" onclick="copyKey()">Copy</button>
-    </div>
+    <div class="tblwrap"><table class="keys-table">
+      <thead><tr><th>Name</th><th>Status</th><th>Created</th><th>Source</th></tr></thead>
+      <tbody><tr>
+        <td class="keycell">
+          <div class="keyname">Nexus service key</div>
+          <div class="keyrow">
+            <input type="text" id="key-full" readonly value="" aria-label="Full service key (admin only)">
+            <button type="button" onclick="copyKey()">Copy</button>
+          </div>
+        </td>
+        <td><span id="status-pill" class="pill off">loading</span></td>
+        <td class="u" id="key-created">—</td>
+        <td class="u" id="key-source">—</td>
+      </tr></tbody>
+    </table></div>
     <div id="gen-result"></div>
     <p class="note" style="margin-top:12px">Generating a new key replaces the current one <b>immediately</b> —
     DSRclone stops connecting until its AI service is given the new key. A generated key is stored
@@ -216,14 +236,13 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
   <div class="card">
     <div class="card-head">
       <div class="tt">
-        <h2>Endpoint status <span id="status-pill" class="pill off" style="margin-left:8px">loading</span></h2>
+        <h2>Endpoint status</h2>
         <p class="desc">When the vault is locked (no admin login since the last restart),
         only keyless lanes answer until you sign in.</p>
       </div>
     </div>
     <div class="kv"><span class="k">Base URL</span><span class="v" id="base-url">—</span></div>
     <div class="kv"><span class="k">Service key</span><span class="v" id="key-hint">—</span></div>
-    <div class="kv"><span class="k">Key source</span><span class="v" id="key-source">—</span></div>
     <div class="kv"><span class="k">Connected consumer</span><span class="v" id="consumer">—</span></div>
     <div class="kv"><span class="k">Provider vault</span><span class="v" id="vault">—</span></div>
   </div>
@@ -256,6 +275,7 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
 
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function fmtDate(ts){return new Date(ts*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
 fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
   var pill=document.getElementById('status-pill');
   if(d.enabled){pill.textContent='ENABLED';pill.className='pill on';}
@@ -263,6 +283,7 @@ fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
   document.getElementById('base-url').textContent=d.base_url;
   document.getElementById('key-hint').textContent=d.enabled?('••••••••'+d.key_last4):'not set';
   document.getElementById('key-source').textContent=d.key_source==='generated'?'generated on this page':(d.key_source==='env'?'server environment':'—');
+  document.getElementById('key-created').textContent=d.key_created?fmtDate(d.key_created):'—';
   document.getElementById('key-full').value=d.key_full||'';
   if(!d.can_generate){var gb=document.getElementById('gen-btn');gb.disabled=true;gb.title='Needs the server restore key';}
   document.getElementById('consumer').textContent=d.consumer;
@@ -296,6 +317,7 @@ function genKey(){
     if(d.ok){
       document.getElementById('key-full').value=d.key;
       document.getElementById('key-source').textContent='generated on this page';
+      if(d.key_created){document.getElementById('key-created').textContent=fmtDate(d.key_created);}
       document.getElementById('key-hint').textContent='••••••••'+d.key.slice(-4);
       var pill=document.getElementById('status-pill');pill.textContent='ENABLED';pill.className='pill on';
       out.textContent='✓ New key is active. Now update DSRclone\u2019s AI service with this key so it reconnects.';
