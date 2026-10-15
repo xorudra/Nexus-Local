@@ -12,34 +12,54 @@
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* API Access — shadcn API Keys page composition (owner-supplied
+   reference 2026-10-15) in Nexus dress: breadcrumb + page title,
+   a service-key card whose header carries the primary Generate
+   action, the key in a joined mono field with a Copy segment,
+   then status, supply lanes and a usage card. Tokens follow the
+   reference: #FAFAFA text, #A1A1A1 muted, white/10 borders,
+   8-10px radii, near-white primary button. */
 body{margin:0;font-family:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background-color:#050507;background-image:radial-gradient(ellipse 90% 45% at 50% -5%, rgba(255,255,255,.07), transparent 70%);color:#dde;overflow-x:hidden}
-.header{display:flex;align-items:center;padding:20px 32px;padding-left:70px;background:#0c0c0e;border-bottom:1px solid rgba(255,255,255,.18)}
-.header h1{font-family:'Space Grotesk',sans-serif;font-weight:400;letter-spacing:.14em;font-size:26px;margin:0;color:#e8e8ee}
-.header .sub{margin-left:14px;color:#8e8e8e;font-size:13px}
-.wrap{max-width:1560px;margin:0 auto;padding:28px 20px 60px}
-.card{background:#101012;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:22px 24px;margin-bottom:20px}
-.card h2{margin:0 0 6px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:16px;letter-spacing:.06em;color:#e8e8ee;text-transform:uppercase}
-.card p{color:#8e8e8e;font-size:14px;line-height:1.55;margin:6px 0}
-.pill{display:inline-block;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.04em}
+.wrap{max-width:1560px;margin:0 auto;padding:26px 20px 60px}
+.crumb{font-size:12.5px;color:#8e8e8e;margin-bottom:10px}
+.crumb a{color:#8e8e8e;text-decoration:none}
+.crumb a:hover{color:#f2f2f2}
+.crumb b{color:#d9d9de;font-weight:500}
+.page-head h1{font-size:24px;font-weight:600;letter-spacing:-.01em;color:#fafafa;margin:0}
+.page-head p{color:#a1a1a1;font-size:14px;line-height:1.55;margin:8px 0 22px;max-width:760px}
+.card{background:#101012;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:24px;margin-bottom:16px}
+.card-head{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.card-head .tt{flex:1;min-width:min(420px,100%)}
+.card h2{margin:0;font-size:15px;font-weight:600;color:#fafafa}
+.card .desc{color:#a1a1a1;font-size:13.5px;line-height:1.55;margin:5px 0 0}
+.btn-primary{background:#ededed;color:#0a0a0a;border:1px solid transparent;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1)}
+.btn-primary:hover{background:#ffffff}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-ghost{background:transparent;border:1px solid rgba(255,255,255,.15);color:#fafafa;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:background .2s cubic-bezier(.4,0,.2,1)}
+.btn-ghost:hover{background:rgba(255,255,255,.06)}
+.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11.5px;font-weight:600;letter-spacing:.03em;vertical-align:2px}
 .pill.on{background:rgba(46,204,113,.14);color:#2ecc71;border:1px solid rgba(46,204,113,.4)}
 .pill.off{background:rgba(231,76,60,.12);color:#e74c3c;border:1px solid rgba(231,76,60,.4)}
-.kv{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:14px}
+.keyrow{display:flex;margin-top:18px}
+.keyrow input{flex:1;min-width:0;box-sizing:border-box;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-right:none;border-radius:10px 0 0 10px;color:#e8e8ee;padding:9px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:13px;outline:none}
+.keyrow button{border-radius:0 10px 10px 0;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.04);color:#d9d9de;padding:0 18px;font-size:13.5px;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1)}
+.keyrow button:hover{background:rgba(255,255,255,.09);color:#fff}
+.kv{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13.5px}
 .kv:last-child{border-bottom:none}
-.kv .k{color:#8e8e8e}
-.kv .v{color:#e8e8ee;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;text-align:right;word-break:break-all}
-table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
-th,td{text-align:left;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05)}
-th{color:#8e8e8e;font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
-td{color:#d9d9de;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.kv .k{color:#a1a1a1}
+.kv .v{color:#e8e8ee;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;text-align:right;word-break:break-all}
+.tblwrap{overflow-x:auto;margin-top:14px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.06)}
+th{color:#a1a1a1;font-weight:500;font-size:12.5px}
+td{color:#d9d9de;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
 .ready{color:#2ecc71}.notready{color:#e0a23c}
-pre{background:#0c0c0e;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px;overflow-x:auto;font-size:12.5px;line-height:1.6;color:#d9d9de}
-button{background:#f2f2f2;color:#050505;border:none;border-radius:9px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer}
-button:hover{background:#ffffff}
-button.ghost{background:transparent;border:1px solid rgba(255,255,255,.5);color:#f2f2f2;padding:6px 14px;font-size:12.5px}
-#test-result{margin-top:14px;font-size:14px;line-height:1.55;color:#d9d9de;white-space:pre-wrap}
-.note{font-size:12.5px;color:#8e8e8e}
-</style>
-<style>
+pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:14px 16px;overflow-x:auto;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.6;color:#d9d9de;margin:14px 0 0}
+#gen-result{margin-top:12px;font-size:13.5px;line-height:1.55;color:#d9d9de;white-space:pre-wrap}
+#gen-result:empty{display:none}
+#test-result{margin-top:14px;font-size:13.5px;line-height:1.55;color:#d9d9de;white-space:pre-wrap}
+.note{font-size:12.5px;color:#8e8e8e;line-height:1.55}
+@media(max-width:640px){.card{padding:18px}.wrap{padding:20px 14px 48px}}
 </style>
 </head>
 <body>
@@ -165,48 +185,71 @@ button.ghost{background:transparent;border:1px solid rgba(255,255,255,.5);color:
 </script>
 
 
-<div class="header"><h1>API ACCESS</h1><span class="sub">Nexus as an OpenAI-compatible endpoint for your other projects</span></div>
-
 <div class="wrap">
-  <div class="card">
-    <h2>Endpoint status <span id="status-pill" class="pill off" style="margin-left:8px">loading</span></h2>
-    <div class="kv"><span class="k">Base URL</span><span class="v" id="base-url">—</span></div>
-    <div class="kv"><span class="k">Service key</span><span class="v" id="key-hint">—</span></div>
-    <div class="kv"><span class="k">Connected consumer</span><span class="v" id="consumer">—</span></div>
-    <div class="kv"><span class="k">Provider vault</span><span class="v" id="vault">—</span></div>
-    <p class="note">Requests are answered by the same provider lanes as Nexus chat, with failover —
-    the relay key set first, then the FreeLLMAPI providers. When the vault is locked (no admin
-    login since the last restart), only keyless lanes answer until you sign in.</p>
+  <div class="crumb"><a href="/">Home</a> / <b>API Access</b></div>
+  <div class="page-head">
+    <h1>API Access</h1>
+    <p>Nexus as an OpenAI-compatible endpoint for your other projects. Requests are answered
+    by the same provider lanes as Nexus chat, with failover — the relay key set first,
+    then the FreeLLMAPI providers.</p>
   </div>
 
   <div class="card">
-    <h2>Service key</h2>
-    <div class="kv"><span class="k">Source</span><span class="v" id="key-source">—</span></div>
-    <label style="display:block;color:#8e8e8e;font-size:13px;margin:14px 0 6px">Full key (admin only)</label>
-    <input type="text" id="key-full" readonly value="" style="width:100%;box-sizing:border-box;background:#0c0c0e;border:1px solid rgba(255,255,255,.1);border-radius:9px;color:#e8e8ee;padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px">
-    <div style="margin-top:14px">
-      <button class="ghost" onclick="copyKey()">Copy key</button>
-      <button id="gen-btn" onclick="genKey()" style="margin-left:8px">Generate new key</button>
+    <div class="card-head">
+      <div class="tt">
+        <h2>Service key</h2>
+        <p class="desc">API keys are used to authenticate requests to the Nexus /v1 API.
+        Anyone holding this key can call your endpoint — keep it like a password.</p>
+      </div>
+      <button id="gen-btn" class="btn-primary" onclick="genKey()">Generate new key</button>
     </div>
+    <div class="keyrow">
+      <input type="text" id="key-full" readonly value="" aria-label="Full service key (admin only)">
+      <button type="button" onclick="copyKey()">Copy</button>
+    </div>
+    <div id="gen-result"></div>
     <p class="note" style="margin-top:12px">Generating a new key replaces the current one <b>immediately</b> —
     DSRclone stops connecting until its AI service is given the new key. A generated key is stored
     encrypted on the server and syncs like your friend list, so it survives restarts.</p>
-    <div id="gen-result" style="margin-top:10px;font-size:14px;line-height:1.55;color:#d9d9de;white-space:pre-wrap"></div>
   </div>
 
   <div class="card">
-    <h2>Supply lanes</h2>
-    <table><thead><tr><th>Lane</th><th>Default model</th><th>Ready</th></tr></thead>
-    <tbody id="lanes"><tr><td colspan="3">loading…</td></tr></tbody></table>
-    <p class="note">Ask for model <b>nexus-auto</b> and Nexus tries the lanes in this order until one answers.
-    A specific lane model can be requested as <b>lane/model</b>, e.g. relay_groq/openai/gpt-oss-20b.
-    GET /v1/models lists everything currently reachable.</p>
+    <div class="card-head">
+      <div class="tt">
+        <h2>Endpoint status <span id="status-pill" class="pill off" style="margin-left:8px">loading</span></h2>
+        <p class="desc">When the vault is locked (no admin login since the last restart),
+        only keyless lanes answer until you sign in.</p>
+      </div>
+    </div>
+    <div class="kv"><span class="k">Base URL</span><span class="v" id="base-url">—</span></div>
+    <div class="kv"><span class="k">Service key</span><span class="v" id="key-hint">—</span></div>
+    <div class="kv"><span class="k">Key source</span><span class="v" id="key-source">—</span></div>
+    <div class="kv"><span class="k">Connected consumer</span><span class="v" id="consumer">—</span></div>
+    <div class="kv"><span class="k">Provider vault</span><span class="v" id="vault">—</span></div>
   </div>
 
   <div class="card">
-    <h2>Use it from any OpenAI client</h2>
+    <div class="card-head">
+      <div class="tt">
+        <h2>Supply lanes</h2>
+        <p class="desc">Ask for model <b>nexus-auto</b> and Nexus tries the lanes in this order until one answers.
+        A specific lane model can be requested as <b>lane/model</b>, e.g. relay_groq/openai/gpt-oss-20b.
+        GET /v1/models lists everything currently reachable.</p>
+      </div>
+    </div>
+    <div class="tblwrap"><table><thead><tr><th>Lane</th><th>Default model</th><th>Ready</th></tr></thead>
+    <tbody id="lanes"><tr><td colspan="3">loading…</td></tr></tbody></table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="tt">
+        <h2>Use it from any OpenAI client</h2>
+        <p class="desc">Point any OpenAI-compatible client at the base URL with the service key as the bearer token.</p>
+      </div>
+      <button id="test-btn" class="btn-ghost" onclick="runTest()">Run live test</button>
+    </div>
     <pre id="example">loading…</pre>
-    <button id="test-btn" onclick="runTest()">Run live test</button>
     <div id="test-result"></div>
   </div>
 </div>
