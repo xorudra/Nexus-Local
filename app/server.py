@@ -3314,9 +3314,9 @@ class Handler(BaseHTTPRequestHandler):
                                     "key_created": entry["created"]}).encode())
 
     def _v1_access_keystate(self, action):
-        """Admin-only: disable / enable / delete one stored key by
-        id (owner order 2026-10-16). The env fallback is not a
-        stored key and cannot be managed here."""
+        """Admin-only: disable / enable / delete / rotate one
+        stored key by id (owner orders 2026-10-16). The env
+        fallback is not a stored key and cannot be managed here."""
         info = self._session_info()
         if not info or not info.get("admin"):
             self._set_json_headers(403)
@@ -3340,11 +3340,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         if action == "delete":
             _V1KEYS["keys"].remove(entry)
+        elif action == "rotate":
+            # The reference design's per-row refresh button, for
+            # real: same key entry, brand-new secret, and the
+            # last-used stamp resets — the new secret has never
+            # been used.
+            entry["key"] = "nxk-" + secrets.token_hex(24)
+            entry["last_used"] = None
         else:
             entry["disabled"] = (action == "disable")
         _save_v1keys()
         verb = {"disable": "disabled", "enable": "enabled",
-                "delete": "deleted"}[action]
+                "delete": "deleted", "rotate": "rotated"}[action]
         _audit("Vault", f"/v1 service key {verb}: {entry['name']}")
         self._set_json_headers()
         self._send_body(json.dumps({"ok": True}).encode())
@@ -5050,7 +5057,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path in ("/api/v1-access/disable",
                            "/api/v1-access/enable",
-                           "/api/v1-access/delete"):
+                           "/api/v1-access/delete",
+                           "/api/v1-access/rotate"):
             self._v1_access_keystate(parsed.path.rsplit("/", 1)[1])
             return
         if parsed.path == "/setup":

@@ -13,64 +13,77 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 /* API Access — the owner's supplied shadcn API Keys page
-   (full snapshot, 2026-10-15), matched closely: flat #0A0A0A
-   canvas, a header card carrying the page title + breadcrumb,
-   a dotted divider, then flat bordered cards whose headers
-   sit above a hairline divider, and the keys table in the
-   reference's geometry. Nexus keeps its own sidebar; the
-   table holds the one real Nexus key (no sample rows, no
-   last-used / disable columns Nexus cannot back with data). */
+   (full snapshot, 2026-10-15), matched to the reference's own
+   values (re-measured from the snapshot DOM/CSS 2026-10-16):
+   flat #0A0A0A canvas, #171717 cards, a header card with the
+   page title + breadcrumb, a dotted divider, and the keys
+   table in the reference's exact geometry — six columns
+   (Name / Status / Created / Last used / Disable-Enable /
+   Action), the joined key field with its copy segment and a
+   rotate button, Active/Disabled badges in the reference's
+   chart-2 / destructive tints, and the 32px switch. Nexus
+   keeps its own sidebar; every row is a real Nexus key. */
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#0a0a0a;color:#e8e8ee;overflow-x:hidden}
 .wrap{max-width:1560px;margin:0 auto;padding:24px 24px 60px}
-.head-card{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.head-card{background:#171717;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .head-card h1{font-size:16px;font-weight:600;color:#fafafa;margin:0;flex:1;min-width:180px}
 .crumb{font-size:12.5px;color:#a1a1a1;white-space:nowrap}
 .crumb a{color:#a1a1a1;text-decoration:none}
 .crumb a:hover{color:#f2f2f2}
 .crumb b{color:#fafafa;font-weight:500}
 .dots{border-top:2px dotted rgba(255,255,255,.14);margin:14px 2px}
-.card{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:12px;margin-bottom:16px;overflow:hidden}
+.card{background:#171717;border:1px solid rgba(255,255,255,.1);border-radius:12px;margin-bottom:16px;overflow:hidden}
 .card-head{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
 .card-head .tt{flex:1;min-width:min(420px,100%)}
 .card h2{margin:0;font-size:15px;font-weight:600;color:#fafafa}
 .card .desc{color:#a1a1a1;font-size:13.5px;line-height:1.55;margin:5px 0 0}
 .card-body{padding:18px 24px 22px}
-.keys-body{padding:6px 8px 10px}
+.keys-body{padding:0 16px 8px}
 .card-foot{padding:2px 24px 20px}
-.btn-primary{background:#ededed;color:#0a0a0a;border:1px solid transparent;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1)}
+.btn-primary{background:#e5e5e5;color:#171717;border:1px solid transparent;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1);display:inline-flex;align-items:center;gap:8px}
+.btn-primary svg{width:16px;height:16px;flex:none}
 .btn-primary:hover{background:#ffffff}
 .btn-primary:disabled{opacity:.5;cursor:not-allowed}
 .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,.15);color:#fafafa;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:background .2s cubic-bezier(.4,0,.2,1)}
 .btn-ghost:hover{background:rgba(255,255,255,.06)}
-.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11.5px;font-weight:600;letter-spacing:.03em;vertical-align:2px}
-.pill.on{background:rgba(46,204,113,.14);color:#2ecc71;border:1px solid rgba(46,204,113,.4)}
-.pill.off{background:rgba(231,76,60,.12);color:#e74c3c;border:1px solid rgba(231,76,60,.4)}
-.keyrow{display:flex;margin-top:18px}
-.keys-table td{vertical-align:top}
-.keys-table .keycell{min-width:270px}
-.keys-table th:first-child{width:46%}
-.keyname{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;font-weight:500;color:#fafafa}
-.keycell .keyrow{margin-top:7px}
-.keys-table td.u{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:#d9d9de;white-space:nowrap;padding-top:14px}
-.keys-table td:has(.pill){padding-top:12px}
+.kbadge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
+.kbadge.on{background:rgba(0,149,136,.12);color:#009588}
+.kbadge.off{background:rgba(255,101,104,.16);color:#ff6568}
+.keys-table{font-size:14px}
+.keys-table th{height:40px;padding:0 8px;color:#fafafa;font-weight:500;font-size:14px;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap;font-family:inherit}
+.keys-table th:first-child{padding-left:16px}
+.keys-table td{padding:8px;color:#d9d9de;font-family:inherit;font-size:14px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
+.keys-table td:first-child{padding-left:16px}
+.keys-table tbody tr:last-child td{border-bottom:none}
+.keys-table tbody tr:hover{background:rgba(38,38,38,.5)}
+.keys-table .keycell{min-width:384px}
+.keys-table .u{color:#a1a1a1}
+.keys-table td.u{font-family:inherit;font-size:14px;color:#a1a1a1;white-space:nowrap}
+.keyname{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;font-weight:500;color:#fafafa;line-height:1.2}
+.keycell .keyrow{display:flex;align-items:center;gap:12px;margin-top:4px}
+.joined{display:flex;flex:1;min-width:0}
+.joined input{flex:1;min-width:0;box-sizing:border-box;background:transparent;border:1px solid rgba(255,255,255,.15);border-right:none;border-radius:8px 0 0 8px;color:#a1a1a1;padding:8px 12px;font-family:inherit;font-size:14px;outline:none}
+.copyseg{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.15);border-radius:0 8px 8px 0;background:transparent;color:#a1a1a1;padding:0 16px;font-size:14px;cursor:pointer;font-family:inherit;flex:none;transition:color .2s,background .2s}
+.copyseg:hover{color:#fafafa;background:rgba(255,255,255,.05)}
+.copyseg svg{width:20px;height:20px;flex:none}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#d9d9de;cursor:pointer;flex:none;transition:background .2s,color .2s}
+.icon-btn svg{width:20px;height:20px}
+.icon-btn:hover{background:rgba(38,38,38,.8);color:#fafafa}
+.icon-btn.ghost{border-color:transparent}
+.icon-btn.ghost:hover{background:transparent;color:#ff6568}
 .head-actions{display:flex;gap:10px;align-items:center;flex:none;flex-wrap:wrap}
-#key-search{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:8px 12px;font-size:13.5px;font-family:inherit;width:170px;outline:none}
+.searchwrap{position:relative;flex:none}
+.searchwrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:#a1a1a1;pointer-events:none}
+#key-search{background:transparent;border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:8px 12px 8px 34px;font-size:14px;font-family:inherit;width:200px;outline:none}
+#key-search::placeholder{color:#a1a1a1}
 #key-search:focus{border-color:rgba(255,255,255,.4)}
 #create-row{display:flex;gap:10px;align-items:center;padding:14px 24px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
 #create-row input{flex:1;min-width:200px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:9px 12px;font-size:13.5px;font-family:inherit;outline:none}
-.keys-table .acts{white-space:nowrap}
-.mini-btn{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.04);color:#d9d9de;border-radius:7px;padding:5px 12px;font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit;margin-right:6px;transition:background .2s}
-.mini-btn:hover{background:rgba(255,255,255,.09);color:#fff}
-.mini-btn.danger{border-color:rgba(231,76,60,.45);color:#ff9a9a}
-.mini-btn.danger:hover{background:rgba(231,76,60,.12)}
-.switch{position:relative;width:38px;height:22px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);cursor:pointer;padding:0;vertical-align:middle;margin-right:8px;transition:background .2s,border-color .2s}
-.switch .knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#a8a8b0;transition:left .2s,background .2s}
-.switch[aria-checked="true"]{background:#fafafa;border-color:#fafafa}
-.switch[aria-checked="true"] .knob{left:18px;background:#0a0a0a}
+.switch{position:relative;width:32px;height:18.4px;border-radius:999px;border:1px solid transparent;background:rgba(255,255,255,.15);cursor:pointer;padding:0;vertical-align:middle;transition:background .2s}
+.switch .knob{position:absolute;top:1.2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fafafa;transition:left .2s,background .2s}
+.switch[aria-checked="true"]{background:#e5e5e5}
+.switch[aria-checked="true"] .knob{left:14px;background:#171717}
 .switch:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
-.keyrow input{flex:1;min-width:0;box-sizing:border-box;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-right:none;border-radius:10px 0 0 10px;color:#e8e8ee;padding:9px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:13px;outline:none}
-.keyrow button{border-radius:0 10px 10px 0;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.04);color:#d9d9de;padding:0 18px;font-size:13.5px;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1)}
-.keyrow button:hover{background:rgba(255,255,255,.09);color:#fff}
 .kv{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13.5px}
 .kv:last-child{border-bottom:none}
 .kv .k{color:#a1a1a1}
@@ -229,19 +242,19 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
         Anyone holding this key can call your endpoint — keep it like a password.</p>
       </div>
       <div class="head-actions">
-        <input type="search" id="key-search" placeholder="Search keys" aria-label="Search keys" oninput="renderKeys()">
-        <button id="gen-btn" class="btn-primary" onclick="toggleCreate()">Create API key</button>
+        <span class="searchwrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input type="search" id="key-search" placeholder="Search..." aria-label="Search keys" oninput="renderKeys()"></span>
+        <button id="gen-btn" class="btn-primary" onclick="toggleCreate()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>Generate API key</button>
       </div>
     </div>
     <div id="create-row" style="display:none">
       <input type="text" id="new-name" maxlength="60" placeholder="Key name — e.g. DSRclone, Testing" aria-label="New key name">
-      <button class="btn-primary" onclick="createKey()">Create</button>
+      <button class="btn-primary" onclick="createKey()">Generate key</button>
       <button class="btn-ghost" onclick="toggleCreate()">Cancel</button>
     </div>
     <div class="keys-body">
       <div class="tblwrap"><table class="keys-table">
-        <thead><tr><th>Name</th><th>Status</th><th>Created</th><th>Last used</th><th>Action</th></tr></thead>
-        <tbody id="keys-rows"><tr><td colspan="5" class="u">loading…</td></tr></tbody>
+        <thead><tr><th>Name</th><th>Status</th><th>Created</th><th>Last used</th><th>Disable/Enable</th><th>Action</th></tr></thead>
+        <tbody id="keys-rows"><tr><td colspan="6" class="u">loading…</td></tr></tbody>
       </table></div>
     </div>
     <div class="card-foot">
@@ -303,31 +316,46 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
 
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function fmtDate(ts){return new Date(ts*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
+function fmtDate(ts){return new Date(ts*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}).replace(/ (\d{4})$/, ', $1')}
 var KEYS=[];
-function fmtDateTime(ts){var d=new Date(ts*1000);return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});}
+var COPY_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+var REFRESH_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>';
+var TRASH_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+function fmtUsed(ts){
+  var d=new Date(ts*1000), now=new Date();
+  var day=function(x){return new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();};
+  var diff=Math.round((day(now)-day(d))/86400000);
+  var t=d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  if(diff===0){return 'Today, '+t;}
+  if(diff===1){return 'Yesterday, '+t;}
+  return fmtDate(ts)+', '+t;
+}
 function rowHtml(k){
-  var pill=k.disabled?'<span class="pill off">DISABLED</span>':'<span class="pill on">ENABLED</span>';
-  var acts;
+  var badge=k.disabled?'<span class="kbadge off">Disabled</span>':'<span class="kbadge on">Active</span>';
+  var joined='<div class="keyrow"><div class="joined"><input type="text" readonly value="'+esc(k.key_full)+'" aria-label="Service key (admin only)">'
+    +'<button type="button" class="copyseg" data-act="copy">'+COPY_SVG+'Copy</button></div>';
+  var sw, act;
   if(k.source==='env'){
-    acts='<span class="u">server environment</span>';
+    sw='<span class="u">—</span>';
+    act='<span class="u">server environment</span>';
   }else{
-    acts='<button type="button" class="switch" role="switch" aria-checked="'+(!k.disabled)+'" data-act="toggle" data-id="'+esc(k.id)+'" aria-label="'+(k.disabled?'Enable':'Disable')+' key"><span class="knob"></span></button>'
-        +'<button type="button" class="mini-btn danger" data-act="delete" data-id="'+esc(k.id)+'">Delete</button>';
+    joined+='<button type="button" class="icon-btn" data-act="rotate" data-id="'+esc(k.id)+'" title="Rotate this key" aria-label="Rotate key">'+REFRESH_SVG+'</button>';
+    sw='<button type="button" class="switch" role="switch" aria-checked="'+(!k.disabled)+'" data-act="toggle" data-id="'+esc(k.id)+'" aria-label="'+(k.disabled?'Enable':'Disable')+' key"><span class="knob"></span></button>';
+    act='<button type="button" class="icon-btn ghost" data-act="delete" data-id="'+esc(k.id)+'" title="Delete key" aria-label="Delete key">'+TRASH_SVG+'</button>';
   }
-  return '<tr><td class="keycell"><div class="keyname">'+esc(k.name)+'</div>'
-    +'<div class="keyrow"><input type="text" readonly value="'+esc(k.key_full)+'" aria-label="Service key (admin only)">'
-    +'<button type="button" data-act="copy">Copy</button></div></td>'
-    +'<td>'+pill+'</td>'
+  joined+='</div>';
+  return '<tr><td class="keycell"><div class="keyname">'+esc(k.name)+'</div>'+joined+'</td>'
+    +'<td>'+badge+'</td>'
     +'<td class="u">'+(k.created?fmtDate(k.created):'—')+'</td>'
-    +'<td class="u">'+(k.last_used?fmtDateTime(k.last_used):'Never')+'</td>'
-    +'<td class="acts">'+acts+'</td></tr>';
+    +'<td class="u">'+(k.last_used?fmtUsed(k.last_used):'Never')+'</td>'
+    +'<td>'+sw+'</td>'
+    +'<td>'+act+'</td></tr>';
 }
 function renderKeys(){
   var q=(document.getElementById('key-search').value||'').toLowerCase();
   var rows=KEYS.filter(function(k){return !q||k.name.toLowerCase().indexOf(q)>=0;});
   document.getElementById('keys-rows').innerHTML=rows.length?rows.map(rowHtml).join('')
-    :'<tr><td colspan="5" class="u">'+(KEYS.length?'No keys match your search.':'No keys yet — create one above.')+'</td></tr>';
+    :'<tr><td colspan="6" class="u">'+(KEYS.length?'No keys match your search.':'No keys yet — generate one above.')+'</td></tr>';
 }
 function loadInfo(){
   fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
@@ -347,7 +375,7 @@ function loadInfo(){
 '  -H "Content-Type: application/json" \\\n'+
 '  -d \'{"model": "nexus-auto", "messages": [{"role": "user", "content": "Hello"}]}\'';
   }).catch(function(){
-    document.getElementById('keys-rows').innerHTML='<tr><td colspan="5" class="u">Could not load the keys.</td></tr>';
+    document.getElementById('keys-rows').innerHTML='<tr><td colspan="6" class="u">Could not load the keys.</td></tr>';
   });
 }
 document.getElementById('keys-rows').addEventListener('click',function(e){
@@ -368,17 +396,23 @@ document.getElementById('keys-rows').addEventListener('click',function(e){
     keyState(id, kk.disabled?'enable':'disable');
     return;
   }
+  if(act==='rotate'){
+    var rk=null; KEYS.forEach(function(x){if(x.id===id)rk=x;});
+    if(!confirm('Rotate key "'+(rk?rk.name:'')+'"? The old key stops working immediately — anything using it (like DSRclone) needs the new key from this table.')){return;}
+    keyState(id,'rotate','✓ Key rotated — the old key no longer works. Copy the new key into anything that uses it.');
+    return;
+  }
   if(act==='delete'){
     var k=null; KEYS.forEach(function(x){if(x.id===id)k=x;});
     if(!confirm('Delete key "'+(k?k.name:'')+'"? Anything still using it (like DSRclone) stops connecting, and this cannot be undone.')){return;}
   }
   keyState(id,act);
 });
-function keyState(id,act){
+function keyState(id,act,msg){
   var out=document.getElementById('gen-result');
   fetch('/api/v1-access/'+act,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
   .then(function(r){return r.json()}).then(function(d){
-    if(d.ok){ out.textContent='✓ Done.'; loadInfo(); }
+    if(d.ok){ out.textContent=msg||'✓ Done.'; loadInfo(); }
     else{ out.textContent='✗ '+(d.error||'action failed'); }
   }).catch(function(){ out.textContent='✗ Request failed.'; });
 }
