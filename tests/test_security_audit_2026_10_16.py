@@ -26,6 +26,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -250,6 +251,92 @@ class ValidatorUnitTests(unittest.TestCase):
             final = decrypt_keys(p, "pw-fixture-1")
             self.assertIn("n", final)
             self.assertEqual(list(Path(td).glob("*.tmp")), [])
+
+
+    # -- run-5: model ids become URL path segments with shared keys --
+    def test_safe_model_path(self):
+        import server as srv
+        ok = srv._safe_model_path
+        self.assertEqual(ok("@cf/meta/llama-3-8b-instruct"),
+                         "@cf/meta/llama-3-8b-instruct")
+        self.assertEqual(ok("gemini-2.5-flash"), "gemini-2.5-flash")
+        for bad in ("../../../zones", "..%2f..%2fuser", "x?injected=1",
+                    "a b", "", "..", "a/./b", "a//b", "x#frag", "a\\b"):
+            self.assertIsNone(ok(bad), bad)
+
+    # -- run-5: the custom-provider registry mirrors the vault -------
+    def test_register_custom_providers_replaces_and_purges(self):
+        import server as srv
+        name = "unittestdemo"
+        try:
+            srv.register_custom_providers(
+                {f"custom_relay_{name}": "k1",
+                 f"custom_relay_{name}_url": "https://93.184.216.34/v1"})
+            self.assertEqual(srv.RELAY_UPSTREAMS.get(name),
+                             "https://93.184.216.34/v1")
+            # A changed URL replaces the upstream - the rotated key
+            # must not keep flowing to the previous host.
+            srv.register_custom_providers(
+                {f"custom_relay_{name}": "k2",
+                 f"custom_relay_{name}_url": "https://93.184.216.35/v1"})
+            self.assertEqual(srv.RELAY_UPSTREAMS.get(name),
+                             "https://93.184.216.35/v1")
+            # Removal unregisters.
+            srv.register_custom_providers({"groq": "x"})
+            self.assertNotIn(name, srv.RELAY_UPSTREAMS)
+        finally:
+            srv.RELAY_UPSTREAMS.pop(name, None)
+            srv._CUSTOM_RELAY_NAMES.discard(name)
+
+    # -- run-5: an empty access mirror is authoritative at boot ------
+    def test_boot_restore_empty_mirror_is_authoritative(self):
+        import server as srv
+        tmp = Path(tempfile.mkdtemp(prefix="nexus-unit-boot-"))
+        saved = (srv.ACCESS_PATH, srv.ACCESS_ENC_PATH, srv.RESTORE_KEY)
+        try:
+            srv.ACCESS_PATH = tmp / "access.json"
+            srv.ACCESS_ENC_PATH = tmp / "access.enc"
+            srv.RESTORE_KEY = "unit-restore-key"
+            srv.ACCESS_PATH.write_text(json.dumps({"ghost": "h"}))
+            encrypt_keys({}, "unit-restore-key", srv.ACCESS_ENC_PATH)
+            srv._boot_restore_access()
+            # The mirror says the list is empty; the stale working
+            # file must not resurrect the ghost.
+            self.assertEqual(json.loads(srv.ACCESS_PATH.read_text()), {})
+        finally:
+            srv.ACCESS_PATH, srv.ACCESS_ENC_PATH, srv.RESTORE_KEY = saved
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- run-5: /v1 honors provider_limits and meters under the lane -
+    def test_v1_chat_limits_and_metering(self):
+        import server as srv
+        calls, rows = [], []
+        real_relay, real_append = srv._v1_relay_call, srv._append_usage
+        real_limits = srv._SETTINGS.get("provider_limits")
+
+        def fake_relay(lane, path, payload, timeout=90):
+            calls.append(lane)
+            return {"choices": [{"message": {"content": "hi"}}],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 4}}
+        srv._v1_relay_call, srv._append_usage = fake_relay, rows.append
+        try:
+            srv._SETTINGS["provider_limits"] = {
+                lane: 0 for lane, _m in srv._V1_LANES}
+            status, _payload, _lane = srv._v1_chat(
+                [{"role": "user", "content": "hi"}], "nexus-auto")
+            self.assertEqual(status, 502)
+            self.assertEqual(calls, [])  # every lane blocked pre-flight
+            srv._SETTINGS["provider_limits"] = {}
+            status, _payload, lane = srv._v1_chat(
+                [{"role": "user", "content": "hi"}], "nexus-auto")
+            self.assertEqual(status, 200)
+            self.assertEqual(calls, [lane])
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["provider"], lane)
+            self.assertEqual(rows[0].get("via"), "v1")
+        finally:
+            srv._v1_relay_call, srv._append_usage = real_relay, real_append
+            srv._SETTINGS["provider_limits"] = real_limits
 
 
 class AuditFixHarness(unittest.TestCase):
@@ -823,6 +910,231 @@ class AuditFixHarness(unittest.TestCase):
         self.assertEqual(status, 401, body)
 
     # -- R2-14: factory reset wipes usage + the telemetry mirror ------
+    # -- run-5: /v1 keys die with a factory reset --------------------
+    def test_98_factory_reset_revokes_v1_key(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "wave5probe"}, admin)
+        self.assertEqual(status, 200, body)
+        v1key = body["key"]
+        hdr = {"Authorization": f"Bearer {v1key}"}
+        status, _, _ = self._req("GET", "/v1/models", headers=hdr)
+        self.assertEqual(status, 200)
+        status, body, _ = self._access(
+            {"action": "factory_reset", "master_pw": MASTER,
+             "confirm": "RESET"}, admin)
+        self.assertEqual(status, 200, body)
+        self.assertFalse((self.tmp / "v1key.enc").exists())
+        status, _, _ = self._req("GET", "/v1/models", headers=hdr)
+        self.assertEqual(status, 401)
+
+    # -- run-5: provider_limits bind /v1 exactly like chat -----------
+    def test_15_v1_provider_limits_enforced(self):
+        import server as srv
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "wave5limits"}, admin)
+        self.assertEqual(status, 200, body)
+        hdr = {"Authorization": f"Bearer {body['key']}"}
+        status, _, _ = self._req("GET", "/v1/models", headers=hdr)
+        self.assertEqual(status, 200)
+        limits = {lane: 0 for lane, _m in srv._V1_LANES}
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"provider_limits": limits}}, admin)
+        self.assertEqual(status, 200, body)
+        try:
+            t0 = time.time()
+            status, body, _ = self._req(
+                "POST", "/v1/chat/completions",
+                {"model": "nexus-auto",
+                 "messages": [{"role": "user", "content": "hi"}]},
+                headers=hdr)
+            # Every lane is limit-blocked pre-flight: a fast 502 with
+            # no upstream fetch (the unit test proves zero relay calls
+            # and the unified metering name-for-name).
+            self.assertEqual(status, 502, body)
+            self.assertLess(time.time() - t0, 20)
+        finally:
+            self._access({"action": "settings_set", "master_pw": MASTER,
+                          "patch": {"provider_limits": {}}}, admin)
+
+    # -- run-5: a pending 2FA completion dies with master rotation ---
+    def test_17_pending_2fa_dies_with_master_rotation(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "2fa_enable", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        secret = body["secret"]
+        status, body, _ = self._access(
+            {"action": "2fa_confirm", "master_pw": MASTER,
+             "code": _totp(secret)}, admin)
+        self.assertEqual(status, 200, body)
+        # Password step of a fresh login mints a pending completion.
+        status, body, _ = self._login(MASTER)
+        self.assertEqual(status, 200, body)
+        tmp_b = body["tmp"]
+        # Rotate the master password (admin cookie predates 2FA and
+        # stays valid - enabling never signed it out).
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER,
+             "new_master_pw": MASTER_B}, admin)
+        self.assertEqual(status, 200, body)
+        # The pre-rotation pending must not complete any more, even
+        # with a genuinely valid code for the next step.
+        status, body, _ = self._req(
+            "POST", "/api/login", {"tmp": tmp_b, "code": _totp(secret, 1)})
+        self.assertEqual(status, 401, body)
+        # Cleanup: full login under the new password, disable 2FA,
+        # rotate back - in that order, one step-boundary wait so the
+        # disable code's step clears the watermark.
+        status, body, _ = self._login(MASTER_B)
+        tmp_c = body["tmp"]
+        status, body, cookie_c = self._req(
+            "POST", "/api/login", {"tmp": tmp_c, "code": _totp(secret, 1)})
+        self.assertEqual(status, 200, body)
+        time.sleep(31 - (time.time() % 30))
+        status, body, _ = self._access(
+            {"action": "2fa_disable", "master_pw": MASTER_B,
+             "code": _totp(secret, 1)}, cookie_c)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER_B,
+             "new_master_pw": MASTER}, cookie_c)
+        self.assertEqual(status, 200, body)
+
+    # -- run-5: vault clear/add reach the friend's LIVE session ------
+    def test_18_vault_clear_and_add_refresh_live_session(self):
+        _, _, admin = self._login(MASTER)
+        _, _, friend = self._login(FRIEND_PW)
+
+        def _cohere_configured():
+            status, body, _ = self._req("GET", "/api/quotas", ck=friend)
+            self.assertEqual(status, 200, body)
+            for p in body["providers"]:
+                if p["provider"] == "cohere":
+                    return p["key_configured"]
+            raise AssertionError("cohere missing from quotas")
+
+        self.assertFalse(_cohere_configured())
+        status, body, _ = self._access(
+            {"action": "friend_key_add", "label": FRIEND,
+             "provider": "cohere", "key": "friend-cohere-1",
+             "friend_pw": FRIEND_PW, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        # No re-login: the live session's cached vault must see it.
+        self.assertTrue(_cohere_configured())
+        status, body, _ = self._access(
+            {"action": "friend_vault_clear", "label": FRIEND,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        # And a clear must stop the cleared key in the same session.
+        self.assertFalse(_cohere_configured())
+
+    # -- run-5: the guest /setup mint honors suspension --------------
+    def test_19_setup_mint_refused_while_suspended(self):
+        _, _, admin = self._login(MASTER)
+
+        def _setup_post():
+            conn = http.client.HTTPConnection("127.0.0.1", self.port,
+                                              timeout=30)
+            conn.request(
+                "POST", "/setup",
+                body=urllib.parse.urlencode({"password": FRIEND_PW}),
+                headers={"Content-Type":
+                         "application/x-www-form-urlencoded"})
+            resp = conn.getresponse()
+            resp.read()
+            cookie = resp.getheader("Set-Cookie") or ""
+            conn.close()
+            return (resp.status,
+                    cookie.split(";")[0] if cookie.startswith("session=")
+                    else None)
+
+        status, body, _ = self._access(
+            {"action": "friend_set_suspended", "label": FRIEND,
+             "suspended": True, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        try:
+            status, cookie = _setup_post()
+            self.assertEqual(status, 403)
+            self.assertIsNone(cookie)
+        finally:
+            self._access(
+                {"action": "friend_set_suspended", "label": FRIEND,
+                 "suspended": False, "master_pw": MASTER}, admin)
+        # Control: unsuspended, the same request mints a session.
+        status, cookie = _setup_post()
+        self.assertEqual(status, 302)
+        self.assertTrue(cookie)
+
+    # -- run-5: a view pass gets no session forensics ----------------
+    def test_20_viewer_list_strips_session_metadata(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "friend_role_set", "label": "solo",
+             "role": "viewer", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        try:
+            _, _, solo = self._login(UNIQUE_PW)
+            status, body, _ = self._access({"action": "list"}, solo)
+            self.assertEqual(status, 200, body)
+            self.assertTrue(body["sessions"])
+            for s in body["sessions"]:
+                self.assertNotIn("sid", s)
+                self.assertNotIn("ip", s)
+                self.assertNotIn("ua", s)
+            status, body, _ = self._access({"action": "list"}, admin)
+            self.assertEqual(status, 200, body)
+            self.assertIn("sid", body["sessions"][0])
+        finally:
+            self._access(
+                {"action": "friend_role_set", "label": "solo",
+                 "role": "friend", "master_pw": MASTER}, admin)
+
+    # -- run-5: the TOTP guess budget is account-wide ----------------
+    def test_21_totp_guess_budget_is_global(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "2fa_enable", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        secret = body["secret"]
+        status, body, _ = self._access(
+            {"action": "2fa_confirm", "master_pw": MASTER,
+             "code": _totp(secret)}, admin)
+        self.assertEqual(status, 200, body)
+        wrong = "000000" if _totp(secret) != "000000" else "111111"
+        tmps = []
+        for _ in range(3):
+            status, body, _ = self._login(MASTER)
+            self.assertEqual(status, 200, body)
+            tmps.append(body["tmp"])
+        # Ten wrong guesses spread across three pendings: under the
+        # old per-token cap every one is a plain 401 and an eleventh
+        # guess (a fourth pending's budget) would still be open.
+        for i in range(10):
+            status, body, _ = self._req(
+                "POST", "/api/login",
+                {"tmp": tmps[i % 3], "code": wrong})
+            self.assertEqual(status, 401, (i, body))
+        status, body, _ = self._login(MASTER)
+        tmp_d = body["tmp"]
+        status, body, _ = self._req(
+            "POST", "/api/login", {"tmp": tmp_d, "code": wrong})
+        self.assertEqual(status, 429, body)
+        # Cleanup: complete a fresh login (burns the next step), wait
+        # out one step boundary, then disable with the step after.
+        status, body, _ = self._login(MASTER)
+        tmp_e = body["tmp"]
+        status, body, cookie_e = self._req(
+            "POST", "/api/login", {"tmp": tmp_e, "code": _totp(secret, 1)})
+        self.assertEqual(status, 200, body)
+        time.sleep(31 - (time.time() % 30))
+        status, body, _ = self._access(
+            {"action": "2fa_disable", "master_pw": MASTER,
+             "code": _totp(secret, 1)}, cookie_e)
+        self.assertEqual(status, 200, body)
+
     def test_99_factory_reset_wipes_usage_and_telemetry(self):
         usage = self.tmp / "usage.jsonl"
         usage.write_text('{"provider": "groq", "user": "solo"}\n')

@@ -92,6 +92,15 @@ def _rl_ok(bucket, token, limit, window=60):
 # and resurrects just-reset passwords. RLock: helpers called inside a
 # critical section may re-enter.
 _ACCESS_LOCK = threading.RLock()
+# keys.enc read-modify-write lock (audit run-5): the access store
+# got this discipline in run-2; the shared-vault writers (settings,
+# setup, custom providers, master rotation, 2FA toggles) each did
+# unlocked decrypt -> mutate -> encrypt, so two overlapping admin
+# actions could silently lose a write - or revert a master rotation
+# in the file while users.enc moved on, a desync a restart does
+# not heal. Every keys.enc RMW below runs under this lock, with
+# the decrypt INSIDE it (no stale snapshots).
+_KEYS_LOCK = threading.RLock()
 
 # Provider health (circuit breaker): provider -> {"fails": int, "down_until": float}
 _PROVIDER_HEALTH = {}
@@ -502,22 +511,57 @@ class _PinnedHTTPSHandler(HTTPSHandler):
         return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
 
 
+def _strip_cred_headers(req_obj):
+    """Remove credential headers from a redirected request (both the
+    header dict and the unredirected-headers dict urllib keeps)."""
+    for _hdrs in (req_obj.headers, getattr(req_obj, "unredirected_hdrs", {})):
+        for _k in list(_hdrs.keys()):
+            if _k.lower() in ("authorization", "x-api-key", "api-key",
+                              "x-goog-api-key", "x-relay-token",
+                              "x-vault-key", "apikey"):
+                del _hdrs[_k]
+
+
+def _origin_of(url):
+    p = urllib.parse.urlparse(url)
+    return (p.scheme.lower(), (p.hostname or "").lower(),
+            p.port or (443 if p.scheme.lower() == "https" else 80))
+
+
 class _CredentialRedirect(_GuardedRedirect):
     """Redirect guard for credential-bearing fetches: hops are
     re-validated like _GuardedRedirect, and credential headers are
-    stripped when the redirect changes host — a validated public base
-    that 302s elsewhere must not carry the lane's key with it."""
+    stripped when the redirect changes ORIGIN (scheme, host or port) —
+    a validated public base that 302s elsewhere, downgrades to http,
+    or hops ports must not carry the lane's key with it."""
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None:
-            old_host = (urllib.parse.urlparse(req.full_url).hostname or "").lower()
-            new_host = (urllib.parse.urlparse(newurl).hostname or "").lower()
-            if new_host != old_host:
-                for _hdrs in (new.headers, getattr(new, "unredirected_hdrs", {})):
-                    for _k in list(_hdrs.keys()):
-                        if _k.lower() in ("authorization", "x-api-key", "api-key", "x-goog-api-key"):
-                            del _hdrs[_k]
+        if new is not None and _origin_of(newurl) != _origin_of(req.full_url):
+            _strip_cred_headers(new)
         return new
+
+
+class _LoopbackRedirect(HTTPRedirectHandler):
+    """Redirects for first-party loopback services (the relay, the
+    gateway): follow only hops that stay on loopback, and strip
+    credentials whenever the host changes - 127.0.0.1 and localhost
+    are different origins to the receiving service's logs even here."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        host = (urllib.parse.urlparse(newurl).hostname or "").lower()
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            return None
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None:
+            old_host = (urllib.parse.urlparse(req.full_url).hostname
+                        or "").lower()
+            if host != old_host:
+                _strip_cred_headers(new)
+        return new
+
+
+def _open_loopback(req, timeout):
+    return build_opener(ProxyHandler({}),
+                        _LoopbackRedirect()).open(req, timeout=timeout)
 
 
 def _cred_opener():
@@ -541,7 +585,7 @@ def _open_cred(req, timeout):
     third-party host."""
     host = (urllib.parse.urlparse(req.full_url).hostname or "").lower()
     if host in ("127.0.0.1", "localhost", "::1"):
-        return urlopen(req, timeout=timeout)
+        return _open_loopback(req, timeout)
     return _cred_opener().open(req, timeout=timeout)
 
 
@@ -1420,6 +1464,37 @@ def _intg_verify(info, password):
     return bool(ok)
 
 
+_INTG_READ_CAP = 8 * 1024 * 1024
+
+
+_MODEL_SEGMENT_RE = _re.compile(r"^[A-Za-z0-9@._~-]+$")
+
+
+def _safe_model_path(model):
+    """A chat-supplied model id becomes path segments in provider
+    URLs built with shared account tokens (audit run-5): reject dot
+    segments and anything outside the model-id charset, so the id
+    cannot traverse (../) or inject (?query) into another endpoint.
+    Returns the id unchanged for legitimate names, else None."""
+    parts = (model or "").split("/")
+    if not parts or any(p in (".", "..")
+                        or not _MODEL_SEGMENT_RE.match(p) for p in parts):
+        return None
+    return "/".join(parts)
+
+
+def _read_capped(resp, cap=_INTG_READ_CAP):
+    """Bounded body read for integration/provider JSON calls: an
+    unbounded read lets any caller-reachable host stream the
+    single-process server out of memory (audit run-5). Over-cap
+    bodies are truncated; JSON parsing then fails soft into the
+    callers' existing text/diagnostic paths."""
+    data = resp.read(cap + 1)
+    if len(data) > cap:
+        data = data[:cap]
+    return data.decode(errors="replace")
+
+
 def _intg_http(url, method="GET", headers=None, data=None, timeout=20):
     """One provider API call. Returns (status, parsed_json_or_text).
     Never raises for HTTP errors — the body is the diagnostic."""
@@ -1432,16 +1507,16 @@ def _intg_http(url, method="GET", headers=None, data=None, timeout=20):
         # attached. Loopback targets are first-party local services
         # (operator-configured overrides) and go direct.
         _host = (urllib.parse.urlparse(url).hostname or "").lower()
-        _opener = urlopen if _host in ("127.0.0.1", "localhost", "::1") \
+        _opener = _open_loopback if _host in ("127.0.0.1", "localhost", "::1") \
             else _pinned_opener().open
         with _opener(req, timeout=timeout) as resp:
-            body = resp.read().decode(errors="replace")
+            body = _read_capped(resp)
             try:
                 return resp.status, json.loads(body)
             except Exception:
                 return resp.status, body
     except HTTPError as e:
-        body = e.read().decode(errors="replace")
+        body = _read_capped(e)
         try:
             return e.code, json.loads(body)
         except Exception:
@@ -1623,13 +1698,13 @@ def _intg_http_form(url, fields):
         "User-Agent": "NexusLocal"})
     try:
         with _pinned_opener().open(req, timeout=25) as resp:
-            raw = resp.read().decode("utf-8", "replace")
+            raw = _read_capped(resp)
             try:
                 return resp.status, json.loads(raw)
             except ValueError:
                 return resp.status, raw[:300]
     except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8", "replace") if e.fp else ""
+        raw = _read_capped(e) if e.fp else ""
         try:
             return e.code, json.loads(raw)
         except ValueError:
@@ -2129,8 +2204,12 @@ def _load_access():
     return {}
 
 def _save_access(d, master_pw=None):
-    ACCESS_PATH.write_text(json.dumps(d, indent=2))
+    # Mirror FIRST, working file second (audit run-5): at boot the
+    # mirror is the source of truth, so a crash between the two
+    # writes must leave the NEWER state in the mirror, not in the
+    # file the boot is about to overwrite.
     _write_access_enc(d)
+    ACCESS_PATH.write_text(json.dumps(d, indent=2))
     # Persist encrypted backup so it survives redeploys (users.enc is tracked in git)
     if master_pw:
         try:
@@ -2152,8 +2231,8 @@ def _restore_access(master_pw):
         if needs and USERS_PATH.exists():
             d = decrypt_keys(USERS_PATH, master_pw)
             if isinstance(d, dict):
-                ACCESS_PATH.write_text(json.dumps(d, indent=2))
                 _write_access_enc(d)
+                ACCESS_PATH.write_text(json.dumps(d, indent=2))
     except Exception:
         pass
 
@@ -2181,7 +2260,11 @@ def _boot_restore_access():
     try:
         if RESTORE_KEY and ACCESS_ENC_PATH.exists():
             d = decrypt_keys(ACCESS_ENC_PATH, RESTORE_KEY)
-            if isinstance(d, dict) and d:
+            # A successfully decrypted EMPTY mirror is authoritative
+            # too (audit run-5): the last friend was revoked and the
+            # mirror faithfully says so - treating {} as "no mirror"
+            # resurrected them from the stale working file.
+            if isinstance(d, dict):
                 ACCESS_PATH.write_text(json.dumps(d, indent=2))
                 return
         # No usable mirror: keep an existing valid access.json as-is.
@@ -2193,6 +2276,9 @@ import hmac as _hmac, struct as _struct, base64 as _base64
 
 _PENDING_2FA = {}  # tmp_token -> {ts, keys}
 _2FA_ATTEMPTS = {}  # tmp_token -> [timestamps] (rate limit code guesses)
+_2FA_FAILS_GLOBAL = []  # failed TOTP guesses across ALL pending tokens:
+# the per-token cap alone let the budget grow with every fresh login
+# (audit run-5); ten failures in ten minutes account-wide is the cap.
 
 def _totp_verify(secret_b32, code, window=1):
     try:
@@ -2787,7 +2873,7 @@ def _oauth_http_json(url, data=None, headers=None, timeout=20):
     req = Request(url, data=data, headers=headers or {},
                   method="POST" if data is not None else "GET")
     with urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode())
+        return json.loads(_read_capped(resp))
 
 
 def _oauth_fetch_email(provider, code, redirect_uri):
@@ -3006,7 +3092,7 @@ def _v1_relay_call(lane, path, payload=None, timeout=90):
     req = Request(f"http://127.0.0.1:{RELAY_PORT}/{lane}/v1{path}",
                   data=data, headers=headers,
                   method="POST" if payload is not None else "GET")
-    with urlopen(req, timeout=timeout) as resp:
+    with _open_loopback(req, timeout) as resp:
         return json.loads(resp.read().decode())
 
 
@@ -3040,6 +3126,12 @@ def _v1_chat(messages, model, temperature=None):
             continue
         if lane in _disabled_providers():
             continue
+        # Provider governance applies to /v1 exactly as to chat
+        # (audit run-5): a lane whose daily provider_limits allowance
+        # is spent is skipped, and the spend below is metered under
+        # the lane's own name so the limit checks can see it.
+        if _provider_blocked(lane):
+            continue
         if lane not in RELAY_KEYLESS and getattr(Handler, "keys", None) is None:
             last_error = "vault locked"
             continue
@@ -3061,7 +3153,7 @@ def _v1_chat(messages, model, temperature=None):
             _note_success(lane)
             usage = data.get("usage") or {}
             _append_usage({"ts": datetime.datetime.now().isoformat(),
-                           "provider": f"v1:{lane}", "model": mdl,
+                           "provider": lane, "via": "v1", "model": mdl,
                            "prompt_tokens": usage.get("prompt_tokens", 0),
                            "completion_tokens": usage.get("completion_tokens", 0)})
             data.setdefault("model", mdl)
@@ -3078,21 +3170,39 @@ def _v1_chat(messages, model, temperature=None):
                            "type": "upstream_error"}}, ""
 
 
+_CUSTOM_RELAY_NAMES = set()
+
+
 def register_custom_providers(keys):
-    """Register custom relay providers from keys dict into RELAY_UPSTREAMS."""
+    """Register custom relay providers from keys dict into RELAY_UPSTREAMS.
+
+    The registry mirrors the keys dict exactly (audit run-5): a
+    changed URL REPLACES the old upstream (an add-only registry sent
+    rotated keys to the previous host for the process lifetime), and
+    a removed provider is unregistered."""
     if not keys:
         return
+    present = {}
     for k, v in keys.items():
         if k.startswith("custom_relay_") and not k.endswith("_url"):
             name = k[len("custom_relay_"):]
             url = keys.get(k + "_url", "").strip()
-            if url and name not in RELAY_UPSTREAMS:
-                # Registration-time SSRF guard (A5): a stored URL that
-                # resolves to a non-public address is never registered,
-                # even if it predates the save-time validation.
-                if not _public_base_url_ok(url):
-                    continue
-                RELAY_UPSTREAMS[name] = url.rstrip("/")
+            if url:
+                present[name] = url
+    for name in list(_CUSTOM_RELAY_NAMES):
+        if name not in present:
+            RELAY_UPSTREAMS.pop(name, None)
+            _CUSTOM_RELAY_NAMES.discard(name)
+    for name, url in present.items():
+        if name in RELAY_UPSTREAMS and name not in _CUSTOM_RELAY_NAMES:
+            continue  # built-in upstream names are not overridable
+        # Registration-time SSRF guard (A5): a stored URL that
+        # resolves to a non-public address is never registered,
+        # even if it predates the save-time validation.
+        if not _public_base_url_ok(url):
+            continue
+        RELAY_UPSTREAMS[name] = url.rstrip("/")
+        _CUSTOM_RELAY_NAMES.add(name)
 
 
 class RelayHandler(BaseHTTPRequestHandler):
@@ -5398,6 +5508,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                     return
                 _login_attempts.pop(ip, None)
+                # The gates /api/login enforces at mint apply here
+                # too (audit run-5): identifying with a friend's
+                # password is a sign-in, so the source-IP allowlist
+                # and a suspension / maintenance hold bind it -
+                # otherwise a suspended friend could keep using
+                # (and saving vault keys through) a session minted
+                # here while every login is refused.
+                if not self._ip_gate():
+                    return
+                _blocked = _friend_blocked(label)
+                if _blocked:
+                    _audit("Auth", f"Friend setup sign-in blocked ({_blocked}): {label}")
+                    self._set_json_headers(403)
+                    self.wfile.write(json.dumps(
+                        {"error": "maintenance mode is on" if _blocked == "maintenance"
+                         else "account suspended"}).encode())
+                    return
                 token = secrets.token_hex(32)
                 SESSIONS[token] = {"ts": time.time(), "label": label, "admin": False,
                                    **_session_meta(self.headers, self.client_address[0])}
@@ -5453,8 +5580,9 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
                     return
                 keys["freellmapi_url"] = gw_url
-            encrypt_keys(keys, pw, key_path)
-            os.chmod(key_path, 0o600)
+            with _KEYS_LOCK:
+                encrypt_keys(keys, pw, key_path)
+                os.chmod(key_path, 0o600)
             self.send_response(302)
             self.send_header("Location", "/login")
             self.end_headers()
@@ -5476,32 +5604,33 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "password required"}).encode())
                 return
-            key_path = Path(__file__).parent / "keys.enc"
-            try:
-                keys = decrypt_keys(key_path, pw)
-            except Exception:
-                self._set_json_headers(401)
-                self.wfile.write(json.dumps({"error": "wrong password"}).encode())
-                return
-            # Update with new values (blank = keep current)
-            updated = 0
-            for n in PROVIDER_NAMES:
-                v = form.get("k_" + n, [""])[0].strip()
-                if v:
-                    keys[n] = v
-                    updated += 1
-            gw_url = form.get("url_freellmapi", [""])[0].strip()
-            if gw_url:
-                if not _public_base_url_ok(gw_url):
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
+            with _KEYS_LOCK:
+                key_path = Path(__file__).parent / "keys.enc"
+                try:
+                    keys = decrypt_keys(key_path, pw)
+                except Exception:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                     return
-                keys["freellmapi_url"] = gw_url
-                updated += 1
-            encrypt_keys(keys, pw, key_path)
-            os.chmod(key_path, 0o600)
-            Handler.keys = keys  # refresh in-memory
-            register_custom_providers(keys)
+                # Update with new values (blank = keep current)
+                updated = 0
+                for n in PROVIDER_NAMES:
+                    v = form.get("k_" + n, [""])[0].strip()
+                    if v:
+                        keys[n] = v
+                        updated += 1
+                gw_url = form.get("url_freellmapi", [""])[0].strip()
+                if gw_url:
+                    if not _public_base_url_ok(gw_url):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
+                        return
+                    keys["freellmapi_url"] = gw_url
+                    updated += 1
+                encrypt_keys(keys, pw, key_path)
+                os.chmod(key_path, 0o600)
+                Handler.keys = keys  # refresh in-memory
+                register_custom_providers(keys)
             self.send_response(302)
             self.send_header("Location", "/dashboard")
             self.end_headers()
@@ -5637,7 +5766,7 @@ class Handler(BaseHTTPRequestHandler):
                     headers={"Authorization": f"Bearer {_gk}",
                              "Content-Type": f"multipart/form-data; boundary={_b}",
                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, method="POST")
-                with urlopen(_rq, timeout=60) as _rs:
+                with _open_cred(_rq, 60) as _rs:
                     _txt = json.loads(_rs.read().decode()).get("text", "")
                 _append_usage({"ts": datetime.datetime.now().isoformat(),
                                "provider": "groq", "model": _mdl,
@@ -5780,6 +5909,16 @@ class Handler(BaseHTTPRequestHandler):
                 _img = None
                 _fail = None  # why the picked provider could not produce an image
                 _used_p, _used_m = provider, model
+                if provider in ("cloudflare", "google", "relay_gemini"):
+                    # These branches interpolate the model id into a
+                    # URL path with the shared token attached (run-5).
+                    _mpath = _safe_model_path(model)
+                    if _mpath is None:
+                        _fail = "invalid model name"
+                        model = ""
+                    else:
+                        model = _mpath
+                        _used_m = _mpath
                 _disp = {"google": "Google Gemini", "relay_gemini": "Relay Gemini",
                          "cloudflare": "Cloudflare", "aihorde": "AI Horde"}.get(provider, provider or "The picked provider")
                 def _img_blocked(p):
@@ -5820,6 +5959,7 @@ class Handler(BaseHTTPRequestHandler):
                     return u
                 try:
                     if provider == "aihorde" and model and not _pblocked and not _provider_blocked("aihorde"):
+                        _horde_rid = None
                         try:
                             hk = ((_ekeys or {}).get("aihorde") or "0000000000")
                             sub_req = Request("https://stablehorde.net/api/v2/generate/async",
@@ -5827,8 +5967,9 @@ class Handler(BaseHTTPRequestHandler):
                                     "params": {"width": 512, "height": 512, "steps": 25, "sampler_name": "k_euler", "n": 1},
                                     "models": [model], "nsfw": False, "censor_nsfw": True}).encode(),
                                 headers={"Content-Type": "application/json", "apikey": hk, "Client-Agent": "NexusLocal:1.0"}, method="POST")
-                            with urlopen(sub_req, timeout=30) as rs:
+                            with _open_cred(sub_req, 30) as rs:
                                 rid = json.loads(rs.read().decode()).get("id")
+                            _horde_rid = rid
                             _t0 = time.time()
                             _deadline = _t0 + 110
                             while rid and time.time() < _deadline:
@@ -5862,7 +6003,7 @@ class Handler(BaseHTTPRequestHandler):
                                                 _iop = _pinned_opener()
                                                 with _iop.open(_irq, timeout=30) as _irs:
                                                     _ict = _irs.headers.get("Content-Type") or ""
-                                                    _ib = _irs.read(_MEDIA_IMAGE_CAP + 1) if _ict.startswith("image/") else b""
+                                                    _ib = _irs.read(_MEDIA_IMAGE_CAP + 1) if _ict.startswith("image/") and not _ict.startswith("image/svg") else b""
                                                 if _ib and len(_ib) <= _MEDIA_IMAGE_CAP:
                                                     _img = "data:" + _ict.split(";")[0] + ";base64," + base64.b64encode(_ib).decode()
                                             except Exception:
@@ -5872,14 +6013,29 @@ class Handler(BaseHTTPRequestHandler):
                                         # only http(s) may reach the page —
                                         # any other scheme (javascript:,
                                         # data:text/html, ...) is dropped,
-                                        # never rendered.
-                                        if _img and not _img.startswith("data:image/") \
+                                        # never rendered. data:image/ is
+                                        # exempted for raster types only:
+                                        # SVG is script-capable, and its
+                                        # safety here rests on one <img>
+                                        # sink in another file (run-5).
+                                        if _img and not (_img.startswith("data:image/")
+                                                          and not _img.startswith("data:image/svg")) \
                                                 and _up2.urlparse(_img).scheme not in ("http", "https"):
                                             _img = None
                                             _fail = "the worker returned an image address that is not safe to load"
                                     break
                         except Exception:
                             _img = None
+                        if _horde_rid and not _img:
+                            # The job was accepted upstream but nothing
+                            # was delivered (fault, queue bail, deadline,
+                            # dropped result): the spend still counts
+                            # (audit run-5 - the success-only metering
+                            # below missed every one of these exits).
+                            _append_usage({"ts": datetime.datetime.now().isoformat(),
+                                           "provider": "aihorde", "model": model,
+                                           "prompt_tokens": 0, "completion_tokens": 0,
+                                           "user": _chat_label, "ok": True})
                     elif provider == "cloudflare" and model and not _pblocked and not _provider_blocked("cloudflare"):
                         _ck = (_ekeys or {}).get("cloudflare") or ""
                         _acct, _, _tok = _ck.partition(":")
@@ -5891,7 +6047,7 @@ class Handler(BaseHTTPRequestHandler):
                                 _creq = Request(f"https://api.cloudflare.com/client/v4/accounts/{_acct}/ai/run/{model}",
                                     data=json.dumps({"prompt": _prompt}).encode(),
                                     headers={"Authorization": f"Bearer {_tok}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}, method="POST")
-                                with urlopen(_creq, timeout=90) as _crs:
+                                with _open_cred(_creq, 90) as _crs:
                                     _cd = json.loads(_crs.read().decode())
                                 _cimg = (_cd.get("result") or {}).get("image")
                                 if _cimg:
@@ -6048,7 +6204,7 @@ class Handler(BaseHTTPRequestHandler):
                         _rq = Request("https://api.groq.com/openai/v1/audio/speech",
                             data=json.dumps({"model": _mdl, "input": _c, "voice": _voice, "response_format": "wav"}).encode(),
                             headers={"Authorization": f"Bearer {_gk}", "Content-Type": "application/json", **_UA}, method="POST")
-                        with urlopen(_rq, timeout=60) as _rs:
+                        with _open_cred(_rq, 60) as _rs:
                             _wb = _rs.read(_MEDIA_VOICE_CHUNK_CAP + 1)
                         if len(_wb) > _MEDIA_VOICE_CHUNK_CAP:
                             raise ValueError("voice chunk too large")
@@ -6161,13 +6317,13 @@ class Handler(BaseHTTPRequestHandler):
                     _rq = Request(_BASE + "/gradio_api/queue/join",
                         data=json.dumps({"data": _data, "fn_index": 4, "session_hash": _sess}).encode(),
                         headers=_H, method="POST")
-                    with urlopen(_rq, timeout=60) as _rs:
+                    with _open_cred(_rq, 60) as _rs:
                         json.loads(_rs.read().decode())
                     _file_url = None
                     _rq2 = Request(_BASE + f"/gradio_api/queue/data?session_hash={_sess}",
                         headers={"User-Agent": "Mozilla/5.0", **({"Authorization": f"Bearer {_hk}"} if _hk else {})})
                     _deadline = time.time() + 240
-                    with urlopen(_rq2, timeout=250) as _rs2:
+                    with _open_cred(_rq2, 250) as _rs2:
                         for _raw in _rs2:
                             if time.time() > _deadline:
                                 break
@@ -6209,6 +6365,15 @@ class Handler(BaseHTTPRequestHandler):
                         _vct = _rs3.headers.get("Content-Type") or ""
                         if not _vct.startswith("video/"):
                             raise ValueError("upstream file is not a video")
+                        # The type token is concatenated into a data:
+                        # URI the dashboard places in an src attribute:
+                        # admit only a strict MIME shape - a hostile
+                        # upstream header must not break out of the
+                        # attribute (audit run-5, browser-proven).
+                        _vctok = _vct.split(";")[0].strip().lower()
+                        if not _re.fullmatch(r"video/[a-z0-9][a-z0-9.+-]*",
+                                              _vctok):
+                            _vctok = "video/mp4"
                         _vid = _rs3.read(14 * 1024 * 1024 + 1)
                     if len(_vid) > 14 * 1024 * 1024:
                         _append_usage({"ts": datetime.datetime.now().isoformat(),
@@ -6224,7 +6389,7 @@ class Handler(BaseHTTPRequestHandler):
                                    "prompt_tokens": 0, "completion_tokens": 0,
                                    "user": _chat_label, "ok": True})
                     self._set_json_headers(200)
-                    self.wfile.write(json.dumps({"video": "data:" + _vct.split(";")[0] + ";base64," + _b64,
+                    self.wfile.write(json.dumps({"video": "data:" + _vctok + ";base64," + _b64,
                         "reply": "\U0001f3ac " + _prompt_v[:120],
                         "used_provider": "huggingface", "used_model": "Lightricks/LTX-Video",
                         "trace": [{"p": "huggingface", "m": "Lightricks/LTX-Video", "ok": True}]}).encode())
@@ -7068,6 +7233,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                 return
+            # Same source-IP allowlist as the other minting routes
+            # (audit run-5): an operator who restricted sign-ins to
+            # an allowlist did not exempt sign-ups.
+            if not self._ip_gate():
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length) if content_length else b"{}"
             try:
@@ -7215,6 +7385,15 @@ class Handler(BaseHTTPRequestHandler):
                 tmp = data["tmp"]
                 # Rate limit: max 10 code attempts per 5 min per pending token
                 now = time.time()
+                # Account-wide budget (audit run-5): pendings mint on
+                # password proof alone, so without a global cap the
+                # guess budget scaled with every fresh login step.
+                _2FA_FAILS_GLOBAL[:] = [t for t in _2FA_FAILS_GLOBAL
+                                        if now - t < 600]
+                if len(_2FA_FAILS_GLOBAL) >= 10:
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": "too many attempts, start login again"}).encode())
+                    return
                 attempts = [t for t in _2FA_ATTEMPTS.get(tmp, []) if now - t < 300]
                 if len(attempts) >= 10:
                     _pend0 = _PENDING_2FA.pop(tmp, None)
@@ -7239,6 +7418,7 @@ class Handler(BaseHTTPRequestHandler):
                 if _step is None or _step <= _TOTP_LAST_STEP["v"]:
                     attempts.append(now)
                     _2FA_ATTEMPTS[tmp] = attempts
+                    _2FA_FAILS_GLOBAL.append(now)
                     # Prune stale trackers
                     for k in [k for k, v in _2FA_ATTEMPTS.items()
                               if not v or now - v[-1] > 300]:
@@ -7526,17 +7706,26 @@ class Handler(BaseHTTPRequestHandler):
             if action == "list":
                 access = _load_access()
                 sessions = []
+                # Session forensics (sid, ip, ua, ts) go only to the
+                # tiers holding user-management authority (audit
+                # run-5): a read-only view pass gets the roster
+                # shape, not everyone's connection metadata.
+                _meta_ok = _kind in ("admin", "moderator")
                 for tok, sess in SESSIONS.items():
                     if isinstance(sess, dict):
-                        sessions.append({
+                        _entry = {
                             "label": sess.get("label", "?"),
                             "admin": sess.get("admin", False),
                             "viewer": bool(sess.get("viewer")),
-                            "sid": sess.get("sid"),
-                            "ip": sess.get("ip", ""),
-                            "ua": sess.get("ua", ""),
-                            "ts": sess.get("ts", 0),
-                        })
+                        }
+                        if _meta_ok:
+                            _entry.update({
+                                "sid": sess.get("sid"),
+                                "ip": sess.get("ip", ""),
+                                "ua": sess.get("ua", ""),
+                                "ts": sess.get("ts", 0),
+                            })
+                        sessions.append(_entry)
                 _my_tok = self._get_session()
                 _my_sid = (SESSIONS.get(_my_tok) or {}).get("sid") \
                     if _my_tok else None
@@ -7775,6 +7964,13 @@ class Handler(BaseHTTPRequestHandler):
                         del vm[stored]
                         _SETTINGS["vault_meta"] = vm
                         _save_settings()
+                    # Live sessions hold a decrypted copy of the
+                    # vault that _effective_keys consumes (audit
+                    # run-5): drop it too, or the cleared keys keep
+                    # working until the friend happens to re-login.
+                    for sess in SESSIONS.values():
+                        if isinstance(sess, dict) and sess.get("label") == stored and not sess.get("admin"):
+                            sess.pop("userkeys", None)
                     _audit("Vault", f"Personal vault cleared: {stored}{_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True, "existed": existed}).encode())
@@ -7820,6 +8016,14 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     vault[provider] = key
                     _save_userkeys(stored, vault, friend_pw)
+                    # Refresh live sessions' cached vault copies
+                    # (audit run-5): without this, a key the admin
+                    # adds for a signed-in friend stays invisible -
+                    # and a cleared one keeps working - until the
+                    # friend's next login.
+                    for sess in SESSIONS.values():
+                        if isinstance(sess, dict) and sess.get("label") == stored and not sess.get("admin"):
+                            sess["userkeys"] = dict(vault)
                     _audit("Vault", f"Key added for {stored}: {provider}{_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
@@ -8166,35 +8370,36 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "provider name must be a-z, 0-9, _"}).encode())
                         return
-                    key_path = Path(__file__).parent / "keys.enc"
-                    try:
-                        keys = decrypt_keys(key_path, master_pw)
-                    except Exception:
-                        self._set_json_headers(401)
-                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
-                        return
-                    if action == "custom_provider_save":
-                        curl_ = (data.get("url") or "").strip()
-                        ckey = (data.get("key") or "").strip()
-                        if not (curl_.startswith("http://") or curl_.startswith("https://")) or not ckey:
-                            self._set_json_headers(400)
-                            self.wfile.write(json.dumps({"error": "base URL (http/https) and API key required"}).encode())
+                    with _KEYS_LOCK:
+                        key_path = Path(__file__).parent / "keys.enc"
+                        try:
+                            keys = decrypt_keys(key_path, master_pw)
+                        except Exception:
+                            self._set_json_headers(401)
+                            self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                             return
-                        if not _public_base_url_ok(curl_):
-                            self._set_json_headers(400)
-                            self.wfile.write(json.dumps({"error": "base URL must be a public http(s) address"}).encode())
-                            return
-                        keys[f"custom_relay_{cname}"] = ckey
-                        keys[f"custom_relay_{cname}_url"] = curl_
-                        _audit("Providers", f"Custom provider saved: {cname}")
-                    else:
-                        keys.pop(f"custom_relay_{cname}", None)
-                        keys.pop(f"custom_relay_{cname}_url", None)
-                        _audit("Providers", f"Custom provider removed: {cname}")
-                    encrypt_keys(keys, master_pw, key_path)
-                    os.chmod(key_path, 0o600)
-                    Handler.keys = keys
-                    register_custom_providers(keys)
+                        if action == "custom_provider_save":
+                            curl_ = (data.get("url") or "").strip()
+                            ckey = (data.get("key") or "").strip()
+                            if not (curl_.startswith("http://") or curl_.startswith("https://")) or not ckey:
+                                self._set_json_headers(400)
+                                self.wfile.write(json.dumps({"error": "base URL (http/https) and API key required"}).encode())
+                                return
+                            if not _public_base_url_ok(curl_):
+                                self._set_json_headers(400)
+                                self.wfile.write(json.dumps({"error": "base URL must be a public http(s) address"}).encode())
+                                return
+                            keys[f"custom_relay_{cname}"] = ckey
+                            keys[f"custom_relay_{cname}_url"] = curl_
+                            _audit("Providers", f"Custom provider saved: {cname}")
+                        else:
+                            keys.pop(f"custom_relay_{cname}", None)
+                            keys.pop(f"custom_relay_{cname}_url", None)
+                            _audit("Providers", f"Custom provider removed: {cname}")
+                        encrypt_keys(keys, master_pw, key_path)
+                        os.chmod(key_path, 0o600)
+                        Handler.keys = keys
+                        register_custom_providers(keys)
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
                     return
@@ -8230,7 +8435,24 @@ class Handler(BaseHTTPRequestHandler):
                                     f.unlink()
                                 except Exception:
                                     pass
+                        # The /v1 API keys are passes too (audit
+                        # run-5): the reset revokes them like every
+                        # other credential - file and live set go.
+                        # (An env-bootstrapped key in /etc/nexus.env
+                        # is operator config, outside the app's
+                        # reach; the stored keys die here.)
+                        try:
+                            if V1KEY_PATH.exists():
+                                V1KEY_PATH.unlink()
+                        except Exception:
+                            pass
+                        _V1KEYS["keys"] = []
                         _VIEW_GRANTS.clear()
+                        # Pending 2FA completions die with the reset
+                        # too (audit run-5): a token minted before it
+                        # must not mint an admin session after it.
+                        _PENDING_2FA.clear()
+                        _2FA_ATTEMPTS.clear()
                         for tok in [t for t, s in SESSIONS.items()
                                     if isinstance(s, dict) and not s.get("admin")]:
                             del SESSIONS[tok]
@@ -8468,14 +8690,15 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "that password is already in use by a friend — pick a different master password"}).encode())
                     return
-                key_path = Path(__file__).parent / "keys.enc"
-                try:
-                    kd = decrypt_keys(key_path, cur)
-                except Exception:
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
-                    return
-                encrypt_keys(kd, new, key_path)
+                with _KEYS_LOCK:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    try:
+                        kd = decrypt_keys(key_path, cur)
+                    except Exception:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                        return
+                    encrypt_keys(kd, new, key_path)
                 with _ACCESS_LOCK:
                     _save_access(_load_access(), new)
                 # Owner integrations vault: it is encrypted directly
@@ -8527,6 +8750,11 @@ class Handler(BaseHTTPRequestHandler):
                 Handler.keys = kd
                 SESSIONS.clear()
                 _CHAT_UNLOCKS.clear()
+                # Pending 2FA completions were minted under the OLD
+                # password's proof (audit run-5): they die with the
+                # rotation like every session does.
+                _PENDING_2FA.clear()
+                _2FA_ATTEMPTS.clear()
                 self._set_json_headers()
                 _audit("System", "Master password changed")
                 self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out" + _chats_note + _intg_note}).encode())
@@ -8554,21 +8782,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if action == "2fa_enable":
                 master_pw = data.get("master_pw") or ""
-                try:
-                    key_path = Path(__file__).parent / "keys.enc"
-                    keys = decrypt_keys(key_path, master_pw)
-                except Exception:
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
-                    return
-                secret = _totp_secret()
-                # PENDING only — 2FA activates after a code verifies (2fa_confirm).
-                # Prevents lockout if the QR/secret was entered wrong.
-                keys["_totp_pending"] = secret
-                encrypt_keys(keys, master_pw, key_path)
-                os.chmod(key_path, 0o600)
-                if Handler.keys is not None:
-                    Handler.keys["_totp_pending"] = secret
+                with _KEYS_LOCK:
+                    try:
+                        key_path = Path(__file__).parent / "keys.enc"
+                        keys = decrypt_keys(key_path, master_pw)
+                    except Exception:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                        return
+                    secret = _totp_secret()
+                    # PENDING only — 2FA activates after a code verifies (2fa_confirm).
+                    # Prevents lockout if the QR/secret was entered wrong.
+                    keys["_totp_pending"] = secret
+                    encrypt_keys(keys, master_pw, key_path)
+                    os.chmod(key_path, 0o600)
+                    if Handler.keys is not None:
+                        Handler.keys["_totp_pending"] = secret
                 otpauth = (f"otpauth://totp/NexusLocal:admin?secret={secret}"
                            f"&issuer=NexusLocal")
                 self._set_json_headers()
@@ -8579,31 +8808,32 @@ class Handler(BaseHTTPRequestHandler):
                 # Verify a code against the pending secret; only then activate.
                 master_pw = data.get("master_pw") or ""
                 code = (data.get("code") or "").strip()
-                try:
-                    key_path = Path(__file__).parent / "keys.enc"
-                    keys = decrypt_keys(key_path, master_pw)
-                except Exception:
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
-                    return
-                pending = keys.get("_totp_pending", "")
-                if not pending:
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "no pending 2FA setup"}).encode())
-                    return
-                _step = _totp_match_step(pending, code) if code else None
-                if _step is None or _step <= _TOTP_LAST_STEP["v"]:
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "wrong code — check your authenticator app"}).encode())
-                    return
-                _TOTP_LAST_STEP["v"] = _step  # burn the confirm code (anti-replay watermark, as at login)
-                keys["_totp_secret"] = pending
-                keys.pop("_totp_pending", None)
-                encrypt_keys(keys, master_pw, key_path)
-                os.chmod(key_path, 0o600)
-                if Handler.keys is not None:
-                    Handler.keys["_totp_secret"] = pending
-                    Handler.keys.pop("_totp_pending", None)
+                with _KEYS_LOCK:
+                    try:
+                        key_path = Path(__file__).parent / "keys.enc"
+                        keys = decrypt_keys(key_path, master_pw)
+                    except Exception:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                        return
+                    pending = keys.get("_totp_pending", "")
+                    if not pending:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "no pending 2FA setup"}).encode())
+                        return
+                    _step = _totp_match_step(pending, code) if code else None
+                    if _step is None or _step <= _TOTP_LAST_STEP["v"]:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong code — check your authenticator app"}).encode())
+                        return
+                    _TOTP_LAST_STEP["v"] = _step  # burn the confirm code (anti-replay watermark, as at login)
+                    keys["_totp_secret"] = pending
+                    keys.pop("_totp_pending", None)
+                    encrypt_keys(keys, master_pw, key_path)
+                    os.chmod(key_path, 0o600)
+                    if Handler.keys is not None:
+                        Handler.keys["_totp_secret"] = pending
+                        Handler.keys.pop("_totp_pending", None)
                 self._set_json_headers()
                 _audit("System", "2FA enabled for admin")
                 self.wfile.write(json.dumps({"ok": True, "enabled": True}).encode())
@@ -8611,28 +8841,29 @@ class Handler(BaseHTTPRequestHandler):
             if action == "2fa_disable":
                 master_pw = data.get("master_pw") or ""
                 code = data.get("code") or ""
-                try:
-                    key_path = Path(__file__).parent / "keys.enc"
-                    keys = decrypt_keys(key_path, master_pw)
-                except Exception:
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
-                    return
-                secret = keys.get("_totp_secret", "")
-                _step = _totp_match_step(secret, code) if secret else None
-                if secret and (_step is None or _step <= _TOTP_LAST_STEP["v"]):
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
-                    return
-                if _step is not None:
-                    _TOTP_LAST_STEP["v"] = _step  # burn the disable code (anti-replay watermark, as at login)
-                keys.pop("_totp_secret", None)
-                keys.pop("_totp_pending", None)
-                encrypt_keys(keys, master_pw, key_path)
-                os.chmod(key_path, 0o600)
-                if Handler.keys is not None:
-                    Handler.keys.pop("_totp_secret", None)
-                    Handler.keys.pop("_totp_pending", None)
+                with _KEYS_LOCK:
+                    try:
+                        key_path = Path(__file__).parent / "keys.enc"
+                        keys = decrypt_keys(key_path, master_pw)
+                    except Exception:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                        return
+                    secret = keys.get("_totp_secret", "")
+                    _step = _totp_match_step(secret, code) if secret else None
+                    if secret and (_step is None or _step <= _TOTP_LAST_STEP["v"]):
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
+                        return
+                    if _step is not None:
+                        _TOTP_LAST_STEP["v"] = _step  # burn the disable code (anti-replay watermark, as at login)
+                    keys.pop("_totp_secret", None)
+                    keys.pop("_totp_pending", None)
+                    encrypt_keys(keys, master_pw, key_path)
+                    os.chmod(key_path, 0o600)
+                    if Handler.keys is not None:
+                        Handler.keys.pop("_totp_secret", None)
+                        Handler.keys.pop("_totp_pending", None)
                 _audit("System", "2FA disabled for admin")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
