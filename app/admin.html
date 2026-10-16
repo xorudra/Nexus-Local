@@ -947,7 +947,10 @@ $("#tfaBtn").addEventListener('click',async()=>{
     const j=await api('2fa_enable',{master_pw});
     if(j&&j.ok){
       $("#tfaKey").textContent=j.secret;
-      $("#tfaQR").src='/api/2fa_qr?'+Date.now();
+      try{
+        const qr=await fetch('/api/2fa_qr',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({master_pw})});
+        if(qr.ok){$("#tfaQR").src=URL.createObjectURL(await qr.blob())}
+      }catch(e){}
       $("#tfaSecret").style.display='block';
       msg.textContent='Scan the QR, then confirm with a code';
     }else msg.textContent=(j&&j.error)||'Failed';

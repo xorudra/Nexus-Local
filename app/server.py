@@ -43,7 +43,7 @@ QUOTAS_PATH = Path(__file__).parent / "quotas.json"
 from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote as _urlquote, urlencode as _urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
 
 from getpass import getpass
@@ -55,19 +55,35 @@ _login_attempts = {}
 # Per-session API rate limits: (bucket, session token) -> [timestamps].
 # Stops a single session (friend or hijacked) from burning provider quota.
 _RL = {}
+_RL_LOCK = threading.Lock()
+_RL_MAX_WINDOW = 900  # largest window any bucket uses (oauth/invite)
 
 def _rl_ok(bucket, token, limit, window=60):
     now = time.time()
     key = (bucket, token or "?")
-    hits = [t for t in _RL.get(key, []) if now - t < window]
-    if len(hits) >= limit:
+    with _RL_LOCK:
+        hits = [t for t in _RL.get(key, []) if now - t < window]
+        if len(hits) >= limit:
+            _RL[key] = hits
+            return False
+        hits.append(now)
         _RL[key] = hits
-        return False
-    hits.append(now)
-    _RL[key] = hits
-    if len(_RL) > 5000:
-        _RL.clear()
-    return True
+        if len(_RL) > 5000:
+            # Prune only fully-expired keys; evict oldest-inserted if
+            # still oversized. NEVER clear the whole map: that would
+            # reset every principal's active window at once.
+            dead = [kk for kk, vv in _RL.items()
+                    if not vv or now - vv[-1] >= _RL_MAX_WINDOW]
+            for kk in dead:
+                _RL.pop(kk, None)
+            while len(_RL) > 5000:
+                _RL.pop(next(iter(_RL)), None)
+        return True
+
+# Serializes invite redemption: lookup -> claim -> account creation must
+# be atomic, or parallel requests turn one single-use invite into many
+# accounts (check-then-use race).
+_INVITE_LOCK = threading.Lock()
 
 # Provider health (circuit breaker): provider -> {"fails": int, "down_until": float}
 _PROVIDER_HEALTH = {}
@@ -304,26 +320,21 @@ def _ip_allowed(ip):
 
 
 def _webhook_url_ok(url):
-    """Alert webhooks must be http(s) to a public host: no loopback,
-    private, link-local or literal-IP-internal targets (SSRF guard for
-    an admin-configured URL)."""
-    try:
-        u = urllib.parse.urlparse(url or "")
-        if u.scheme not in ("http", "https") or not u.hostname:
-            return False
-        host = u.hostname.lower()
-        if host in ("localhost",) or host.endswith(".local"):
-            return False
-        try:
-            addr = ipaddress.ip_address(host)
-            if addr.is_private or addr.is_loopback or addr.is_link_local \
-                    or addr.is_reserved or addr.is_multicast:
-                return False
-        except ValueError:
-            pass  # a DNS name, not a literal IP — allowed
-        return True
-    except Exception:
-        return False
+    """Alert webhooks must be http(s) to a public host. Delegates to the
+    resolver-based guard below: the host is resolved and EVERY address
+    must be public, so encoded IP literals (2130706433, 0x7f000001)
+    and DNS names that resolve privately are rejected too — a textual
+    dotted-quad check alone let those through."""
+    return _public_base_url_ok(url)
+
+
+class _WebhookRedirect(HTTPRedirectHandler):
+    """Redirect handler for webhook delivery: every redirect target is
+    re-validated with the same resolver-based guard before following."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _public_base_url_ok(newurl):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _public_base_url_ok(url):
@@ -359,6 +370,48 @@ def _public_base_url_ok(url):
         return False
 
 
+def _safe_url(u):
+    """Public-URL guard shared by the agent fetch tool and the media
+    branches (hoisted from the agent block): http(s) only, no localhost,
+    the hostname must resolve, and EVERY resolved address must be
+    public — private, loopback, link-local, reserved and multicast
+    targets are rejected. Non-http(s) schemes (file:, gopher:, …)
+    never pass."""
+    try:
+        p = urllib.parse.urlparse(str(u))
+        if p.scheme not in ("http", "https") or not p.hostname:
+            return False
+        host = p.hostname.lower()
+        if host == "localhost":
+            return False
+        infos = socket.getaddrinfo(host, None)
+        if not infos:
+            return False
+        for info in infos:
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local \
+                    or ip.is_reserved or ip.is_multicast:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+class _GuardedRedirect(HTTPRedirectHandler):
+    """Follow redirects only to targets that still pass _safe_url."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _safe_url(newurl):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# Bounded reads for upstream media bodies (generation-time caps; the
+# saved-chat per-URI budget is a persistence limit, not this).
+_MEDIA_IMAGE_CAP = 14 * 1024 * 1024
+_MEDIA_VOICE_CHUNK_CAP = 8 * 1024 * 1024
+_MEDIA_VOICE_TOTAL_CAP = 16 * 1024 * 1024
+
+
 def _fire_webhook(event, data=None):
     """POST an alert event to the configured webhook, off-thread so a
     slow receiver never blocks a request. Best-effort: failures are
@@ -378,7 +431,8 @@ def _fire_webhook(event, data=None):
                           headers={"Content-Type": "application/json",
                                    "User-Agent": "NexusLocal/1.0"},
                           method="POST")
-            with urlopen(req, timeout=5) as resp:
+            opener = build_opener(_WebhookRedirect)
+            with opener.open(req, timeout=5) as resp:
                 resp.read(512)
         except Exception:
             pass
@@ -1273,10 +1327,17 @@ def _intg_test_jira(e):
 def _intg_test_mailchimp(e):
     key = e["api_key"]
     dc = key.rsplit("-", 1)[-1] if "-" in key else ""
-    if not dc or dc == key:
+    # The fragment lands in the URL's AUTHORITY component: validate it
+    # against Mailchimp's real data-centre format (us21, uk1, ...) —
+    # a crafted suffix containing "/" or ":" would otherwise redefine
+    # the host/port of the server's outbound request.
+    if not dc or dc == key or not _re.fullmatch(r"[a-z]{2}\d{1,2}", dc):
+        return False, "", "That key has no data-centre suffix (it should end in -us<N>)"
+    _url = f"https://{dc}.api.mailchimp.com/3.0/lists?count=1"
+    if not urllib.parse.urlparse(_url).hostname.endswith(".api.mailchimp.com"):
         return False, "", "That key has no data-centre suffix (it should end in -us<N>)"
     auth = base64.b64encode(("nexus:" + key).encode()).decode()
-    st, j = _intg_http(f"https://{dc}.api.mailchimp.com/3.0/lists?count=1", "GET",
+    st, j = _intg_http(_url, "GET",
                        {"Authorization": "Basic " + auth})
     if st == 200 and isinstance(j, dict):
         return True, f"{j.get('total_items', 0)} audience(s) · {dc}", "Mailchimp account reachable"
@@ -1686,17 +1747,19 @@ def _chat_path(label):
     safe = _re.sub(r"[^a-z0-9_]", "", (label or "").lower())[:30]
     return CHATS_DIR / f"{safe}.enc"
 
-def _load_chats(label, password):
-    try:
-        p = _chat_path(label)
-        if not p.exists():
-            return {"chats": []}
-        d = decrypt_keys(p, password)
-        if isinstance(d, dict) and isinstance(d.get("chats"), list):
-            return d
-    except Exception:
-        pass
-    return {"chats": []}
+def _load_chats_strict(label, password):
+    """Strict friend chat loader, mirroring _load_admin_chats_strict:
+    a missing file is an empty store, but an EXISTING file that fails
+    to decrypt (or has an unexpected shape) RAISES — a lenient loader would conflate the two, and a save/delete
+    dispatched from that silent empty state would permanently
+    overwrite the history."""
+    p = _chat_path(label)
+    if not p.exists():
+        return {"chats": []}
+    d = decrypt_keys(p, password)  # raises on wrong password / corruption
+    if not isinstance(d, dict) or not isinstance(d.get("chats"), list):
+        raise ValueError("friend chat store has unexpected shape")
+    return d
 
 def _save_chats(label, data, password):
     p = _chat_path(label)
@@ -1991,6 +2054,16 @@ def _verify_password(password, stored):
         return ok, True
     except Exception:
         return False, False
+
+def _password_taken(access, password, skip_label=None):
+    """True when some OTHER friend account already uses this password.
+    Password-only friend login resolves identity BY password, so a
+    shared password would sign the caller into the first matching
+    account — collisions are refused at every password-set site.
+    _verify_password returns an (ok, needs_upgrade) tuple; the verdict
+    must be indexed [0] (the bare tuple is always truthy)."""
+    return any(l != skip_label and _verify_password(password, h)[0]
+               for l, h in (access or {}).items())
 
 # ---------------------------------------------------------------------------
 # Structured server-side logging with secret redaction + usage-log rotation.
@@ -2807,6 +2880,8 @@ def register_custom_providers(keys):
 
 
 class RelayHandler(BaseHTTPRequestHandler):
+    timeout = 10  # per-read socket deadline: stalled connections close
+
     def log_message(self, *args):
         return
 
@@ -2985,6 +3060,10 @@ def wizard_collect_keys() -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # Per-read socket deadline (BaseHTTPRequestHandler.timeout): a
+    # pre-auth Slowloris — partial headers or a partial body — must not
+    # hold a handler thread indefinitely.
+    timeout = 10
     server_version = "NexusLocal"
     sys_version = ""
     keys: dict | None = None
@@ -3873,7 +3952,7 @@ class Handler(BaseHTTPRequestHandler):
                              _aioauth_url(_lane, _nonce, _challenge))
             self.send_header("Set-Cookie",
                              f"aio_state={_lane}:{_nonce}:{_verifier}; "
-                             "Path=/; HttpOnly; Max-Age=900; SameSite=Lax")
+                             "Path=/; HttpOnly; Max-Age=900; SameSite=Lax; Secure")
             self.end_headers()
             return
         # OAuth sign-in (public): which providers are configured, the
@@ -4302,10 +4381,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(json.dumps({"ok": True}).encode())
             return
         if parsed.path == "/api/friend_blob":
-            # Returns the encrypted friend blob (same bytes as users.enc)
-            # plus all personal key vaults. The sync job uses this to persist
-            # friend changes to GitHub. Data is AES-256-GCM encrypted; safe to
-            # expose like the public repo copy.
+            # Returns every encrypted store (friend blob, personal key
+            # vaults, chats, provider keys + the 2FA secret, the access
+            # and v1-key mirrors). AUTHENTICATED: a live admin session,
+            # or the dedicated sync token (X-Sync-Token header, from env
+            # NEXUS_SYNC_TOKEN) that the friend-sync job/hook presents.
+            # Each store's confidentiality rests on its own protecting
+            # secret (a friend's password, the master password, the
+            # restore key), so the ciphertext is no longer served to
+            # anonymous callers.
+            _sync_tok = os.environ.get("NEXUS_SYNC_TOKEN", "")
+            _given_tok = self.headers.get("X-Sync-Token", "")
+            if not (_given_tok and _sync_tok
+                    and secrets.compare_digest(_given_tok, _sync_tok)):
+                if not self._require_admin():
+                    return
             try:
                 import base64 as _b64
                 blob = _b64.b64encode(USERS_PATH.read_bytes()).decode() if USERS_PATH.exists() else None
@@ -4358,37 +4448,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(json.dumps({"blob": blob, "vaults": vaults, "chats": chats, "keys": keys_b64, "access": access_b64, "v1key": v1key_b64, "settings": settings_b64, "telemetry": telemetry_b64}).encode())
             return
         if parsed.path == "/api/2fa_qr":
-            # QR code for the TOTP secret (admin only) — scan with authenticator app
-            if not self._require_admin():
-                return
-            try:
-                secret = (Handler.keys or {}).get("_totp_pending") or (Handler.keys or {}).get("_totp_secret", "")
-            except Exception:
-                secret = ""
-            if not secret:
-                self._set_json_headers(404)
-                self._send_body(json.dumps({"error": "2FA not enabled"}).encode())
-                return
-            try:
-                import qrcode, io
-                otpauth = (f"otpauth://totp/NexusLocal:admin?secret={secret}"
-                           f"&issuer=NexusLocal")
-                qr = qrcode.QRCode(box_size=6, border=2)
-                qr.add_data(otpauth)
-                qr.make(fit=True)
-                img = qr.make_image(fill_color="black", back_color="white")
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                png = buf.getvalue()
-            except Exception:
-                self._set_json_headers(500)
-                self._send_body(json.dumps({"error": "QR generation failed"}).encode())
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", "image/png")
-            self.send_header("Content-Length", str(len(png)))
-            self.end_headers()
-            self._send_body(png)
+            # A bare GET can carry no master-password proof, so it must
+            # never disclose secret material (previously it served the
+            # ACTIVE TOTP secret to any admin session). The QR is served
+            # only by the POST branch in _do_post, after _master_ok
+            # passes, and only for a PENDING enrollment secret.
+            self._set_json_headers(405)
+            self._send_body(json.dumps({"error": "use POST /api/2fa_qr with master_pw"}).encode())
             return
         if parsed.path == "/api/quotas":
             if not self._require_session():
@@ -5089,11 +5155,12 @@ class Handler(BaseHTTPRequestHandler):
                 password = form.get("password", [""])[0]
                 label = None
                 if password:
-                    for cand, stored in _load_access().items():
-                        ok, _nu = _verify_password(password, stored)
-                        if ok:
-                            label = cand
-                            break
+                    # Same fail-closed rule as /api/login: a password
+                    # shared by two accounts identifies NEITHER.
+                    _cands = [cand for cand, stored in _load_access().items()
+                              if _verify_password(password, stored)[0]]
+                    if len(_cands) == 1:
+                        label = _cands[0]
                 if not label:
                     recent.append(now)
                     _login_attempts[ip] = recent
@@ -5211,6 +5278,50 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/dashboard")
             self.end_headers()
             return
+        if parsed.path == "/api/2fa_qr":
+            # QR for a PENDING 2FA enrollment. POST only: the caller must
+            # prove the master password (like every sibling 2FA route),
+            # and only the pending secret is ever rendered — the ACTIVE
+            # secret is never disclosed by this route.
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b"{}"
+            try:
+                data = json.loads(raw_body)
+            except Exception:
+                data = {}
+            if not self._require_admin():
+                return
+            if not self._master_ok(data):
+                self._set_json_headers(401)
+                self._send_body(json.dumps({"error": "wrong master password"}).encode())
+                return
+            _pend = (Handler.keys or {}).get("_totp_pending") or ""
+            if not _pend:
+                self._set_json_headers(404)
+                self._send_body(json.dumps({"error": "no pending 2FA enrollment"}).encode())
+                return
+            try:
+                import qrcode, io
+                otpauth = (f"otpauth://totp/NexusLocal:admin?secret=<redacted>"
+                           f"&issuer=NexusLocal")
+                qr = qrcode.QRCode(box_size=6, border=2)
+                qr.add_data(otpauth)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white")
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                png = buf.getvalue()
+            except Exception:
+                self._set_json_headers(500)
+                self._send_body(json.dumps({"error": "QR generation failed"}).encode())
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(png)))
+            self.end_headers()
+            self._send_body(png)
+            return
         if parsed.path == "/api/transcribe":
             # Speech-to-text for the composer mic button (Groq Whisper).
             if not self._require_session():
@@ -5222,10 +5333,34 @@ class Handler(BaseHTTPRequestHandler):
                 # operation genuinely requires the owner's unlock.
                 self._send_locked()
                 return
-            if not _rl_ok("transcribe", self._get_session(), 12, 60):
+            _tinfo = self._session_info() or {}
+            # Bucket keyed on the account LABEL, not the session token:
+            # logins mint unlimited sessions, so a per-token bucket let
+            # one account multiply its per-minute allowance at will.
+            if not _rl_ok("transcribe", _tinfo.get("label") or self._get_session(), 12, 60):
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "too many voice inputs, slow down a moment"}).encode())
                 return
+            # Same daily accounting invariant as /api/chat: the per-user
+            # cap and the instance global cap bind transcription too,
+            # and a successful transcription records a usage row.
+            _label_t = _tinfo.get("label", "")
+            if not _tinfo.get("admin") and _label_t:
+                _cap = (_SETTINGS.get("user_caps") or {}).get(
+                    _label_t, _SETTINGS.get("daily_cap", 200))
+                if _cap and _today_counts()["users"].get(_label_t, 0) >= int(_cap):
+                    _audit("Users", f"Daily cap hit: {_label_t} ({_cap}/day)")
+                    _alert("cap_hit", "cap", {"label": _label_t, "cap": int(_cap)})
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
+                    return
+                _gcap = int(_SETTINGS.get("global_cap") or 0)
+                if _gcap and _today_total_requests() >= _gcap:
+                    _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
+                    _alert("cap_hit", "cap", {"label": _label_t, "cap": _gcap, "scope": "instance"})
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": f"the instance reached today's limit ({_gcap} requests/day)"}).encode())
+                    return
             content_length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(content_length)
             try:
@@ -5272,6 +5407,10 @@ class Handler(BaseHTTPRequestHandler):
                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, method="POST")
                 with urlopen(_rq, timeout=60) as _rs:
                     _txt = json.loads(_rs.read().decode()).get("text", "")
+                _append_usage({"ts": datetime.datetime.now().isoformat(),
+                               "provider": "groq", "model": _mdl,
+                               "prompt_tokens": 0, "completion_tokens": 0,
+                               "user": _label_t, "ok": True})
                 self._set_json_headers(200)
                 self.wfile.write(json.dumps({"text": _txt}).encode())
             except HTTPError as e:
@@ -5291,7 +5430,10 @@ class Handler(BaseHTTPRequestHandler):
             # lane can run without the owner's key.
             _crate = _SETTINGS.get("chat_rate")
             _crate = 40 if _crate is None else int(_crate)
-            if _crate and not _rl_ok("chat", self._get_session(), _crate, 60):
+            _cinfo = self._session_info() or {}
+            # Bucket keyed on the account label (see transcribe): all of
+            # one account's sessions share a single per-minute allowance.
+            if _crate and not _rl_ok("chat", _cinfo.get("label") or self._get_session(), _crate, 60):
                 self._set_json_headers(429)
                 self.wfile.write(json.dumps({"error": "you're sending messages too fast — give it a few seconds"}).encode())
                 return
@@ -5424,8 +5566,8 @@ class Handler(BaseHTTPRequestHandler):
                             with urlopen(rq, timeout=40) as rs:
                                 _ct = rs.headers.get("Content-Type") or ""
                                 if rs.status == 200 and "image" in _ct:
-                                    _bytes = rs.read()
-                                    if _bytes:
+                                    _bytes = rs.read(_MEDIA_IMAGE_CAP + 1)
+                                    if _bytes and len(_bytes) <= _MEDIA_IMAGE_CAP:
                                         return "data:" + _ct.split(";")[0] + ";base64," + base64.b64encode(_bytes).decode()
                         except Exception:
                             pass
@@ -5464,15 +5606,23 @@ class Handler(BaseHTTPRequestHandler):
                                         _img = gens[0]["img"]
                                         # Inline it like Pollinations — hotlinked
                                         # images can fail to load in the browser.
-                                        try:
-                                            _irq = Request(_img, headers={"User-Agent": "Mozilla/5.0"})
-                                            with urlopen(_irq, timeout=30) as _irs:
-                                                _ict = _irs.headers.get("Content-Type") or "image/webp"
-                                                _ib = _irs.read()
-                                            if _ib:
-                                                _img = "data:" + _ict.split(";")[0] + ";base64," + base64.b64encode(_ib).decode()
-                                        except Exception:
-                                            pass
+                                        # The URL comes from an untrusted
+                                        # volunteer worker, so it is fetched
+                                        # ONLY through the SSRF guard: public
+                                        # http(s), redirects re-validated,
+                                        # image bodies only, bounded read.
+                                        # On any failure _img stays a URL.
+                                        if _safe_url(_img):
+                                            try:
+                                                _irq = Request(_img, headers={"User-Agent": "Mozilla/5.0"})
+                                                _iop = build_opener(_GuardedRedirect)
+                                                with _iop.open(_irq, timeout=30) as _irs:
+                                                    _ict = _irs.headers.get("Content-Type") or ""
+                                                    _ib = _irs.read(_MEDIA_IMAGE_CAP + 1) if _ict.startswith("image/") else b""
+                                                if _ib and len(_ib) <= _MEDIA_IMAGE_CAP:
+                                                    _img = "data:" + _ict.split(";")[0] + ";base64," + base64.b64encode(_ib).decode()
+                                            except Exception:
+                                                pass
                                     break
                         except Exception:
                             _img = None
@@ -5561,6 +5711,13 @@ class Handler(BaseHTTPRequestHandler):
                             _itr.append({"p": "pollinations", "m": "flux",
                                          "ok": False, "e": "image generation failed"})
                     if _img:
+                        # Media generations spend provider quota too:
+                        # record them like the text path does, so the
+                        # per-user and instance daily caps bind media.
+                        _append_usage({"ts": datetime.datetime.now().isoformat(),
+                                       "provider": _used_p, "model": _used_m,
+                                       "prompt_tokens": 0, "completion_tokens": 0,
+                                       "user": _chat_label, "ok": True})
                         self._set_json_headers(200)
                         self.wfile.write(json.dumps({"reply": f"![Generated image]({_img})", "image_url": _img, "used_provider": _used_p, "used_model": _used_m, "trace": _itr}).encode())
                     elif provider in ("pollinations", "relay_pollinations"):
@@ -5617,12 +5774,19 @@ class Handler(BaseHTTPRequestHandler):
                     _chunks.append(_cur)
                 try:
                     _wavs = []
+                    _vtot = 0
                     for _c in _chunks[:8]:
                         _rq = Request("https://api.groq.com/openai/v1/audio/speech",
                             data=json.dumps({"model": _mdl, "input": _c, "voice": _voice, "response_format": "wav"}).encode(),
                             headers={"Authorization": f"Bearer {_gk}", "Content-Type": "application/json", **_UA}, method="POST")
                         with urlopen(_rq, timeout=60) as _rs:
-                            _wavs.append(_rs.read())
+                            _wb = _rs.read(_MEDIA_VOICE_CHUNK_CAP + 1)
+                        if len(_wb) > _MEDIA_VOICE_CHUNK_CAP:
+                            raise ValueError("voice chunk too large")
+                        _vtot += len(_wb)
+                        if _vtot > _MEDIA_VOICE_TOTAL_CAP:
+                            raise ValueError("voice response too large")
+                        _wavs.append(_wb)
                     # Merge WAV chunks at the byte level (no wave module:
                     # Groq returns a streaming header — RIFF/data sizes are
                     # 0xFFFFFFFF and nframes claims 2.1 billion — which the
@@ -5663,6 +5827,10 @@ class Handler(BaseHTTPRequestHandler):
                             + _struct.pack("<IHHIIHH", 16, _afmt, _nch, _rate, _brate, _balign, _bits)
                             + b"data" + _struct.pack("<I", len(_pcm_all)))
                     _b64 = base64.b64encode(_hdr + _pcm_all).decode()
+                    _append_usage({"ts": datetime.datetime.now().isoformat(),
+                                   "provider": _prov, "model": _mdl,
+                                   "prompt_tokens": 0, "completion_tokens": 0,
+                                   "user": _chat_label, "ok": True})
                     self._set_json_headers(200)
                     self.wfile.write(json.dumps({"audio": "data:audio/wav;base64," + _b64,
                         "reply": "\U0001f50a " + _text[:120], "used_provider": _prov, "used_model": _mdl,
@@ -5735,16 +5903,32 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(502)
                         self.wfile.write(json.dumps({"error": "video generation failed — the free GPU queue may be busy, try again"}).encode())
                         return
+                    # The file URL comes from the upstream Space: fetch
+                    # it only through the SSRF guard (public http(s),
+                    # redirects re-validated), require a video body, and
+                    # bound the read itself — not just the check after.
+                    if not _safe_url(_file_url):
+                        self._set_json_headers(502)
+                        self.wfile.write(json.dumps({"error": "video generation failed — the free GPU queue may be busy, try again"}).encode())
+                        return
                     _rq3 = Request(_file_url, headers={"User-Agent": "Mozilla/5.0"})
-                    with urlopen(_rq3, timeout=120) as _rs3:
-                        _vid = _rs3.read()
+                    _vop = build_opener(_GuardedRedirect)
+                    with _vop.open(_rq3, timeout=120) as _rs3:
+                        _vct = _rs3.headers.get("Content-Type") or ""
+                        if not _vct.startswith("video/"):
+                            raise ValueError("upstream file is not a video")
+                        _vid = _rs3.read(14 * 1024 * 1024 + 1)
                     if len(_vid) > 14 * 1024 * 1024:
                         self._set_json_headers(502)
                         self.wfile.write(json.dumps({"error": "generated video was too large"}).encode())
                         return
                     _b64 = base64.b64encode(_vid).decode()
+                    _append_usage({"ts": datetime.datetime.now().isoformat(),
+                                   "provider": "huggingface", "model": "Lightricks/LTX-Video",
+                                   "prompt_tokens": 0, "completion_tokens": 0,
+                                   "user": _chat_label, "ok": True})
                     self._set_json_headers(200)
-                    self.wfile.write(json.dumps({"video": "data:video/mp4;base64," + _b64,
+                    self.wfile.write(json.dumps({"video": "data:" + _vct.split(";")[0] + ";base64," + _b64,
                         "reply": "\U0001f3ac " + _prompt_v[:120],
                         "used_provider": "huggingface", "used_model": "Lightricks/LTX-Video",
                         "trace": [{"p": "huggingface", "m": "Lightricks/LTX-Video", "ok": True}]}).encode())
@@ -6155,13 +6339,19 @@ class Handler(BaseHTTPRequestHandler):
                 # Base URL per provider type
                 if prov.startswith("relay_") or prov in RELAY_UPSTREAMS:
                     base = f"http://127.0.0.1:{RELAY_PORT}/{prov}/v1"
-                elif prov == "freellmapi":
-                    gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
-                    if not gw_url:
-                        return (False, 400, "Set your gateway URL in setup")
-                    base = gw_url.rstrip("/")
-                elif prov.startswith("custom_fl_"):
-                    gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
+                elif prov == "freellmapi" or prov.startswith("custom_fl_"):
+                    # URL and key are paired BY PROVENANCE: a URL from the
+                    # caller's own vault may only be used with that same
+                    # caller's lane key. A friend-supplied URL with no
+                    # friend key for the lane falls back to the SHARED
+                    # URL+key pair — the owner's shared gateway credential
+                    # must never be sent to a user-supplied endpoint.
+                    _shared = dict(Handler.keys or {})
+                    _own = (self._session_info() or {}).get("userkeys") or {}
+                    if _own.get("freellmapi_url") and not _own.get(prov):
+                        gw_url = ((_shared.get("freellmapi_url") or "")).strip()
+                    else:
+                        gw_url = ((_ekeys or {}).get("freellmapi_url") or "").strip()
                     if not gw_url:
                         return (False, 400, "Set your gateway URL in setup")
                     base = gw_url.rstrip("/")
@@ -6176,6 +6366,12 @@ class Handler(BaseHTTPRequestHandler):
                     if akey:
                         headers["X-Vault-Key"] = akey
                 if prov == "freellmapi" or prov.startswith("custom_fl_"):
+                    # Defense in depth: never attach a shared-vault
+                    # credential to a URL that is not the shared
+                    # configured gateway URL.
+                    _shared_url = ((dict(Handler.keys or {}).get("freellmapi_url") or "")).strip().rstrip("/")
+                    if akey and akey == dict(Handler.keys or {}).get(prov) and base != _shared_url:
+                        return (False, 403, "refusing to send a shared key to a user-supplied URL")
                     headers["Authorization"] = f"Bearer {akey}"
                 if prov == "openrouter" or prov == "relay_openrouter":
                     headers["X-Title"] = "NexusLocal"
@@ -6313,7 +6509,7 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "agent":
                 # Agentic mode: the model can call tools (web search via Bing,
                 # guarded page fetch, exact calculator) in a loop before answering.
-                import re as _re_a, html as _html_a, socket as _sock_a, ipaddress as _ip_a, ast as _ast_a, operator as _op_a, urllib.parse as _uparse_a, urllib.request as _ureq_a
+                import re as _re_a, html as _html_a, socket as _sock_a, ipaddress as _ip_a, ast as _ast_a, operator as _op_a, urllib.parse as _uparse_a, urllib.request as _ureq_a, http.client as _http_a, math as _math_a
                 _BROWSER_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
                 def _clean(s):
                     return _html_a.unescape(_re_a.sub(r"<[^>]+>", "", s or "")).strip()
@@ -6337,31 +6533,71 @@ class Handler(BaseHTTPRequestHandler):
                         sn = _re_a.search(r"<p[^>]*>(.*?)</p>", block, _re_a.S)
                         out.append(f"- {_clean(m.group(2))}\n  {url}\n  {_clean(sn.group(1))[:300] if sn else ''}")
                     return "\n".join(out) if out else "No results found."
-                def _safe_url(u):
-                    p = _uparse_a.urlparse(str(u))
-                    if p.scheme not in ("http", "https") or not p.hostname:
-                        return False
-                    host = p.hostname.lower()
-                    if host == "localhost":
-                        return False
+                # _safe_url and _GuardedRedirect are module-level (shared
+                # with the media branches). fetch_url additionally PINS
+                # the connection: the socket connects only to an address
+                # from the same resolution that was validated, so a DNS
+                # rebinding between check and connect reaches nothing.
+                def _addr_is_public(a):
                     try:
-                        infos = _sock_a.getaddrinfo(host, None)
+                        ip = _ip_a.ip_address(a)
                     except Exception:
                         return False
-                    for info in infos:
-                        ip = _ip_a.ip_address(info[4][0])
-                        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                            return False
-                    return True
-                class _GuardedRedirect(_ureq_a.HTTPRedirectHandler):
-                    def redirect_request(self, req, fp, code, msg, headers, newurl):
-                        if not _safe_url(newurl):
-                            return None
-                        return super().redirect_request(req, fp, code, msg, headers, newurl)
+                    return not (ip.is_private or ip.is_loopback or ip.is_link_local
+                                or ip.is_reserved or ip.is_multicast)
+                class _PinnedHTTPConnection(_http_a.HTTPConnection):
+                    def connect(self):
+                        infos = _sock_a.getaddrinfo(self.host, self.port, 0, _sock_a.SOCK_STREAM)
+                        addrs = []
+                        for info in infos:
+                            if info[4][0] not in addrs:
+                                addrs.append(info[4][0])
+                        if not addrs or not all(_addr_is_public(a) for a in addrs):
+                            raise OSError("host resolves to a non-public address")
+                        last = None
+                        for ip in addrs:
+                            try:
+                                self.sock = _sock_a.create_connection((ip, self.port), self.timeout, self.source_address)
+                                return
+                            except OSError as e:
+                                last = e
+                        raise last or OSError("connect failed")
+                class _PinnedHTTPSConnection(_http_a.HTTPSConnection):
+                    def connect(self):
+                        infos = _sock_a.getaddrinfo(self.host, self.port, 0, _sock_a.SOCK_STREAM)
+                        addrs = []
+                        for info in infos:
+                            if info[4][0] not in addrs:
+                                addrs.append(info[4][0])
+                        if not addrs or not all(_addr_is_public(a) for a in addrs):
+                            raise OSError("host resolves to a non-public address")
+                        raw = None
+                        last = None
+                        for ip in addrs:
+                            try:
+                                raw = _sock_a.create_connection((ip, self.port), self.timeout, self.source_address)
+                                break
+                            except OSError as e:
+                                last = e
+                        if raw is None:
+                            raise last or OSError("connect failed")
+                        self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+                class _PinnedHTTPHandler(_ureq_a.HTTPHandler):
+                    def http_open(self, req):
+                        return self.do_open(_PinnedHTTPConnection, req)
+                class _PinnedHTTPSHandler(_ureq_a.HTTPSHandler):
+                    def https_open(self, req):
+                        return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
+                def _pinned_opener():
+                    # ProxyHandler({}): an ambient proxy must not resolve
+                    # the name on its own side (that would un-pin the check).
+                    return _ureq_a.build_opener(_ureq_a.ProxyHandler({}),
+                                                _GuardedRedirect,
+                                                _PinnedHTTPHandler(), _PinnedHTTPSHandler())
                 def _tool_fetch(url):
                     if not _safe_url(url):
                         return "Blocked: URL is not a public web address."
-                    opener = _ureq_a.build_opener(_GuardedRedirect)
+                    opener = _pinned_opener()
                     req = Request(str(url)[:2000], headers=_BROWSER_UA)
                     with opener.open(req, timeout=20) as r:
                         raw = r.read(1500000)
@@ -6370,14 +6606,40 @@ class Handler(BaseHTTPRequestHandler):
                     text = _clean(text)
                     text = _re_a.sub(r"\s+", " ", text)
                     return text[:8000] if text else "Page had no readable text."
-                _OPS = {_ast_a.Add: _op_a.add, _ast_a.Sub: _op_a.sub, _ast_a.Mult: _op_a.mul, _ast_a.Div: _op_a.truediv, _ast_a.Mod: _op_a.mod, _ast_a.Pow: _op_a.pow, _ast_a.USub: _op_a.neg, _ast_a.FloorDiv: _op_a.floordiv}
+                def _check_pow(base, exp):
+                    # Bound the power BEFORE computing it: a model-supplied
+                    # tower like 9**9**9 must never pin a handler thread.
+                    if isinstance(exp, int) and exp < 0:
+                        raise ValueError("negative exponent")
+                    if isinstance(base, int) and isinstance(exp, int):
+                        if exp > 1000:
+                            raise ValueError("exponent too large")
+                        if base not in (0, 1, -1) and exp * max(1, int(_math_a.log10(abs(base))) + 1) > 5000:
+                            raise ValueError("result would be too large")
+                    if isinstance(base, float) or isinstance(exp, float):
+                        if abs(exp) > 1000:
+                            raise ValueError("exponent too large")
+                    return _op_a.pow(base, exp)
+                _OPS = {_ast_a.Add: _op_a.add, _ast_a.Sub: _op_a.sub, _ast_a.Mult: _op_a.mul, _ast_a.Div: _op_a.truediv, _ast_a.Mod: _op_a.mod, _ast_a.Pow: _check_pow, _ast_a.USub: _op_a.neg, _ast_a.FloorDiv: _op_a.floordiv}
+                _MAX_CALC_BITS = 5000 * 4  # ~5000 decimal digits
                 def _calc(node):
                     if isinstance(node, _ast_a.Expression):
+                        if sum(1 for _ in _ast_a.walk(node)) > 100:
+                            raise ValueError("expression too complex")
                         return _calc(node.body)
                     if isinstance(node, _ast_a.Constant) and isinstance(node.value, (int, float)):
+                        if isinstance(node.value, int) and node.value.bit_length() > _MAX_CALC_BITS:
+                            raise ValueError("number too large")
                         return node.value
                     if isinstance(node, _ast_a.BinOp) and type(node.op) in _OPS:
-                        return _OPS[type(node.op)](_calc(node.left), _calc(node.right))
+                        left, right = _calc(node.left), _calc(node.right)
+                        for v in (left, right):
+                            if isinstance(v, int) and v.bit_length() > _MAX_CALC_BITS:
+                                raise ValueError("intermediate result too large")
+                        result = _OPS[type(node.op)](left, right)
+                        if isinstance(result, int) and result.bit_length() > _MAX_CALC_BITS:
+                            raise ValueError("result too large")
+                        return result
                     if isinstance(node, _ast_a.UnaryOp) and type(node.op) in _OPS:
                         return _OPS[type(node.op)](_calc(node.operand))
                     raise ValueError("unsupported expression")
@@ -6561,46 +6823,62 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"password must be at least {int(_SETTINGS.get('pw_min') or 8)} characters"}).encode())
                 return
-            access = _load_access()
-            if label in access:
-                self._set_json_headers(400)
-                self.wfile.write(json.dumps({"error": "that username is taken"}).encode())
-                return
-            role = _SETTINGS.get("signup_role", "friend")
-            invite = None
-            if code:
-                h = hashlib.sha256(code.encode()).hexdigest()
-                for inv in (_SETTINGS.get("invites") or []):
-                    if inv.get("h") == h and not inv.get("used_by") \
-                            and inv.get("expires", 0) > time.time():
-                        invite = inv
-                        break
-                if not invite:
+            # The whole lookup -> claim -> create -> role sequence runs
+            # under _INVITE_LOCK: the invite is claimed (and the claim
+            # persisted) BEFORE the slow password hash and account
+            # creation, so a concurrent redemption of the same code
+            # always sees it as used. Claim rolls back if creation fails.
+            with _INVITE_LOCK:
+                access = _load_access()
+                if label in access:
                     self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "invite code is invalid, used or expired"}).encode())
+                    self.wfile.write(json.dumps({"error": "that username is taken"}).encode())
                     return
-                role = invite.get("role", "friend")
-            elif mode_reg == "invite":
-                self._set_json_headers(400)
-                self.wfile.write(json.dumps({"error": "an invite code is required"}).encode())
-                return
-            access[label] = _hash_password(password)
-            _save_access(access)
-            # The invite page itself shows the terms notice at signup,
-            # so the first-login notice (F26) is already satisfied.
-            _seen = list(_SETTINGS.get("terms_seen") or [])
-            if label not in _seen:
-                _seen.append(label)
-                _SETTINGS["terms_seen"] = _seen
-                _save_settings()
-            if invite is not None:
-                invite["used_by"] = label
-                _save_settings()
-            if role in ("moderator", "viewer"):
-                roles = dict(_SETTINGS.get("roles") or {})
-                roles[label] = role
-                _SETTINGS["roles"] = roles
-                _save_settings()
+                if _password_taken(access, password):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
+                    return
+                role = _SETTINGS.get("signup_role", "friend")
+                invite = None
+                if code:
+                    h = hashlib.sha256(code.encode()).hexdigest()
+                    for inv in (_SETTINGS.get("invites") or []):
+                        if inv.get("h") == h and not inv.get("used_by") \
+                                and inv.get("expires", 0) > time.time():
+                            invite = inv
+                            break
+                    if not invite:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "invite code is invalid, used or expired"}).encode())
+                        return
+                    role = invite.get("role", "friend")
+                    invite["used_by"] = label  # claim FIRST, lock held
+                    _save_settings()           # persist before the hash
+                elif mode_reg == "invite":
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "an invite code is required"}).encode())
+                    return
+                try:
+                    access[label] = _hash_password(password)
+                    _save_access(access)
+                    # The invite page itself shows the terms notice at
+                    # signup, so the first-login notice (F26) is already
+                    # satisfied.
+                    _seen = list(_SETTINGS.get("terms_seen") or [])
+                    if label not in _seen:
+                        _seen.append(label)
+                        _SETTINGS["terms_seen"] = _seen
+                        _save_settings()
+                    if role in ("moderator", "viewer"):
+                        roles = dict(_SETTINGS.get("roles") or {})
+                        roles[label] = role
+                        _SETTINGS["roles"] = roles
+                        _save_settings()
+                except Exception:
+                    if invite is not None:
+                        invite["used_by"] = None  # roll the claim back
+                        _save_settings()
+                    raise
             _audit("Users", f"Signed up via invite: {label} ({role})",
                    ip=_client_ip(self.headers, self.client_address[0]))
             _alert("signup", "signup", {"label": label, "role": role})
@@ -6710,19 +6988,25 @@ class Handler(BaseHTTPRequestHandler):
                 label, is_admin = "Rudra", True
             else:
                 access = _load_access()
-                label = None
+                # Password-only login: the password IS the identity key,
+                # so collect ALL matches and fail closed on ambiguity —
+                # a shared password must never silently sign the caller
+                # into the first matching account.
+                _matches = []
                 for l, h in access.items():
                     ok, needs_up = _verify_password(password, h)
                     if ok:
-                        label = l
-                        if needs_up:
-                            # Legacy unsalted hash — upgrade in place (the
-                            # encrypted backup refreshes on the next
-                            # master-password save; access.json covers the
-                            # running instance).
-                            access[l] = _hash_password(password)
-                            _save_access(access)
-                        break
+                        _matches.append((l, needs_up))
+                label = None
+                if len(_matches) == 1:
+                    label, needs_up = _matches[0]
+                    if needs_up:
+                        # Legacy unsalted hash — upgrade in place (the
+                        # encrypted backup refreshes on the next
+                        # master-password save; access.json covers the
+                        # running instance).
+                        access[label] = _hash_password(password)
+                        _save_access(access)
                 if not label:
                     recent.append(now)
                     _login_attempts[ip] = recent
@@ -7242,11 +7526,19 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "new password must be at least 6 characters"}).encode())
                         return
                     access = _load_access()
+                    if _password_taken(access, new_pw, skip_label=stored):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
+                        return
                     access[stored] = _hash_password(new_pw)
                     _save_access(access, master_pw)
                     # Their vault and saved chats are encrypted under
                     # the old password — remove them, like revoke does.
-                    for _p in (_userkey_path(stored), _chat_path(stored)):
+                    # The integrations vault goes too: it is encrypted
+                    # under the same old password, and leaving it would
+                    # silently revive their OAuth tokens/API keys if
+                    # the label is ever re-created with the same password.
+                    for _p in (_userkey_path(stored), _chat_path(stored), _intg_path(stored)):
                         try:
                             if _p.exists():
                                 _p.unlink()
@@ -7582,6 +7874,16 @@ class Handler(BaseHTTPRequestHandler):
                                 f.unlink()
                             except Exception:
                                 pass
+                    # Friend integrations vaults too (OAuth tokens +
+                    # workspace API keys) — the owner's own stays.
+                    if INTG_DIR.exists():
+                        for f in INTG_DIR.glob("*.enc"):
+                            if f.name == "_owner.enc":
+                                continue
+                            try:
+                                f.unlink()
+                            except Exception:
+                                pass
                     _VIEW_GRANTS.clear()
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict) and not s.get("admin")]:
@@ -7634,6 +7936,10 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
+                if _password_taken(access, password):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
+                    return
                 access[label] = _hash_password(password)
                 _save_access(access, None if _mod_add else master_pw)
                 # Optional role + cap straight from the add-user dialog.
@@ -7700,6 +8006,15 @@ class Handler(BaseHTTPRequestHandler):
                         cp = _chat_path(label)
                         if cp.exists():
                             cp.unlink()
+                    except Exception:
+                        pass
+                    # And their integrations vault (Gmail/Zoom OAuth
+                    # tokens + workspace API keys must not outlive the
+                    # account or revive on a same-label re-creation)
+                    try:
+                        ip2 = _intg_path(label)
+                        if ip2.exists():
+                            ip2.unlink()
                     except Exception:
                         pass
                     for tok in [t for t, s in SESSIONS.items()
@@ -7833,10 +8148,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "no pending 2FA setup"}).encode())
                     return
-                if not code or not _totp_verify(pending, code):
+                _step = _totp_match_step(pending, code) if code else None
+                if _step is None or _step <= _TOTP_LAST_STEP["v"]:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong code — check your authenticator app"}).encode())
                     return
+                _TOTP_LAST_STEP["v"] = _step  # burn the confirm code (anti-replay watermark, as at login)
                 keys["_totp_secret"] = pending
                 keys.pop("_totp_pending", None)
                 encrypt_keys(keys, master_pw, key_path)
@@ -7859,10 +8176,13 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
                 secret = keys.get("_totp_secret", "")
-                if secret and not _totp_verify(secret, code):
+                _step = _totp_match_step(secret, code) if secret else None
+                if secret and (_step is None or _step <= _TOTP_LAST_STEP["v"]):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                     return
+                if _step is not None:
+                    _TOTP_LAST_STEP["v"] = _step  # burn the disable code (anti-replay watermark, as at login)
                 keys.pop("_totp_secret", None)
                 keys.pop("_totp_pending", None)
                 encrypt_keys(keys, master_pw, key_path)
@@ -7929,7 +8249,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "saved chats could not be decrypted"}).encode())
                     return
             else:
-                store = _load_chats(label, chat_pw)
+                try:
+                    store = _load_chats_strict(label, chat_pw)
+                except Exception:
+                    # Fail closed like the admin branch above: never
+                    # rewrite a friend store that failed to decrypt.
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "saved chats could not be decrypted"}).encode())
+                    return
             chats = store.get("chats", [])
 
             def _persist():
@@ -8276,13 +8603,20 @@ class Handler(BaseHTTPRequestHandler):
                         ck = part[len("aio_state="):]
                 cparts = ck.split(":")
                 verifier = ""
-                if len(cparts) == 3 and cparts[0] == lane:
-                    if st8 and st8 != cparts[1]:
-                        _err(400, "that code belongs to a different "
-                                  "sign-in attempt — click Sign in and "
-                                  "paste the fresh code")
-                        return
-                    verifier = cparts[2]
+                # The state-cookie binding is UNCONDITIONAL for every
+                # lane (including gemini_cli, which has no PKCE): the
+                # code may only be exchanged against the flow this
+                # browser session actually started.
+                if len(cparts) != 3 or cparts[0] != lane or not cparts[1]:
+                    _err(400, "sign-in session expired — click Sign in "
+                              "and paste the new code")
+                    return
+                if st8 and not secrets.compare_digest(st8, cparts[1]):
+                    _err(400, "that code belongs to a different "
+                              "sign-in attempt — click Sign in and "
+                              "paste the fresh code")
+                    return
+                verifier = cparts[2]
                 if not code:
                     _err(400, "paste the code (or the full address) "
                               "from the provider page first")
@@ -8641,7 +8975,11 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "provider URL must be a public http(s) address"}).encode())
                         return
-                # Load existing vault, merge (blank = keep, explicit empty = delete)
+                # Load existing vault and merge: a NON-blank value sets
+                # the key; a BLANK field KEEPS the stored value (the
+                # pages submit every field on save, so blank must never
+                # silently delete). Removal is explicit only: keys named
+                # in the payload's "remove" list are deleted.
                 vault = _load_userkeys(label, password) or {}
                 for k, v in keys_in.items():
                     if not isinstance(k, str) or not _re.match(r"^[a-z0-9_]+$", k):
@@ -8651,8 +8989,9 @@ class Handler(BaseHTTPRequestHandler):
                     v = (v or "").strip() if isinstance(v, str) else ""
                     if v:
                         vault[k] = v
-                    elif k in vault:
-                        del vault[k]
+                for k in (data.get("remove") or []):
+                    if isinstance(k, str) and not k.startswith("_"):
+                        vault.pop(k, None)
                 _save_userkeys(label, vault, password)
                 # Refresh session copy
                 for tok, s in SESSIONS.items():
