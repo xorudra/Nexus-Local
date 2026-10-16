@@ -209,12 +209,19 @@ function msg(t, ok) {
     m.textContent = t;
     m.style.color = ok ? '#7dff9a' : '#ff9a9a';
 }
+const REMOVE = new Set();
+function markRemove(btn) {
+    const p = btn.dataset.p;
+    if (REMOVE.has(p)) { REMOVE.delete(p); btn.textContent = 'Remove'; btn.style.opacity = ''; }
+    else { REMOVE.add(p); btn.textContent = 'Undo remove'; btn.style.opacity = '0.55'; }
+}
 function renderInto(boxId, list, configured) {
     const box = document.getElementById(boxId);
     box.innerHTML = list.map(p => `
         <div class="prov">
             <label>${LABELS[p]}${configured.includes(p) ? '<span class="badge on">set</span>' : '<span class="badge off">—</span>'}</label>
             <input id="k_${p}" type="password" aria-label="${p} API key" placeholder="${configured.includes(p) ? '•••••• (set — blank keeps it)' : 'Enter key'}">
+            ${configured.includes(p) ? `<button type="button" data-p="${p}" onclick="markRemove(this)" aria-label="Remove ${p} key">Remove</button>` : ''}
         </div>`).join('');
     return list.filter(p => configured.includes(p)).length;
 }
@@ -237,8 +244,9 @@ async function save() {
         if (el) keys[p] = el.value.trim();
     });
     msg('Saving...', true);
-    const j = await api('save', {password, keys});
+    const j = await api('save', {password, keys, remove: [...REMOVE]});
     if (j && j.ok) {
+        REMOVE.clear();
         msg('Saved! Your chats now use your own keys where set.', true);
         document.getElementById('pw').value = '';
         load();

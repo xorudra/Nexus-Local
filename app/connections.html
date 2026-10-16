@@ -921,6 +921,13 @@ function bkMsg(t, ok) {
     m.style.color = ok ? '#7dff9a' : '#ff9a9a';
 }
 
+const BK_REMOVE = new Set();
+function bkMarkRemove(btn) {
+    const p = btn.dataset.p;
+    if (BK_REMOVE.has(p)) { BK_REMOVE.delete(p); btn.textContent = 'Remove'; btn.style.opacity = ''; }
+    else { BK_REMOVE.add(p); btn.textContent = 'Undo remove'; btn.style.opacity = '0.55'; }
+}
+
 function bkRenderInto(boxId, list) {
     const box = document.getElementById(boxId);
     if (!box) return 0;
@@ -929,7 +936,9 @@ function bkRenderInto(boxId, list) {
         return '<div class="prov"><label>' + BK_LABELS[p]
             + (set ? '<span class="badge on">set</span>' : '<span class="badge off">—</span>') + '</label>'
             + '<input id="bk_' + p + '" type="password" aria-label="' + p + ' API key" autocomplete="off" placeholder="'
-            + (set ? '•••••• (set — blank keeps it)' : 'Enter your key') + '"></div>';
+            + (set ? '•••••• (set — blank keeps it)' : 'Enter your key') + '">'
+            + (set ? '<button type="button" data-p="' + p + '" onclick="bkMarkRemove(this)" aria-label="Remove ' + p + ' key">Remove</button>' : '')
+            + '</div>';
     }).join('');
     return list.filter(function(p) { return MYKEYS.has(p); }).length;
 }
@@ -964,8 +973,9 @@ async function bkSave() {
     });
     bkMsg('Saving...', true);
     try {
-        const j = await bkApi('save', {password: password, keys: keys});
+        const j = await bkApi('save', {password: password, keys: keys, remove: [...BK_REMOVE]});
         if (j && j.ok) {
+            BK_REMOVE.clear();
             bkMsg('Saved! Your chats now use your own keys where set.', true);
             pwEl.value = '';
             await bkLoad();
