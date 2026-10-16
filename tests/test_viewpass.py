@@ -239,7 +239,9 @@ class ViewPassTests(unittest.TestCase):
             self.assertEqual(status, 403, (path, body))
             self.assertEqual(body.get("error"), "read-only access", (path, body))
         status, body, _, _ = self._req("GET", "/api/2fa_qr", cookie=viewer)
-        self.assertEqual(status, 403, body)
+        # GET never serves the QR any more (2026-10-16 audit fix: the
+        # secret renders only after a POST proving the master password).
+        self.assertEqual(status, 405, body)
         # The master password was NOT changed by the denied attempt above.
         status, body, _ = self._login(MASTER)
         self.assertEqual(status, 200, body)

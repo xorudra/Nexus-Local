@@ -143,7 +143,7 @@ class RestartLockoutTests(unittest.TestCase):
                                    + (cls.tmp / "server.log").read_text(errors="replace")[-2000:])
             try:
                 status, _, _ = cls._req("GET", "/api/friend_blob")
-                if status == 200:
+                if status in (200, 403):
                     return
             except OSError:
                 pass
@@ -388,9 +388,11 @@ class RestartLockoutTests(unittest.TestCase):
         (self.tmp / "access.enc").write_bytes(b"garbage-not-an-envelope")
         (self.tmp / "access.json").unlink()
         self._start(restore_key=RESTORE)
-        # Server is up and honest: friend cannot log in yet (no crash, 401).
+        # Server is up and honest: the blob endpoint refuses anonymous
+        # callers (403, security audit 2026-10-16) and the friend cannot
+        # log in yet (no crash, 401).
         status, body, _ = self._req("GET", "/api/friend_blob")
-        self.assertEqual(status, 200, body)
+        self.assertEqual(status, 403, body)
         status, body, _ = self._login(FRIEND1_PW)
         self.assertEqual(status, 401, body)
         # The owner's login recovers the list from users.enc (master key)…

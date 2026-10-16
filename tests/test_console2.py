@@ -197,7 +197,12 @@ class Console2Tests(unittest.TestCase):
         # Loopback webhook must be refused by the SSRF guard.
         status, j = self._set({"webhook_url": "http://127.0.0.1:9000/hook"})
         self.assertEqual(status, 400)
-        status, j = self._set({"webhook_url": "https://example.com/hook"})
+        # A public target is accepted. Literal public IP: since the
+        # 2026-10-16 audit fix the validator requires the host to
+        # RESOLVE publicly, and this sandbox's DNS is proxy-intercepted
+        # (every name lands in 198.18/15), so a hostname case cannot
+        # pass here; the literal form exercises the same accept path.
+        status, j = self._set({"webhook_url": "https://93.184.216.34/hook"})
         self.assertEqual(status, 200, j)
         status, j = self._access("webhook_test", self.admin,
                                  master_pw="wrong")

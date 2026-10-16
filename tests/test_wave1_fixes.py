@@ -152,7 +152,7 @@ class Harness:
                                    + (cls.tmp / "server.log").read_text(errors="replace")[-2000:])
             try:
                 status, _, _, _ = cls._req("GET", "/api/friend_blob")
-                if status == 200:
+                if status in (200, 403):
                     return
             except OSError:
                 pass

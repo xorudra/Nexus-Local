@@ -116,7 +116,7 @@ class Harness:
                                    + (cls.tmp / "server.log").read_text(errors="replace")[-2000:])
             try:
                 status, _, _, _ = cls._req("GET", "/api/friend_blob")
-                if status == 200:
+                if status in (200, 403):
                     return
             except OSError:
                 pass
@@ -390,7 +390,11 @@ class ApiHardeningTests(Harness, unittest.TestCase):
         self.assertEqual(status, 403, body)
 
     def test_13_friend_blob_contains_no_plaintext_secrets(self):
-        status, body, _, _ = self._req("GET", "/api/friend_blob")
+        # The blob endpoint is authenticated now (security audit
+        # 2026-10-16): fetch it with an admin session.
+        _, _, admin_cookie = self._login(MASTER)
+        status, body, _, _ = self._req("GET", "/api/friend_blob",
+                                       cookie=admin_cookie)
         self.assertEqual(status, 200, body)
         for field in ("blob", "keys", "access"):
             raw = base64.b64decode(body[field])
@@ -433,7 +437,10 @@ class ApiHardeningTests(Harness, unittest.TestCase):
         self.assertEqual(status, 401, body)
         status, body, _, _ = self._req("POST", "/api/access", {
             "action": "2fa_disable", "master_pw": MASTER,
-            "code": _totp(secret)}, cookie=admin)
+            # Anti-replay watermark (2026-10-16 audit fix): the confirm
+            # above burned the current step's code, so disable uses
+            # the NEXT step's code (inside the ±1 verify window).
+            "code": _totp(secret, 1)}, cookie=admin)
         self.assertEqual(status, 200, body)
         status, body, _, _ = self._req("POST", "/api/access", {
             "action": "2fa_state"}, cookie=admin)

@@ -184,7 +184,8 @@ class TelemetryTests(unittest.TestCase):
         blob = None
         deadline = time.time() + 45
         while time.time() < deadline:
-            _, blob, _, _ = self._req("GET", "/api/friend_blob")
+            _, blob, _, _ = self._req("GET", "/api/friend_blob",
+                                      cookie=admin)
             if blob and blob.get("telemetry"):
                 break
             time.sleep(1)
