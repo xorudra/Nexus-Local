@@ -24,9 +24,16 @@ def encrypt_keys(keys: dict, password: str, out_path: Path):
         'nonce': base64.b64encode(nonce).decode(),
         'ciphertext': base64.b64encode(ct).decode(),
     }
-    out_path.write_text(json.dumps(payload), encoding='utf-8')
+    # Atomic write (tmp file in the same directory + os.replace, the
+    # _write_chat_file_atomic pattern): a crash mid-write must never
+    # leave a torn store behind - the strict loaders refuse an
+    # undecryptable vault on every later save, so one torn write
+    # would lock the store's saves permanently.
+    tmp_path = out_path.parent / (out_path.name + ".tmp")
+    tmp_path.write_text(json.dumps(payload), encoding='utf-8')
     # Note: on Windows, chmod 0600 is advisory only — the setup guide must tell the user to keep the folder private (NTFS permissions).
-    os.chmod(out_path, 0o600)
+    os.chmod(tmp_path, 0o600)
+    os.replace(tmp_path, out_path)
 
 # Raw-key AES-256-GCM helpers (for envelope schemes that manage their own
 # keys, e.g. a random data-encryption key wrapped by a password-derived KEK).

@@ -85,6 +85,23 @@ class ValidatorUnitTests(unittest.TestCase):
                     "http://[::1]/", "", "https://10.1.2.3/x"):
             self.assertFalse(server._safe_url(url), url)
 
+    def test_public_predicates_reject_special_ranges(self):
+        # Run-3 vectors: CGNAT (100.64/10 — is_private is False for it
+        # on CPython 3.12, only is_global catches it), its IPv4-mapped
+        # form, fec0::/10 site-local (is_global is True for it — only
+        # is_site_local catches it), documentation and benchmarking
+        # ranges must all read as NOT public in every predicate.
+        for url in ("http://100.64.0.1/x", "http://[::ffff:100.64.0.1]/x",
+                    "http://[fec0::1]/x", "http://192.0.2.1/x",
+                    "http://198.18.0.5/x", "http://169.254.169.254/x"):
+            self.assertFalse(server._safe_url(url), url)
+            self.assertFalse(server._public_base_url_ok(url), url)
+        for addr in ("100.64.0.1", "fec0::1", "192.0.2.1", "198.18.0.5"):
+            self.assertFalse(server._addr_is_public(addr), addr)
+        # Control: an ordinary public address stays public.
+        self.assertTrue(server._safe_url("https://93.184.216.34/x"))
+        self.assertTrue(server._addr_is_public("93.184.216.34"))
+
     def test_password_taken(self):
         access = {"aa": server._hash_password("pw-alpha-111"),
                   "bb": server._hash_password("pw-beta-2222")}
@@ -148,6 +165,48 @@ class ValidatorUnitTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)  # hostile keys never fetched
         finally:
             server._intg_http = orig
+
+
+    def test_encrypt_keys_write_is_atomic_shaped(self):
+        # R3-6: encrypt_keys writes via tmp + os.replace (the
+        # _write_chat_file_atomic pattern). A torn single-shot write
+        # used to leave a store the strict loaders refuse on every
+        # later save - a permanent lockout. Observable contract:
+        # round-trips, lands mode 600, no tmp file left behind, and
+        # overwriting an existing store works.
+        import stat as _stat
+        from key_security import decrypt_keys
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "vault.enc"
+            encrypt_keys({"a": "one"}, "pw-fixture-1", p)
+            self.assertEqual(decrypt_keys(p, "pw-fixture-1"),
+                             {"a": "one"})
+            self.assertEqual(_stat.S_IMODE(p.stat().st_mode), 0o600)
+            self.assertFalse((Path(td) / "vault.enc.tmp").exists())
+            encrypt_keys({"a": "two"}, "pw-fixture-1", p)
+            self.assertEqual(decrypt_keys(p, "pw-fixture-1"),
+                             {"a": "two"})
+            self.assertFalse((Path(td) / "vault.enc.tmp").exists())
+
+    def test_encrypt_keys_failed_replace_keeps_old_store(self):
+        # R3-6 contract: if the write dies before the replace lands,
+        # the previous store must survive untouched (the old
+        # single-shot write_text truncated the target first, so a
+        # crash mid-write destroyed it). Patching os.replace to
+        # raise stands in for that crash: new code never touched the
+        # target; old code did not call replace at all and would
+        # have overwritten the store before this point.
+        from unittest import mock
+        from key_security import decrypt_keys
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "vault.enc"
+            encrypt_keys({"a": "original"}, "pw-fixture-1", p)
+            with mock.patch.object(os, "replace",
+                                   side_effect=OSError("simulated crash")):
+                with self.assertRaises(OSError):
+                    encrypt_keys({"a": "replacement"}, "pw-fixture-1", p)
+            self.assertEqual(decrypt_keys(p, "pw-fixture-1"),
+                             {"a": "original"})
 
 
 class AuditFixHarness(unittest.TestCase):
@@ -501,7 +560,12 @@ class AuditFixHarness(unittest.TestCase):
             "POST", "/api/integrations",
             {"action": "unlock", "password": MASTER_B}, ck=admin_b)
         self.assertEqual(status, 200, body)
-        self.assertIn("mailchimp", json.dumps(body))
+        # The saved Mailchimp entry must have CARRIED OVER: present in
+        # the vault that the NEW master opens (connected flag comes
+        # from the decrypted store, not the static service list).
+        self.assertTrue(
+            (body.get("services") or {}).get("mailchimp", {})
+            .get("connected"), body)
         status, body, _ = self._req(
             "POST", "/api/integrations",
             {"action": "unlock", "password": MASTER}, ck=admin_b)
@@ -516,7 +580,9 @@ class AuditFixHarness(unittest.TestCase):
             "POST", "/api/integrations",
             {"action": "unlock", "password": MASTER}, ck=admin)
         self.assertEqual(status, 200, body)
-        self.assertIn("mailchimp", json.dumps(body))
+        self.assertTrue(
+            (body.get("services") or {}).get("mailchimp", {})
+            .get("connected"), body)
 
     # -- R2-8b: save paths refuse a corrupt vault, never overwrite ----
     def test_11_strict_vault_saves_refuse_corruption(self):
@@ -601,6 +667,51 @@ class AuditFixHarness(unittest.TestCase):
             {"action": "2fa_disable", "master_pw": MASTER,
              "code": _totp(secret2, 1)}, admin)
         self.assertEqual(status, 200, body)
+
+    # -- R3-5: a password reset must not resurrect a revoked friend --
+    def test_13_reset_pw_cannot_resurrect_revoked_friend(self):
+        _, _, admin = self._login(MASTER)
+        # A crowd of friends widens the reset handler's pre-lock
+        # password scan (one PBKDF2 verify per stored friend), which
+        # is the window in which the revoke below lands mid-reset.
+        for i in range(10):
+            status, body, _ = self._access(
+                {"action": "add", "label": f"crowd{i}",
+                 "password": f"crowd-pass-{i}-zz", "master_pw": MASTER},
+                admin)
+            self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "add", "label": "racevictim",
+             "password": "victim-pass-123", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        outcome = {}
+
+        def do_reset():
+            outcome["reset"] = self._access(
+                {"action": "friend_reset_pw", "label": "racevictim",
+                 "new_password": "reset-pass-456", "master_pw": MASTER},
+                admin)[0]
+        t = threading.Thread(target=do_reset)
+        t.start()
+        time.sleep(0.5)  # the reset is inside its pre-lock scan now
+        status, body, _ = self._access(
+            {"action": "revoke", "label": "racevictim",
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        t.join(timeout=30)
+        self.assertFalse(t.is_alive())
+        # No assertion on the reset's own status: 404 (revoke won) and
+        # 200 (reset landed first, revoke then removed the account)
+        # are both correct. The bug's signature is resurrection - the
+        # victim must stay gone either way.
+        status, body, _ = self._access({"action": "list"}, admin)
+        self.assertNotIn("racevictim",
+                         [a["label"] for a in body["access"]])
+        status, body, _ = self._login("reset-pass-456")
+        self.assertEqual(status, 401, body)
+        for i in range(10):
+            self._access({"action": "revoke", "label": f"crowd{i}",
+                          "master_pw": MASTER}, admin)
 
     # -- R2-14: factory reset wipes usage + the telemetry mirror ------
     def test_99_factory_reset_wipes_usage_and_telemetry(self):

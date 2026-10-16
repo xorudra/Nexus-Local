@@ -363,6 +363,10 @@ class _WebhookRedirect(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _is_site_local(ip):
+    return ip.version == 6 and ip.is_site_local
+
+
 def _public_base_url_ok(url):
     """SSRF guard for user-supplied provider/gateway base URLs
     (custom_relay_*_url, freellmapi_url): the server fetches these
@@ -390,7 +394,7 @@ def _public_base_url_ok(url):
             addr = ipaddress.ip_address(info[4][0])
             if addr.is_private or addr.is_loopback or addr.is_link_local \
                     or addr.is_reserved or addr.is_multicast \
-                    or not addr.is_global:
+                    or _is_site_local(addr) or not addr.is_global:
                 return False
         return True
     except Exception:
@@ -417,7 +421,7 @@ def _safe_url(u):
         for info in infos:
             ip = ipaddress.ip_address(info[4][0])
             if ip.is_private or ip.is_loopback or ip.is_link_local \
-                    or ip.is_reserved or ip.is_multicast or not ip.is_global:
+                    or ip.is_reserved or ip.is_multicast or _is_site_local(ip) or not ip.is_global:
                 return False
         return True
     except Exception:
@@ -438,7 +442,7 @@ def _addr_is_public(a):
     except Exception:
         return False
     return not (ip.is_private or ip.is_loopback or ip.is_link_local
-                or ip.is_reserved or ip.is_multicast or not ip.is_global)
+                or ip.is_reserved or ip.is_multicast or _is_site_local(ip) or not ip.is_global)
 
 
 class _PinnedHTTPConnection(http.client.HTTPConnection):
@@ -5269,7 +5273,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
                 return
             keys["freellmapi_url"] = gw_url
-        vault = _load_userkeys(label, password) or {}
+        try:
+            vault = _load_userkeys_strict(label, password)
+        except Exception:
+            self._set_json_headers(500)
+            self.wfile.write(json.dumps({"error": "stored keys could not be decrypted — nothing was changed"}).encode())
+            return
         vault.update(keys)
         _save_userkeys(label, vault, password)
         for tok, sess in SESSIONS.items():
@@ -5854,7 +5863,7 @@ class Handler(BaseHTTPRequestHandler):
                                         # any other scheme (javascript:,
                                         # data:text/html, ...) is dropped,
                                         # never rendered.
-                                        if _img and not _img.startswith("data:") \
+                                        if _img and not _img.startswith("data:image/") \
                                                 and _up2.urlparse(_img).scheme not in ("http", "https"):
                                             _img = None
                                             _fail = "the worker returned an image address that is not safe to load"
@@ -7818,6 +7827,13 @@ class Handler(BaseHTTPRequestHandler):
                         # overwritten by this stale dict (and a password
                         # that became taken meanwhile still refuses).
                         _fresh = _load_access()
+                        if stored not in _fresh:
+                            # Revoked while the pre-lock scan ran:
+                            # writing the new hash into _fresh would
+                            # resurrect the removed account.
+                            self._set_json_headers(404)
+                            self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                            return
                         for _l, _h in _fresh.items():
                             if access.get(_l) != _h and _l != stored \
                                     and _verify_password(new_pw, _h)[0]:
@@ -8156,7 +8172,8 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "type RESET to confirm"}).encode())
                         return
-                    _save_access({}, master_pw)
+                    with _ACCESS_LOCK:
+                        _save_access({}, master_pw)
                     if USERKEYS_DIR.exists():
                         for f in USERKEYS_DIR.glob("*.enc"):
                             try:
@@ -8416,7 +8433,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
                 encrypt_keys(kd, new, key_path)
-                _save_access(_load_access(), new)
+                with _ACCESS_LOCK:
+                    _save_access(_load_access(), new)
                 # Owner integrations vault: it is encrypted directly
                 # under the master password, so re-encrypt it too —
                 # otherwise it strands under the OLD password, silently
