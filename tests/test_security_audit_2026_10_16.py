@@ -11,12 +11,15 @@ read or printed anywhere in this file.
 Run:  python3 -m unittest discover -s tests -v
 """
 
+import base64
 import hashlib
+import hmac
 import http.client
 import json
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -55,6 +58,17 @@ def _free_port():
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+def _totp(secret_b32, offset=0):
+    t = int(time.time()) // 30 + offset
+    key = base64.b32decode(secret_b32.upper())
+    digest = hmac.new(key, struct.pack(">Q", t), hashlib.sha1).digest()
+    o = digest[-1] & 0x0F
+    return f"{(struct.unpack('>I', digest[o:o + 4])[0] & 0x7FFFFFFF) % 1000000:06d}"
+
+
+MASTER_B = "audit-master-456"
 
 
 class ValidatorUnitTests(unittest.TestCase):
@@ -289,15 +303,17 @@ class AuditFixHarness(unittest.TestCase):
                 "POST", "/api/invite/redeem",
                 {"label": f"racer{i}", "password": f"racer-pass-{i}-xyz",
                  "code": code})[0]
+        # 4 racers (not 8): the endpoint's per-IP budget is 10/15 min
+        # and the later wave-2 tests redeem from the same fixture IP.
         threads = [threading.Thread(target=redeem, args=(i,))
-                   for i in range(8)]
+                   for i in range(4)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
         wins = [s for s in results.values() if s == 200]
         self.assertEqual(len(wins), 1, results)
-        self.assertEqual([s for s in results.values() if s == 400].__len__(), 7,
+        self.assertEqual([s for s in results.values() if s == 400].__len__(), 3,
                          results)
         access = json.loads((self.tmp / "access.json").read_text())
         racers = [k for k in access if k.startswith("racer")]
@@ -330,6 +346,275 @@ class AuditFixHarness(unittest.TestCase):
                                ck=cookie)
         self.assertNotIn("groq", body["configured"])  # explicit removal
         self.assertIn("google", body["configured"])
+
+    # ================= wave 2 (run-2 fixes) =================
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def _invite(self, admin_cookie):
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "friend", "days": 7,
+             "master_pw": MASTER}, admin_cookie)
+        self.assertEqual(status, 200, body)
+        return body["code"]
+
+    # -- R2-5: a friend password must never equal the master ----------
+    def test_06_master_password_collision_refused(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "add", "label": "collide1", "password": MASTER,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 400, body)
+        self.assertIn("already in use", body.get("error", ""))
+        code = self._invite(admin)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "collide2", "password": MASTER, "code": code})
+        self.assertEqual(status, 400, body)
+        self.assertIn("already in use", body.get("error", ""))
+        # The refused redemption did not consume the invite.
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "collide2", "password": "collide-two-pass",
+             "code": code})
+        self.assertEqual(status, 200, body)
+        # Password reset onto the master is refused the same way.
+        status, body, _ = self._access(
+            {"action": "friend_reset_pw", "label": FRIEND,
+             "new_password": MASTER, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 400, body)
+        self.assertIn("already in use", body.get("error", ""))
+        # And the reverse: the master may not rotate onto a friend's.
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER,
+             "new_master_pw": FRIEND_PW}, admin)
+        self.assertEqual(status, 400, body)
+
+    # -- R2-6/R2-7: no password oracle before invite validation;
+    #    reserved labels are not registrable ---------------------------
+    def test_07_invite_oracle_closed_and_reserved_labels(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "oracle1", "password": SHARED_PW,
+             "code": "bogus-code-000000"})
+        self.assertEqual(status, 400, body)
+        self.assertIn("invite code is invalid", body.get("error", ""))
+        self.assertNotIn("already in use", body.get("error", ""))
+        code = self._invite(admin)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "_owner", "password": "owner-pass-123",
+             "code": code})
+        self.assertEqual(status, 400, body)
+        self.assertIn("reserved", body.get("error", ""))
+        # The reserved-label refusal did not consume the invite either.
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "invitedpal", "password": "invited-pass-1",
+             "code": code})
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "add", "label": "_sys", "password": "sys-pass-123",
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 400, body)
+
+    # -- R2-10: provider governance binds transcription ---------------
+    def test_08_transcribe_refused_when_groq_disabled(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"provider_disabled": ["groq"]}}, admin)
+        self.assertEqual(status, 200, body)
+        try:
+            _, _, cookie = self._login(UNIQUE_PW)
+            status, body, _ = self._req(
+                "POST", "/api/transcribe",
+                {"audio": "data:audio/webm;base64,AAAA"}, ck=cookie)
+            self.assertEqual(status, 403, body)
+            self.assertIn("disabled", body.get("error", ""))
+        finally:
+            self._access(
+                {"action": "settings_set", "master_pw": MASTER,
+                 "patch": {"provider_disabled": []}}, admin)
+
+    # -- R2-12: revoke scrubs settings-resident per-user state --------
+    def test_09_revoke_scrubs_settings_state(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "add", "label": "scrubme",
+             "password": "scrub-pass-123", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        self._login("scrub-pass-123")  # records terms_seen for scrubme
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"user_caps": {"scrubme": 5},
+                       "suspended": ["scrubme"],
+                       "oauth_links": [{"email": "scrub@example.co",
+                                        "label": "scrubme"}]}}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "revoke", "label": "scrubme",
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        saved = json.loads((self.tmp / "settings.json").read_text())
+        self.assertNotIn("scrubme", saved.get("user_caps") or {})
+        self.assertNotIn("scrubme", saved.get("suspended") or [])
+        self.assertNotIn("scrubme", saved.get("terms_seen") or [])
+        self.assertFalse(any(
+            e.get("label") == "scrubme"
+            for e in (saved.get("oauth_links") or [])
+            if isinstance(e, dict)))
+        # A re-created label starts clean.
+        status, body, _ = self._access(
+            {"action": "add", "label": "scrubme",
+             "password": "scrub-pass-456", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access({"action": "list"}, admin)
+        row = [a for a in body["access"] if a["label"] == "scrubme"]
+        self.assertEqual(len(row), 1)
+        self.assertFalse(row[0]["suspended"])
+        self.assertIsNone(row[0]["cap"])
+        self._access({"action": "revoke", "label": "scrubme",
+                      "master_pw": MASTER}, admin)
+
+    # -- R2-8: master rotation carries the owner integrations vault --
+    def test_10_change_master_carries_owner_integrations(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "unlock", "password": MASTER}, ck=admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "save", "service": "mailchimp",
+             "fields": {"api_key": "fixturekey-us21"},
+             "password": MASTER}, ck=admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER,
+             "new_master_pw": MASTER_B}, admin)
+        self.assertEqual(status, 200, body)
+        _, _, admin_b = self._login(MASTER_B)
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "unlock", "password": MASTER_B}, ck=admin_b)
+        self.assertEqual(status, 200, body)
+        self.assertIn("mailchimp", json.dumps(body))
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "unlock", "password": MASTER}, ck=admin_b)
+        self.assertEqual(status, 401, body)
+        # Rotate back for the rest of the class.
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER_B,
+             "new_master_pw": MASTER}, admin_b)
+        self.assertEqual(status, 200, body)
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "unlock", "password": MASTER}, ck=admin)
+        self.assertEqual(status, 200, body)
+        self.assertIn("mailchimp", json.dumps(body))
+
+    # -- R2-8b: save paths refuse a corrupt vault, never overwrite ----
+    def test_11_strict_vault_saves_refuse_corruption(self):
+        _, _, cookie = self._login(FRIEND_PW)
+        upath = self.tmp / "userkeys" / f"{FRIEND}.enc"
+        orig = upath.read_bytes()
+        upath.write_bytes(b"garbage-not-a-vault")
+        try:
+            status, body, _ = self._req(
+                "POST", "/api/mykeys",
+                {"action": "save", "password": FRIEND_PW,
+                 "keys": {"groq": "sk-should-not-land"}}, ck=cookie)
+            self.assertEqual(status, 500, body)
+            self.assertEqual(upath.read_bytes(), b"garbage-not-a-vault")
+        finally:
+            upath.write_bytes(orig)
+        status, body, _ = self._req(
+            "POST", "/api/mykeys",
+            {"action": "save", "password": FRIEND_PW,
+             "keys": {"groq": "sk-fixture-restored"}}, ck=cookie)
+        self.assertEqual(status, 200, body)
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "unlock", "password": MASTER}, ck=admin)
+        self.assertEqual(status, 200, body)
+        ipath = self.tmp / "userintegrations" / "_owner.enc"
+        iorig = ipath.read_bytes()
+        ipath.write_bytes(b"garbage-not-a-vault")
+        try:
+            status, body, _ = self._req(
+                "POST", "/api/integrations",
+                {"action": "save", "service": "mailchimp",
+                 "fields": {"api_key": "otherkey-us21"},
+                 "password": MASTER}, ck=admin)
+            self.assertEqual(status, 500, body)
+            self.assertEqual(ipath.read_bytes(), b"garbage-not-a-vault")
+        finally:
+            ipath.write_bytes(iorig)
+
+    # -- R2-4: the QR encodes THIS enrollment's pending secret --------
+    def test_12_qr_encodes_the_pending_secret(self):
+        _, _, admin = self._login(MASTER)
+
+        def _qr_png():
+            conn = http.client.HTTPConnection("127.0.0.1", self.port,
+                                              timeout=30)
+            conn.request("POST", "/api/2fa_qr",
+                         body=json.dumps({"master_pw": MASTER}),
+                         headers={"Content-Type": "application/json",
+                                  "Cookie": admin})
+            resp = conn.getresponse()
+            png = resp.read()
+            ctype = resp.getheader("Content-Type") or ""
+            conn.close()
+            self.assertEqual(resp.status, 200)
+            self.assertIn("image/png", ctype)
+            return png
+
+        status, body, _ = self._access(
+            {"action": "2fa_enable", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        secret1 = body["secret"]
+        png1 = _qr_png()
+        # Re-enabling replaces the pending secret (no code needed while
+        # still pending) — the second QR must encode the NEW secret.
+        status, body, _ = self._access(
+            {"action": "2fa_enable", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        secret2 = body["secret"]
+        self.assertNotEqual(secret1, secret2)
+        png2 = _qr_png()
+        # The wave-1 defect encoded a constant string, so both QRs were
+        # identical. Different pending secrets must give different QRs.
+        self.assertNotEqual(png1, png2)
+        # Clean up: confirm + disable the second enrollment.
+        status, body, _ = self._access(
+            {"action": "2fa_confirm", "master_pw": MASTER,
+             "code": _totp(secret2)}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "2fa_disable", "master_pw": MASTER,
+             "code": _totp(secret2, 1)}, admin)
+        self.assertEqual(status, 200, body)
+
+    # -- R2-14: factory reset wipes usage + the telemetry mirror ------
+    def test_99_factory_reset_wipes_usage_and_telemetry(self):
+        usage = self.tmp / "usage.jsonl"
+        usage.write_text('{"provider": "groq", "user": "solo"}\n')
+        tele = self.tmp / "telemetry.enc"
+        tele.write_bytes(b"pretend-mirror-bytes")
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "factory_reset", "master_pw": MASTER,
+             "confirm": "RESET"}, admin)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(usage.read_text(), "")
+        self.assertFalse(tele.exists())
 
 
 if __name__ == "__main__":
