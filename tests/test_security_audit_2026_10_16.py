@@ -208,6 +208,49 @@ class ValidatorUnitTests(unittest.TestCase):
             self.assertEqual(decrypt_keys(p, "pw-fixture-1"),
                              {"a": "original"})
 
+    def test_encrypt_keys_concurrent_saves_same_store(self):
+        # R4 (run-4): concurrent saves of the SAME store must never
+        # raise and never tear. The first atomic version used one
+        # fixed <name>.tmp for every call, so two threads truncated
+        # each other's tmp mid-write (FileNotFoundError at replace,
+        # lost saves, one observed interleaved-content corruption).
+        # A small chmod delay widens the write/replace window so the
+        # old code fails here deterministically, not by luck.
+        from unittest import mock
+        from key_security import decrypt_keys
+        real_chmod = os.chmod
+
+        def slow_chmod(path, mode):
+            if ".tmp" in str(path):
+                time.sleep(0.02)
+            return real_chmod(path, mode)
+
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "vault.enc"
+            encrypt_keys({"n": -1}, "pw-fixture-1", p)
+            errors = []
+
+            def worker(n):
+                try:
+                    for i in range(12):
+                        encrypt_keys({"n": n * 100 + i},
+                                     "pw-fixture-1", p)
+                except Exception as e:  # noqa: BLE001
+                    errors.append(repr(e))
+
+            with mock.patch.object(os, "chmod",
+                                   side_effect=slow_chmod):
+                threads = [threading.Thread(target=worker, args=(n,))
+                           for n in range(8)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join(timeout=60)
+            self.assertEqual(errors, [])
+            final = decrypt_keys(p, "pw-fixture-1")
+            self.assertIn("n", final)
+            self.assertEqual(list(Path(td).glob("*.tmp")), [])
+
 
 class AuditFixHarness(unittest.TestCase):
     """ Boots a fixture server (same pattern as test_hardening). """
@@ -712,6 +755,72 @@ class AuditFixHarness(unittest.TestCase):
         for i in range(10):
             self._access({"action": "revoke", "label": f"crowd{i}",
                           "master_pw": MASTER}, admin)
+
+    # -- R4: cleanup incarnation guards keep the NORMAL path working -
+    def test_14_reset_and_revoke_cleanup_still_remove_files(self):
+        # The run-4 guards make the reset/revoke cleanups fire only
+        # while the account is still the incarnation they acted on.
+        # This pins the other direction: in the normal (unraced) case
+        # the cleanup must still remove the vault + integrations
+        # files - an over-eager guard would leave them behind. (The
+        # races themselves are fixture-proven by the audit agents;
+        # their windows are not HTTP-reproducible in this harness.)
+        upath = self.tmp / "userkeys" / f"{FRIEND}.enc"
+        ipath = self.tmp / "userintegrations" / f"{FRIEND}.enc"
+        _, _, cookie = self._login(FRIEND_PW)
+        status, body, _ = self._req(
+            "POST", "/api/mykeys",
+            {"action": "save", "password": FRIEND_PW,
+             "keys": {"groq": "sk-cleanme0"}}, ck=cookie)
+        self.assertEqual(status, 200, body)
+        self.assertTrue(upath.exists())
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "unlock", "password": FRIEND_PW}, ck=cookie)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "save", "service": "mailchimp",
+             "fields": {"api_key": "cleanme-us21"},
+             "password": FRIEND_PW}, ck=cookie)
+        self.assertEqual(status, 200, body)
+        self.assertTrue(ipath.exists())
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "friend_reset_pw", "label": FRIEND,
+             "new_password": "reset-pass-789", "master_pw": MASTER},
+            admin)
+        self.assertEqual(status, 200, body)
+        self.assertFalse(upath.exists())
+        self.assertFalse(ipath.exists())
+        # Rebuild both files under the new password, then revoke.
+        _, _, cookie = self._login("reset-pass-789")
+        status, body, _ = self._req(
+            "POST", "/api/mykeys",
+            {"action": "save", "password": "reset-pass-789",
+             "keys": {"groq": "sk-cleanme"}}, ck=cookie)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "unlock", "password": "reset-pass-789"},
+            ck=cookie)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req(
+            "POST", "/api/integrations",
+            {"action": "save", "service": "mailchimp",
+             "fields": {"api_key": "cleanme2-us21"},
+             "password": "reset-pass-789"}, ck=cookie)
+        self.assertEqual(status, 200, body)
+        self.assertTrue(upath.exists())
+        self.assertTrue(ipath.exists())
+        status, body, _ = self._access(
+            {"action": "revoke", "label": FRIEND,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        self.assertFalse(upath.exists())
+        self.assertFalse(ipath.exists())
+        status, body, _ = self._login("reset-pass-789")
+        self.assertEqual(status, 401, body)
 
     # -- R2-14: factory reset wipes usage + the telemetry mirror ------
     def test_99_factory_reset_wipes_usage_and_telemetry(self):

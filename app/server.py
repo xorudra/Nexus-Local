@@ -2015,10 +2015,20 @@ def _b64d(text):
     return base64.b64decode(text)
 
 def _write_chat_file_atomic(path, envelope):
-    tmp = path.parent / (path.name + ".tmp")
-    tmp.write_text(json.dumps(envelope), encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    # Unique tmp name per call: a fixed name is shared by concurrent
+    # saves of the same store and loses saves (audit run-4).
+    tmp = path.parent / (path.name + "." + str(os.getpid()) + "."
+                         + os.urandom(4).hex() + ".tmp")
+    try:
+        tmp.write_text(json.dumps(envelope), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 def _new_chat_unlock(dek, wrap_fields, ttl=300):
     unlock_id = secrets.token_hex(32)
@@ -7158,6 +7168,17 @@ class Handler(BaseHTTPRequestHandler):
             _audit("Users", f"Signed up via invite: {label} ({role})",
                    ip=_client_ip(self.headers, self.client_address[0]))
             _alert("signup", "signup", {"label": label, "role": role})
+            # Ghost-session guard (audit run-4): a factory reset that
+            # completed after this account was created must not leave
+            # a live session for a non-existent account - re-check
+            # existence immediately before minting.
+            with _ACCESS_LOCK:
+                _still_there = label in _load_access()
+            if not _still_there:
+                _audit("Users", f"Signup session skipped for {label}: account no longer exists")
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "label": label, "role": role}).encode())
+                return
             token = secrets.token_hex(32)
             sess = {"ts": time.time(), "label": label, "admin": False,
                     "chat_pw": password}
@@ -7849,21 +7870,31 @@ class Handler(BaseHTTPRequestHandler):
                     # under the same old password, and leaving it would
                     # silently revive their OAuth tokens/API keys if
                     # the label is ever re-created with the same password.
-                    for _p in (_userkey_path(stored), _chat_path(stored), _intg_path(stored)):
-                        try:
-                            if _p.exists():
-                                _p.unlink()
-                        except Exception:
-                            pass
-                    vm = dict(_SETTINGS.get("vault_meta") or {})
-                    if stored in vm:
-                        del vm[stored]
-                        _SETTINGS["vault_meta"] = vm
-                        _save_settings()
-                    for tok in [t for t, s in SESSIONS.items()
-                                if isinstance(s, dict) and s.get("label") == stored]:
-                        del SESSIONS[tok]
-                    _audit("Users", f"Password reset: {stored} (vault + saved chats removed){_actor}")
+                    # Incarnation guard (audit run-4): the cleanup runs
+                    # under the lock and only fires while the account
+                    # is still the incarnation this reset wrote - a
+                    # revoke + re-create landing here must keep ITS
+                    # files and sessions.
+                    _note = " (vault + saved chats removed)"
+                    with _ACCESS_LOCK:
+                        if _load_access().get(stored) == _new_hash:
+                            for _p in (_userkey_path(stored), _chat_path(stored), _intg_path(stored)):
+                                try:
+                                    if _p.exists():
+                                        _p.unlink()
+                                except Exception:
+                                    pass
+                            vm = dict(_SETTINGS.get("vault_meta") or {})
+                            if stored in vm:
+                                del vm[stored]
+                                _SETTINGS["vault_meta"] = vm
+                                _save_settings()
+                            for tok in [t for t, s in SESSIONS.items()
+                                        if isinstance(s, dict) and s.get("label") == stored]:
+                                del SESSIONS[tok]
+                        else:
+                            _note = " (account changed during reset - files kept)"
+                    _audit("Users", f"Password reset: {stored}{_note}{_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
                     return
@@ -8172,38 +8203,41 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "type RESET to confirm"}).encode())
                         return
+                    # The whole destructive sequence runs under
+                    # _ACCESS_LOCK (audit run-4): a redeem or add whose
+                    # save lands mid-sequence must not survive the reset.
                     with _ACCESS_LOCK:
                         _save_access({}, master_pw)
-                    if USERKEYS_DIR.exists():
-                        for f in USERKEYS_DIR.glob("*.enc"):
-                            try:
-                                f.unlink()
-                            except Exception:
-                                pass
-                    if CHATS_DIR.exists():
-                        for f in CHATS_DIR.glob("*.enc"):
-                            try:
-                                f.unlink()
-                            except Exception:
-                                pass
-                    # Friend integrations vaults too (OAuth tokens +
-                    # workspace API keys) — the owner's own stays.
-                    if INTG_DIR.exists():
-                        for f in INTG_DIR.glob("*.enc"):
-                            if f.name == "_owner.enc":
-                                continue
-                            try:
-                                f.unlink()
-                            except Exception:
-                                pass
-                    _VIEW_GRANTS.clear()
-                    for tok in [t for t, s in SESSIONS.items()
-                                if isinstance(s, dict) and not s.get("admin")]:
-                        del SESSIONS[tok]
-                    _SETTINGS.clear()
-                    _SETTINGS.update(json.loads(json.dumps(_SETTINGS_DEFAULTS)))
-                    _save_settings()
-                    _PROVIDER_HEALTH.clear()
+                        if USERKEYS_DIR.exists():
+                            for f in USERKEYS_DIR.glob("*.enc"):
+                                try:
+                                    f.unlink()
+                                except Exception:
+                                    pass
+                        if CHATS_DIR.exists():
+                            for f in CHATS_DIR.glob("*.enc"):
+                                try:
+                                    f.unlink()
+                                except Exception:
+                                    pass
+                        # Friend integrations vaults too (OAuth tokens +
+                        # workspace API keys) — the owner's own stays.
+                        if INTG_DIR.exists():
+                            for f in INTG_DIR.glob("*.enc"):
+                                if f.name == "_owner.enc":
+                                    continue
+                                try:
+                                    f.unlink()
+                                except Exception:
+                                    pass
+                        _VIEW_GRANTS.clear()
+                        for tok in [t for t, s in SESSIONS.items()
+                                    if isinstance(s, dict) and not s.get("admin")]:
+                            del SESSIONS[tok]
+                        _SETTINGS.clear()
+                        _SETTINGS.update(json.loads(json.dumps(_SETTINGS_DEFAULTS)))
+                        _save_settings()
+                        _PROVIDER_HEALTH.clear()
                     try:
                         AUDIT_PATH.write_text("")
                     except Exception:
@@ -8340,65 +8374,74 @@ class Handler(BaseHTTPRequestHandler):
                             del access[label]
                             _save_access(access, master_pw)
                 if stored_label is not None:
-                    # Settings-resident per-user state goes too: a
-                    # re-created label must not inherit the previous
-                    # holder's cap, suspension, OAuth email link or
-                    # terms-seen flag.
-                    _caps = dict(_SETTINGS.get("user_caps") or {})
-                    _susp = [x for x in (_SETTINGS.get("suspended") or [])
-                             if x != label]
-                    _links = [e for e in (_SETTINGS.get("oauth_links") or [])
-                              if not (isinstance(e, dict)
-                                      and e.get("label") == label)]
-                    _seen = [x for x in (_SETTINGS.get("terms_seen") or [])
-                             if x != label]
-                    if (_caps.pop(label, None) is not None
-                            or _susp != (_SETTINGS.get("suspended") or [])
-                            or _links != (_SETTINGS.get("oauth_links") or [])
-                            or _seen != (_SETTINGS.get("terms_seen") or [])):
-                        _SETTINGS["user_caps"] = _caps
-                        _SETTINGS["suspended"] = _susp
-                        _SETTINGS["oauth_links"] = _links
-                        _SETTINGS["terms_seen"] = _seen
-                        _save_settings()
-                    # Drop their console role + vault metadata too
-                    _roles = dict(_SETTINGS.get("roles") or {})
-                    _vm = dict(_SETTINGS.get("vault_meta") or {})
-                    if label in _roles or label in _vm:
-                        _roles.pop(label, None)
-                        _vm.pop(label, None)
-                        _SETTINGS["roles"] = _roles
-                        _SETTINGS["vault_meta"] = _vm
-                        _save_settings()
-                    # Delete their personal key vault too
-                    try:
-                        vp = _userkey_path(label)
-                        if vp.exists():
-                            vp.unlink()
-                    except Exception:
-                        pass
-                    # And their saved chats
-                    try:
-                        cp = _chat_path(label)
-                        if cp.exists():
-                            cp.unlink()
-                    except Exception:
-                        pass
-                    # And their integrations vault (Gmail/Zoom OAuth
-                    # tokens + workspace API keys must not outlive the
-                    # account or revive on a same-label re-creation)
-                    try:
-                        ip2 = _intg_path(label)
-                        if ip2.exists():
-                            ip2.unlink()
-                    except Exception:
-                        pass
-                    for tok in [t for t, s in SESSIONS.items()
-                                if isinstance(s, dict) and s.get("label") == label]:
-                        del SESSIONS[tok]
-                    # Purge their usage + audit history rows too (F28):
-                    # a revoked account leaves no per-user history.
-                    _purge_label_history(label)
+                    # Incarnation guard (audit run-4): the cleanup
+                    # runs under the lock and only fires while the
+                    # label is still absent - a re-created account
+                    # with the same label must keep ITS settings,
+                    # files and sessions.
+                    with _ACCESS_LOCK:
+                        _still_gone = label not in _load_access()
+                        if _still_gone:
+                            # Settings-resident per-user state goes too: a
+                            # re-created label must not inherit the previous
+                            # holder's cap, suspension, OAuth email link or
+                            # terms-seen flag.
+                            _caps = dict(_SETTINGS.get("user_caps") or {})
+                            _susp = [x for x in (_SETTINGS.get("suspended") or [])
+                                     if x != label]
+                            _links = [e for e in (_SETTINGS.get("oauth_links") or [])
+                                      if not (isinstance(e, dict)
+                                              and e.get("label") == label)]
+                            _seen = [x for x in (_SETTINGS.get("terms_seen") or [])
+                                     if x != label]
+                            if (_caps.pop(label, None) is not None
+                                    or _susp != (_SETTINGS.get("suspended") or [])
+                                    or _links != (_SETTINGS.get("oauth_links") or [])
+                                    or _seen != (_SETTINGS.get("terms_seen") or [])):
+                                _SETTINGS["user_caps"] = _caps
+                                _SETTINGS["suspended"] = _susp
+                                _SETTINGS["oauth_links"] = _links
+                                _SETTINGS["terms_seen"] = _seen
+                                _save_settings()
+                            # Drop their console role + vault metadata too
+                            _roles = dict(_SETTINGS.get("roles") or {})
+                            _vm = dict(_SETTINGS.get("vault_meta") or {})
+                            if label in _roles or label in _vm:
+                                _roles.pop(label, None)
+                                _vm.pop(label, None)
+                                _SETTINGS["roles"] = _roles
+                                _SETTINGS["vault_meta"] = _vm
+                                _save_settings()
+                            # Delete their personal key vault too
+                            try:
+                                vp = _userkey_path(label)
+                                if vp.exists():
+                                    vp.unlink()
+                            except Exception:
+                                pass
+                            # And their saved chats
+                            try:
+                                cp = _chat_path(label)
+                                if cp.exists():
+                                    cp.unlink()
+                            except Exception:
+                                pass
+                            # And their integrations vault (Gmail/Zoom OAuth
+                            # tokens + workspace API keys must not outlive the
+                            # account or revive on a same-label re-creation)
+                            try:
+                                ip2 = _intg_path(label)
+                                if ip2.exists():
+                                    ip2.unlink()
+                            except Exception:
+                                pass
+                            for tok in [t for t, s in SESSIONS.items()
+                                        if isinstance(s, dict) and s.get("label") == label]:
+                                del SESSIONS[tok]
+                    if _still_gone:
+                        # Purge their usage + audit history rows too (F28):
+                        # a revoked account leaves no per-user history.
+                        _purge_label_history(label)
                 _audit("Users", f"Friend revoked: {label}")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
