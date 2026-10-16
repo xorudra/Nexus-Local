@@ -313,15 +313,22 @@ class ValidatorUnitTests(unittest.TestCase):
         calls, rows = [], []
         real_relay, real_append = srv._v1_relay_call, srv._append_usage
         real_limits = srv._SETTINGS.get("provider_limits")
+        real_counts = srv._today_counts
 
         def fake_relay(lane, path, payload, timeout=90):
             calls.append(lane)
             return {"choices": [{"message": {"content": "hi"}}],
                     "usage": {"prompt_tokens": 3, "completion_tokens": 4}}
         srv._v1_relay_call, srv._append_usage = fake_relay, rows.append
+        # Deterministic usage oracle: every lane already spent 5
+        # requests today. (A limit of 0 disables the cap in the
+        # shared predicate - the same semantics chat has always had -
+        # so the limits here are positive.)
+        srv._today_counts = lambda: {
+            "providers": {lane: 5 for lane, _m in srv._V1_LANES}}
         try:
             srv._SETTINGS["provider_limits"] = {
-                lane: 0 for lane, _m in srv._V1_LANES}
+                lane: 3 for lane, _m in srv._V1_LANES}
             status, _payload, _lane = srv._v1_chat(
                 [{"role": "user", "content": "hi"}], "nexus-auto")
             self.assertEqual(status, 502)
@@ -337,6 +344,7 @@ class ValidatorUnitTests(unittest.TestCase):
         finally:
             srv._v1_relay_call, srv._append_usage = real_relay, real_append
             srv._SETTINGS["provider_limits"] = real_limits
+            srv._today_counts = real_counts
 
 
 class AuditFixHarness(unittest.TestCase):
@@ -434,6 +442,15 @@ class AuditFixHarness(unittest.TestCase):
     @classmethod
     def _login(cls, password):
         return cls._req("POST", "/api/login", {"password": password})
+
+    @staticmethod
+    def _wait_next_step():
+        # Land just past the next 30s TOTP step boundary. Successful
+        # verifications burn their step in a watermark shared by the
+        # whole server process (and every test in this class), so a
+        # code is only guaranteed fresh - strictly above every burn
+        # so far - when it targets the step after a boundary wait.
+        time.sleep(31 - (time.time() % 30))
 
     # -- friend_blob auth (finding: unauthenticated vault export) -----
     def test_01_friend_blob_requires_auth(self):
@@ -926,7 +943,9 @@ class AuditFixHarness(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertFalse((self.tmp / "v1key.enc").exists())
         status, _, _ = self._req("GET", "/v1/models", headers=hdr)
-        self.assertEqual(status, 401)
+        # Dead either way: 401 (key rejected) or 404 (the post-reset
+        # server has no key store at all, so the surface is gone).
+        self.assertIn(status, (401, 404))
 
     # -- run-5: provider_limits bind /v1 exactly like chat -----------
     def test_15_v1_provider_limits_enforced(self):
@@ -938,7 +957,19 @@ class AuditFixHarness(unittest.TestCase):
         hdr = {"Authorization": f"Bearer {body['key']}"}
         status, _, _ = self._req("GET", "/v1/models", headers=hdr)
         self.assertEqual(status, 200)
-        limits = {lane: 0 for lane, _m in srv._V1_LANES}
+        limits = {lane: 3 for lane, _m in srv._V1_LANES}
+        # Seed today's usage directly in the fixture's usage file:
+        # every lane already spent 5 requests, so a limit of 3 must
+        # block them all pre-flight. (Limit 0 disables the cap in
+        # the shared predicate, exactly as in chat - not used here.)
+        import datetime as _dt
+        with open(self.tmp / "usage.jsonl", "a") as f:
+            for lane, _m in srv._V1_LANES:
+                for _ in range(5):
+                    f.write(json.dumps(
+                        {"ts": _dt.datetime.now().isoformat(),
+                         "provider": lane, "prompt_tokens": 0,
+                         "completion_tokens": 0}) + "\n")
         status, body, _ = self._access(
             {"action": "settings_set", "master_pw": MASTER,
              "patch": {"provider_limits": limits}}, admin)
@@ -966,9 +997,10 @@ class AuditFixHarness(unittest.TestCase):
             {"action": "2fa_enable", "master_pw": MASTER}, admin)
         self.assertEqual(status, 200, body)
         secret = body["secret"]
+        self._wait_next_step()
         status, body, _ = self._access(
             {"action": "2fa_confirm", "master_pw": MASTER,
-             "code": _totp(secret)}, admin)
+             "code": _totp(secret, 1)}, admin)
         self.assertEqual(status, 200, body)
         # Password step of a fresh login mints a pending completion.
         status, body, _ = self._login(MASTER)
@@ -990,10 +1022,11 @@ class AuditFixHarness(unittest.TestCase):
         # disable code's step clears the watermark.
         status, body, _ = self._login(MASTER_B)
         tmp_c = body["tmp"]
+        self._wait_next_step()
         status, body, cookie_c = self._req(
             "POST", "/api/login", {"tmp": tmp_c, "code": _totp(secret, 1)})
         self.assertEqual(status, 200, body)
-        time.sleep(31 - (time.time() % 30))
+        self._wait_next_step()
         status, body, _ = self._access(
             {"action": "2fa_disable", "master_pw": MASTER_B,
              "code": _totp(secret, 1)}, cookie_c)
@@ -1006,6 +1039,10 @@ class AuditFixHarness(unittest.TestCase):
     # -- run-5: vault clear/add reach the friend's LIVE session ------
     def test_18_vault_clear_and_add_refresh_live_session(self):
         _, _, admin = self._login(MASTER)
+        # test_14 leaves friendone revoked - re-provision so this
+        # test is order-independent (add simply fails if it exists).
+        self._access({"action": "add", "label": FRIEND,
+                      "password": FRIEND_PW, "master_pw": MASTER}, admin)
         _, _, friend = self._login(FRIEND_PW)
 
         def _cohere_configured():
@@ -1034,6 +1071,9 @@ class AuditFixHarness(unittest.TestCase):
     # -- run-5: the guest /setup mint honors suspension --------------
     def test_19_setup_mint_refused_while_suspended(self):
         _, _, admin = self._login(MASTER)
+        # test_14 leaves friendone revoked - re-provision first.
+        self._access({"action": "add", "label": FRIEND,
+                      "password": FRIEND_PW, "master_pw": MASTER}, admin)
 
         def _setup_post():
             conn = http.client.HTTPConnection("127.0.0.1", self.port,
@@ -1053,7 +1093,7 @@ class AuditFixHarness(unittest.TestCase):
 
         status, body, _ = self._access(
             {"action": "friend_set_suspended", "label": FRIEND,
-             "suspended": True, "master_pw": MASTER}, admin)
+             "on": True, "master_pw": MASTER}, admin)
         self.assertEqual(status, 200, body)
         try:
             status, cookie = _setup_post()
@@ -1062,7 +1102,7 @@ class AuditFixHarness(unittest.TestCase):
         finally:
             self._access(
                 {"action": "friend_set_suspended", "label": FRIEND,
-                 "suspended": False, "master_pw": MASTER}, admin)
+                 "on": False, "master_pw": MASTER}, admin)
         # Control: unsuspended, the same request mints a session.
         status, cookie = _setup_post()
         self.assertEqual(status, 302)
@@ -1099,9 +1139,10 @@ class AuditFixHarness(unittest.TestCase):
             {"action": "2fa_enable", "master_pw": MASTER}, admin)
         self.assertEqual(status, 200, body)
         secret = body["secret"]
+        self._wait_next_step()
         status, body, _ = self._access(
             {"action": "2fa_confirm", "master_pw": MASTER,
-             "code": _totp(secret)}, admin)
+             "code": _totp(secret, 1)}, admin)
         self.assertEqual(status, 200, body)
         wrong = "000000" if _totp(secret) != "000000" else "111111"
         tmps = []
@@ -1122,17 +1163,15 @@ class AuditFixHarness(unittest.TestCase):
         status, body, _ = self._req(
             "POST", "/api/login", {"tmp": tmp_d, "code": wrong})
         self.assertEqual(status, 429, body)
-        # Cleanup: complete a fresh login (burns the next step), wait
-        # out one step boundary, then disable with the step after.
-        status, body, _ = self._login(MASTER)
-        tmp_e = body["tmp"]
-        status, body, cookie_e = self._req(
-            "POST", "/api/login", {"tmp": tmp_e, "code": _totp(secret, 1)})
-        self.assertEqual(status, 200, body)
-        time.sleep(31 - (time.time() % 30))
+        # Cleanup: the budget this test just exhausted also blocks
+        # fresh login completions (by design), so disable 2FA with
+        # the admin session minted at the top of this test, before
+        # 2FA was enabled - enabling never signed it out. The code
+        # only has to clear the confirm's watermark step.
+        self._wait_next_step()
         status, body, _ = self._access(
             {"action": "2fa_disable", "master_pw": MASTER,
-             "code": _totp(secret, 1)}, cookie_e)
+             "code": _totp(secret, 1)}, admin)
         self.assertEqual(status, 200, body)
 
     def test_99_factory_reset_wipes_usage_and_telemetry(self):
