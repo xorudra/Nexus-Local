@@ -619,6 +619,25 @@ def _clear_stranded_label(label):
         if label in _load_access():
             _CLEAR_JUDGED17.triple = None
             return "conflict"
+        # Wave 18 (run-17 settings D17-1): capture the generation
+        # triple HERE — at/before the judgement reads below —
+        # not at the return. Wave 17 recorded it at the return,
+        # ~one full persisted decrypt after the fast path's
+        # snapshot (the file read at the START of
+        # _persisted_settings), so a per-label save landing in
+        # that window was folded into the recorded triple and
+        # both in-lock rechecks skipped their decrypt over a
+        # re-stranded store. Recorded now, any save completing
+        # after this point moves the counters (or is in flight,
+        # ACTIVE>0) and the recheck re-pays the decrypt. Failure
+        # and conflict exits keep recording None; the "ok" exit
+        # below assigns this captured triple. Accepted cost: a
+        # genuinely stranded label's own slow-path save moves
+        # the counters too, so stranded creations re-pay the
+        # recheck decrypt — the D16-2 happy path (no save in
+        # the helper) is untouched.
+        _judged18 = (_SETTINGS_GEN[0], _SETTINGS_WRITTEN_GEN[0],
+                     _SETTINGS_ACTIVE[0])
         with _SETTINGS_LOCK:
             _cl15 = False
             for _k15 in ("roles", "user_caps", "vault_meta"):
@@ -691,9 +710,10 @@ def _clear_stranded_label(label):
         # the triple is unmoved and no save is in
         # flight, instead of paying a second full
         # persisted decrypt on every clean creation.
-        _CLEAR_JUDGED17.triple = (_SETTINGS_GEN[0],
-                                  _SETTINGS_WRITTEN_GEN[0],
-                                  _SETTINGS_ACTIVE[0])
+        # Wave 18 (D17-1): the value recorded is the
+        # triple captured at the judgement (see above),
+        # NOT the counters as they stand now.
+        _CLEAR_JUDGED17.triple = _judged18
         return "ok"
 
 
@@ -3279,10 +3299,40 @@ def _restore_access(master_pw):
             except Exception:
                 needs = True
         if needs and USERS_PATH.exists():
+            # Wave 18 (run-17 AUTH17-1): decrypt OUTSIDE the lock
+            # (the ~0.7s PBKDF2 must not stall creations), then
+            # MERGE under _ACCESS_LOCK — the old blind whole-store
+            # write clobbered any account created during the
+            # decrypt (or was itself clobbered by it), and the
+            # hunter's skip-on-nonempty shape was rejected: it
+            # deterministically sacrifices the restored friends
+            # instead. Current store wins every label conflict.
+            _b18 = USERS_PATH.read_bytes()
             d = decrypt_keys(USERS_PATH, master_pw)
-            if isinstance(d, dict):
-                _write_access_enc(d)
-                ACCESS_PATH.write_text(json.dumps(d, indent=2))
+            if not isinstance(d, dict):
+                return
+            with _ACCESS_LOCK:
+                if USERS_PATH.read_bytes() != _b18:
+                    # A master_pw-bearing save landed mid-decrypt:
+                    # judge the fresh bytes, not the stale dict —
+                    # this is what keeps a label revoked inside
+                    # the window from being resurrected.
+                    d = decrypt_keys(USERS_PATH, master_pw)
+                    if not isinstance(d, dict):
+                        return
+                _cur18 = _load_access()
+                if not isinstance(_cur18, dict):
+                    _cur18 = {}
+                merged = dict(d)
+                merged.update(_cur18)
+                _write_access_enc(merged)
+                ACCESS_PATH.write_text(json.dumps(merged, indent=2))
+                try:
+                    # Converge the backup too, or a second wipe
+                    # episode re-loses the merged creation.
+                    encrypt_keys(merged, master_pw, USERS_PATH)
+                except Exception:
+                    pass
     except Exception:
         pass
 

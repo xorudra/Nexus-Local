@@ -181,10 +181,42 @@ function readEngineAdminCreds(envFile) {
 function removeEngineAdminCreds(envFile) {
   // The credential-removal path uses the same grammar: drop EVERY
   // ENGINE_ADMIN line, whatever its spacing, quoting or BOM.
+  // Wave 18 (run-17 launcher L17-1): the write-back regexes (here
+  // and claimStep's two in-place rewrites) anchor with HORIZONTAL
+  // whitespace only ([ \t], never \s) — in multiline mode ^ also
+  // matches between a \r and its \n and \s* then eats the LF, so
+  // on a CRLF .env a rewrite glued the cred line onto its
+  // neighbour and the launcher's own parser read it back as
+  // absent (a permanent false foreign-claim alarm).
   const envTxt = fs.readFileSync(envFile, "utf8");
   fs.writeFileSync(envFile,
-    envTxt.replace(/^\uFEFF?\s*(?:export\s+)?ENGINE_ADMIN_(EMAIL|PASSWORD)\s*=.*\r?\n?/gm, ""));
+    envTxt.replace(/^\uFEFF?[ \t]*(?:export[ \t]+)?ENGINE_ADMIN_(EMAIL|PASSWORD)[ \t]*=.*\r?\n?/gm, ""));
   try { fs.chmodSync(envFile, 0o600); } catch (e) {}
+}
+
+// Wave 18 (run-17 launcher L17-2): pre-spawn port probe. A bare
+// TCP connect — it sends no HTTP and no credentials: ANY listener
+// on 127.0.0.1:3001 before our child starts is a foreign
+// responder (a squatter, or the owner's own standalone gateway),
+// and claim/verify must never engage it. Only a clean refusal
+// (ECONNREFUSED) means the port is free; any other outcome is
+// treated as occupied (fail closed).
+function probePort3001() {
+  return new Promise((resolve) => {
+    const sock = require("net").connect(
+      { host: "127.0.0.1", port: 3001 });
+    let done = false;
+    const fin = (v) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch (e) {}
+      resolve(v);
+    };
+    sock.setTimeout(1500, () => fin(true));
+    sock.on("connect", () => fin(true));
+    sock.on("error", (e) => fin(
+      !(e && e.code === "ECONNREFUSED")));
+  });
 }
 
 // Wave 13 (run-12 launcher): the shutdown path and the child
@@ -485,11 +517,24 @@ async function main() {
   // Start engine (if dist exists)
   const engineDist = path.join(engineServer, "dist", "index.js");
   engine = null;
+  // Wave 18 (L17-2): if 3001 is already bound BEFORE our child
+  // starts, do not spawn into the collision and do not POST any
+  // credentials anywhere — every claim/verify answer would come
+  // from a responder we did not spawn. Surface it loudly and
+  // skip the engine for this boot (the dashboard still starts).
+  let portPreOccupied = false;
+  if (fs.existsSync(engineDist)) {
+    portPreOccupied = await probePort3001();
+    if (portPreOccupied) {
+      log("WARNING: port 3001 already in use — something is listening on 127.0.0.1:3001 before the engine started, so the engine was NOT started and no engine credentials were sent anywhere. Stop the other process on port 3001 (for example a separately running FreeLLMAPI gateway) and run nexuslocal again.");
+      console.error("Port 3001 already in use: the engine was not started and no credentials were sent. Stop the process using port 3001 and run nexuslocal again.");
+    }
+  }
   // Wave 11 (F15): shuttingDown is set by the shutdown path BEFORE
   // it kills the engine, so the exit handler can tell a deliberate
   // stop from a genuine crash (which must still warn). It lives at
   // module scope now (wave 13: the handlers register pre-install).
-  if (fs.existsSync(engineDist)) {
+  if (fs.existsSync(engineDist) && !portPreOccupied) {
     log("Starting engine on 127.0.0.1:3001");
     console.log("Starting engine...");
     const engineEnv = {
@@ -537,7 +582,24 @@ async function main() {
       log(`WARNING: engine process exited (code ${code}, signal ${signal}) — the AI gateway is down; restart nexuslocal to bring it back.`);
     });
     const claimState = { tries: 0, lastWhy: "no attempt yet" };
+    // Wave 18 (run-17 launcher L17-2): the liveness re-check the
+    // claim/verify flow was missing — engineExited used to be
+    // consulted ONCE at claimStep entry, so verifyClaim's retry
+    // loop kept POSTing the recorded admin credentials to
+    // whatever answered on 3001 after the child died (a squatter
+    // bound after the death captured them, and its forged 200
+    // was silently accepted). Every credential-bearing or
+    // verdict-forming request now re-checks first; on failure
+    // the claim state is UNKNOWN and credentials are KEPT.
+    const credGuard = (where) => {
+      if (engineExited || shuttingDown || portPreOccupied) {
+        log(`WARNING: the spawned engine is gone — NOT sending the recorded engine admin credentials to whatever now answers on 127.0.0.1:3001 (${where}). Claim state UNKNOWN (credentials kept).`);
+        return false;
+      }
+      return true;
+    };
     const verifyClaim = (http) => {
+      if (engineExited || shuttingDown || portPreOccupied) return;
       // Wave 12 (L1/L2/L3): the shared dotenv-style reader — an
       // empty first line no longer shadows valid credentials, and
       // quoted/spaced/BOM values parse the way dotenv parses them.
@@ -576,6 +638,9 @@ async function main() {
       // on a DEFINITIVE 401/403.
       let attempts = 0, triedAlt = false;
       const tryLogin = () => {
+        // Wave 18 (L17-2): re-check before EVERY credential POST,
+        // including every scheduled retry and the alt-form retry.
+        if (!credGuard("verify login")) return;
         attempts += 1;
         const payload = JSON.stringify({ email, password: pw });
         const post = http.request({
@@ -624,7 +689,7 @@ async function main() {
       tryLogin();
     };
     const claimStep = () => {
-      if (engineExited) return;
+      if (engineExited || shuttingDown || portPreOccupied) return;
       claimState.tries += 1;
       if (claimState.tries === 301) {
         // Audit run-9 (L3): the old cap stopped the loop FOREVER
@@ -651,6 +716,10 @@ async function main() {
           if (!st || typeof st.needsSetup !== "boolean") {
             return retry("bad status reply");
           }
+          // Wave 18 (L17-2): the status reply is verdict-forming
+          // — if the child died while it was in flight, do not
+          // branch to verify/setup against a foreign responder.
+          if (!credGuard("claim/verify")) return;
           if (!st.needsSetup) return verifyClaim(http);
           let email = "owner@example.com", pw = null;
           try {
@@ -677,13 +746,13 @@ async function main() {
               pw = require("crypto").randomBytes(24).toString("hex");
               let txt = envTxt, add = "";
               if (pmEmpty) {
-                txt = txt.replace(/^\uFEFF?\s*(?:export\s+)?ENGINE_ADMIN_PASSWORD\s*=.*$/m,
+                txt = txt.replace(/^\uFEFF?[ \t]*(?:export[ \t]+)?ENGINE_ADMIN_PASSWORD[ \t]*=.*$/m,
                                   `ENGINE_ADMIN_PASSWORD=${pw}`);
               } else {
                 add += `\nENGINE_ADMIN_PASSWORD=${pw}\n`;
               }
               if (emEmpty) {
-                txt = txt.replace(/^\uFEFF?\s*(?:export\s+)?ENGINE_ADMIN_EMAIL\s*=.*$/m,
+                txt = txt.replace(/^\uFEFF?[ \t]*(?:export[ \t]+)?ENGINE_ADMIN_EMAIL[ \t]*=.*$/m,
                                   `ENGINE_ADMIN_EMAIL=${email}`);
               } else if (!_creds.hasEmail) {
                 add += `\nENGINE_ADMIN_EMAIL=${email}`;
@@ -700,13 +769,16 @@ async function main() {
               // shadowed duplicate.
               if (emEmpty) {
                 fs.writeFileSync(envFile, envTxt.replace(
-                  /^\uFEFF?\s*(?:export\s+)?ENGINE_ADMIN_EMAIL\s*=.*$/m,
+                  /^\uFEFF?[ \t]*(?:export[ \t]+)?ENGINE_ADMIN_EMAIL[ \t]*=.*$/m,
                   `ENGINE_ADMIN_EMAIL=${email}`));
               } else {
                 fs.appendFileSync(envFile, `\nENGINE_ADMIN_EMAIL=${email}\n`);
               }
             }
           } catch (e) { return retry("env write failed"); }
+          // Wave 18 (L17-2): re-check immediately before the
+          // setup POST that carries the claim credentials.
+          if (!credGuard("engine setup")) return;
           const payload = JSON.stringify({ email, password: pw });
           const post = http.request({
             host: "127.0.0.1", port: 3001, path: "/api/auth/setup",
@@ -735,7 +807,9 @@ async function main() {
     setTimeout(claimStep, 500);
     // Don't detach — we need to kill it on shutdown
   } else {
-    log("Engine dist not found, skipping engine");
+    log(portPreOccupied
+      ? "Skipping engine: port 3001 already in use (see the warning above)."
+      : "Engine dist not found, skipping engine");
   }
 
   // Start dashboard (foreground - keeps the terminal alive)
