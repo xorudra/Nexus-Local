@@ -110,6 +110,7 @@ function parseEngineAdminCreds(envTxt) {
       const hm = v.match(/\s+#|^#/);
       if (hm) v = v.slice(0, hm.index).trim();
     }
+    let _dqPre16 = null;
     if (v.length >= 2
         && ((v[0] === '"' && v[v.length - 1] === '"')
             || (v[0] === "'" && v[v.length - 1] === "'"))) {
@@ -119,7 +120,16 @@ function parseEngineAdminCreds(envTxt) {
       // \n and \r in DOUBLE-quoted values, in this order, with
       // these regexes — \t, \\ and \" stay literal, and
       // single-quoted values are never expanded.
-      if (_dq15) v = v.replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+      if (_dq15) {
+        // Wave 16 (run-15 launcher L15-1): remember the
+        // pre-expansion literal — when the expansion changed the
+        // value it becomes the password alternate below (the
+        // primary in every pre-wave-15 release, and the form a
+        // legacy engine may still hold).
+        _dqPre16 = v;
+        v = v.replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+        if (v === _dqPre16) _dqPre16 = null;
+      }
     }
     if (!v) continue;  // empty = absent: fall through to a later line
     if (isEmail && out.email === undefined) out.email = v;
@@ -143,6 +153,16 @@ function parseEngineAdminCreds(envTxt) {
           const h = v.indexOf("#");
           if (h > 0) alt = v.slice(0, h).trim() || null;
         }
+      } else if (_dqPre16) {
+        // Wave 16 (run-15 launcher L15-1, backslash leg only):
+        // a DOUBLE-quoted line whose expansion changed the value
+        // offers the pre-expansion literal as its one alternate —
+        // a genuine alternate parse, NOT the raw-tail junk alt
+        // L14-2(a) killed (that still carried quotes and comment
+        // text), and NOT a pre-'#' alternate (that leg was
+        // rejected in run-15: no reader ever parsed a quoted
+        // value truncated at '#').
+        alt = _dqPre16;
       }
       if (alt && alt !== v) out.passwordAlt = alt;
     }
@@ -342,15 +362,37 @@ async function main() {
     // the same 15s timeout; (iii) a corrupt/wrong-arch binding
     // fails the instantiate and triggers the reinstall.
     const _bsqBindingPresent = () => {
+      // Wave 16 (run-15 launcher L15-2): an unreadable SUBtree is
+      // "unknown", never proof the binding is absent — skip it and
+      // keep searching (only a failure at the package directory
+      // itself returns false); and traverse symlinked
+      // subdirectories, guarded by a visited-realpath set so a
+      // symlink cycle cannot loop (the old code never traversed
+      // links at all: Dirent.isDirectory() is false for them).
       const stack = [path.join(nodeModules, "better-sqlite3")];
+      const seen = new Set();
+      let first = true;
       while (stack.length) {
         const d = stack.pop();
+        const isRoot = first;
+        first = false;
+        let real;
+        try { real = fs.realpathSync(d); }
+        catch (e) { if (isRoot) return false; continue; }
+        if (seen.has(real)) continue;
+        seen.add(real);
         let ents;
         try { ents = fs.readdirSync(d, { withFileTypes: true }); }
-        catch (e) { return false; }
+        catch (e) { if (isRoot) return false; continue; }
         for (const ent of ents) {
-          if (ent.isDirectory()) stack.push(path.join(d, ent.name));
-          else if (ent.name.endsWith(".node")) return true;
+          const p = path.join(d, ent.name);
+          if (ent.isDirectory()) { stack.push(p); continue; }
+          if (ent.name.endsWith(".node")) return true;
+          if (ent.isSymbolicLink()) {
+            let st = null;
+            try { st = fs.statSync(p); } catch (e) {}
+            if (st && st.isDirectory()) stack.push(p);
+          }
         }
       }
       return false;

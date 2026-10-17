@@ -4626,7 +4626,10 @@ class Wave13UnitTests(unittest.TestCase):
         self.assertGreaterEqual(src.count("_lane_spend_reserve("), 4)
         # Caps fix 1: the pollinations born-tag keeps the pick name.
         self.assertIn('self._cap_res["provider"] = provider', src)
-        self.assertIn("_provider_blocked(_sub_p, exclude=self._cap_res)",
+        # Wave 16 (CAPS15-3): the substitution check+retag is one
+        # locked helper call, not the wave-13/15 two-statement
+        # check-then-assign pair this assertion used to pin.
+        self.assertIn("_provider_blocked_and_tag(_sub_p, self._cap_res)",
                       src)
         # Auth: per-candidate bucket; firstrun ledger wired BEFORE
         # the quiet decrypt, debiting only on failure.
@@ -5607,13 +5610,18 @@ class Wave15UnitTests(unittest.TestCase):
             self.assertTrue(
                 server._provider_blocked("pollinations", exclude=q1))
             # Source: in the substitution block the check now runs
-            # before the re-tag assignment.
+            # before the re-tag assignment. Wave 16 (CAPS15-3):
+            # check + retag are one locked helper call — the
+            # wave-15 two-statement form had a forced-interleave
+            # TOCTOU between them.
             src = (REPO / "app" / "server.py").read_text()
             seg = src[src.index("_sub_p = provider if provider in ("):]
             seg = seg[:seg.index("_pollinations(model")]
-            self.assertLess(
-                seg.index("_provider_blocked(_sub_p, exclude=self._cap_res)"),
-                seg.index('self._cap_res["provider"] = _sub_p'))
+            self.assertIn(
+                "_provider_blocked_and_tag(_sub_p, self._cap_res)",
+                seg)
+            self.assertNotIn('self._cap_res["provider"] = _sub_p',
+                             seg)
         finally:
             self._restore(orig, saved_i, saved_c)
 

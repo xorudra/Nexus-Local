@@ -564,6 +564,20 @@ def _settings_outcome(sv, pred, rollback=None):
         time.sleep(0.02)
 
 
+def _label_settings_absent(s, label):
+    """The clean-slate predicate over a settings document (live or
+    persisted): the label carries NO per-user entry in any of the
+    six containers the creation clear governs."""
+    return (label not in (s.get("roles") or {})
+            and label not in (s.get("user_caps") or {})
+            and label not in (s.get("vault_meta") or {})
+            and label not in (s.get("suspended") or [])
+            and label not in (s.get("terms_seen") or [])
+            and not any(
+                isinstance(e, dict) and e.get("label") == label
+                for e in (s.get("oauth_links") or [])))
+
+
 def _clear_stranded_label(label):
     """Wave 15 (run-14 settings): the ONE shared clean-slate clear
     for account creation. A label that provably has NO account can
@@ -598,17 +612,50 @@ def _clear_stranded_label(label):
             _SETTINGS["oauth_links"] = _ol15
             _cl15 = True
     if not _cl15:
-        return "ok"
-    return _settings_outcome(
-        _save_settings(),
-        lambda s: label not in (s.get("roles") or {})
-        and label not in (s.get("user_caps") or {})
-        and label not in (s.get("vault_meta") or {})
-        and label not in (s.get("suspended") or [])
-        and label not in (s.get("terms_seen") or [])
-        and not any(
-            isinstance(e, dict) and e.get("label") == label
-            for e in (s.get("oauth_links") or [])))
+        # Wave 16 (run-15 settings): the fast path must judge the
+        # PERSISTED store, not live memory alone. After a faulted
+        # first clear the two diverge (memory cleared / disk
+        # stranded, no rollback by design); a same-process retry
+        # that trusted memory created the account over the
+        # still-stranded store, and the next restart resurrected
+        # suspension + moderator + cap onto it. On disagreement
+        # fall through to the save + outcome check — saving the
+        # cleared memory persists the clear.
+        _ps16 = _persisted_settings()
+        if _ps16 is None or _label_settings_absent(_ps16, label):
+            _v16 = "ok"
+        else:
+            _v16 = None
+    else:
+        _v16 = None
+    if _v16 is None:
+        _v16 = _settings_outcome(
+            _save_settings(),
+            lambda s: _label_settings_absent(s, label))
+    if _v16 != "ok":
+        return _v16
+    # Wave 16 (run-15 settings AUTH15-3): the file-resident
+    # per-label stores are part of the clean slate too. A stranded
+    # chats/userkeys/userintegrations file (revoke's unlinks are
+    # bare try/except-pass, so stranding is silent) permanently
+    # bricks the innocent next holder's saves — or, under a
+    # same-password re-registration, revives the revoked holder's
+    # vault wholesale, defeating revoke's stated non-revival
+    # intent. The label provably has no account at this point, so
+    # the files are orphans; each deletion is verified by a
+    # post-delete existence re-check, and a file that cannot be
+    # removed aborts creation exactly like a failed settings
+    # outcome.
+    for _pf16 in (_chat_path(label), _userkey_path(label),
+                  _intg_path(label)):
+        try:
+            if _pf16.exists():
+                _pf16.unlink()
+        except Exception:
+            pass
+        if _pf16.exists():
+            return "failed"
+    return "ok"
 
 
 def _boot_restore_settings():
@@ -682,6 +729,82 @@ def _governance():
                 dict(_SETTINGS.get("provider_limits") or {}))
 
 
+def _provider_verdict_locked(provider, exclude, also, _dis13,
+                             _lims13):
+    """Wave 16 (run-15 caps): the completed+rank verdict of
+    _provider_blocked, evaluated with _INFLIGHT_LOCK ALREADY HELD
+    by the caller — factored out so the image substitution path
+    can evaluate the check AND retag its reservation inside one
+    hold (CAPS15-3: the wave-15 check-then-retag pair was two
+    statements, and a forced interleave admitted 2 at limit 1).
+    Returns True/False, or None when no limit judges the provider
+    (the disabled term still returns True)."""
+    if provider in _dis13 or (also and also in _dis13):
+        return True
+    _l = _lims13.get(provider)
+    if not _l:
+        return None
+    _names15 = {provider} if not also else {provider, also}
+    # Prune expired first (the inline form of _inflight_n's prune;
+    # _inflight_n itself takes the lock, so it cannot run here).
+    _now16 = time.time()
+    for _e15p in [x for x in _INFLIGHT if _now16 - x["ts"] > 900]:
+        _inflight_drop_locked(_e15p)
+    # Wave 15 (run-14 caps CAPS14-3/4): completed + rank are ONE
+    # snapshot inside this hold, and completed comes from the
+    # in-memory provider counter — the wave-14 shape read a full
+    # usage scan BEFORE the hold, so a peer completing in the gap
+    # was counted zero times.
+    _done15 = sum(_provider_counts_today().get(n, 0)
+                  for n in _names15)
+    # Wave 14 (run-13 caps): a born-tagged caller (the media
+    # surfaces) is judged with the spend-leg form: its RANK among
+    # the provider's live reservations (in reservation order)
+    # takes the place of the raw in-flight count, and it is
+    # refused only when completed + rank passes the limit. Two
+    # concurrent spends at the last slot therefore admit exactly
+    # one — the earlier reservation — whichever check runs first.
+    _rank15 = 0
+    _found15 = False
+    for _e15 in _INFLIGHT:
+        if _e15["provider"] in _names15:
+            _rank15 += 1
+            if _e15 is exclude:
+                _found15 = True
+                break
+        elif exclude is not None \
+                and _e15["provider"] is None \
+                and _now16 - _e15["ts"] < 45:
+            # Wave 15 (run-14 caps CAPS14-1): an untagged base
+            # reservation OLDER than the caller (list order is
+            # birth order and the loop stops at the caller) may be
+            # a media spend whose body is still arriving — count
+            # it as a rank slot, so it cannot be invisible to this
+            # check and then rank 1st itself once it tags.
+            # Wave 16 (run-15 caps CAPS15-5): only while it is
+            # plausibly pre-tag — younger than ~45s, the
+            # body-arrival scale. A post-parse TEXT chat keeps
+            # provider=None for its whole life and can never spend
+            # this lane; unbounded, one such base blocked a media
+            # spend at limit 1.
+            _rank15 += 1
+    if exclude is not None and _found15:
+        return _done15 + _rank15 > int(_l)
+    if exclude is not None:
+        # The caller's reservation is not tagged with this
+        # provider (a funding-lane side check): the full-count
+        # form over the judged name set.
+        return _done15 + sum(
+            sum(1 for _e15 in _INFLIGHT
+                if _e15 is not exclude
+                and _e15["provider"] == _n15)
+            for _n15 in _names15) >= int(_l)
+    return _done15 + sum(
+        1 for _e15 in _INFLIGHT
+        if _e15 is not exclude
+        and _e15["provider"] == provider) >= int(_l)
+
+
 def _provider_blocked(provider, exclude=None, also=None):
     """Admin provider governance for the non-chat surfaces (media,
     transcription): True when the provider is disabled in settings or
@@ -693,64 +816,36 @@ def _provider_blocked(provider, exclude=None, also=None):
     (the TTS funding lane: rows metered under the picked lane are
     paid for by the funding lane's key)."""
     _dis13, _lims13 = _governance()
-    if provider in _dis13 or (also and also in _dis13):
-        return True
-    _l = _lims13.get(provider)
-    if _l:
-        try:
-            _names15 = {provider} if not also else {provider, also}
-            _inflight_n(provider=provider)  # prune expired first
-            with _INFLIGHT_LOCK:
-                # Wave 15 (run-14 caps CAPS14-3/4): completed + rank
-                # are ONE snapshot inside this hold, and completed
-                # comes from the in-memory provider counter — the
-                # wave-14 shape read a full usage scan BEFORE the
-                # hold, so a peer completing in the gap was counted
-                # zero times.
-                _done15 = sum(_provider_counts_today().get(n, 0)
-                              for n in _names15)
-                # Wave 14 (run-13 caps): a born-tagged caller (the
-                # media surfaces) is judged with the spend-leg form:
-                # its RANK among the provider's live reservations
-                # (in reservation order) takes the place of the raw
-                # in-flight count, and it is refused only when
-                # completed + rank passes the limit. Two concurrent
-                # spends at the last slot therefore admit exactly
-                # one — the earlier reservation — whichever check
-                # runs first.
-                _rank15 = 0
-                _found15 = False
-                for _e15 in _INFLIGHT:
-                    if _e15["provider"] in _names15:
-                        _rank15 += 1
-                        if _e15 is exclude:
-                            _found15 = True
-                            break
-                    elif exclude is not None \
-                            and _e15["provider"] is None:
-                        # Wave 15 (run-14 caps CAPS14-1): an
-                        # untagged base reservation OLDER than the
-                        # caller (list order is birth order and the
-                        # loop stops at the caller) may be a media
-                        # spend whose body is still arriving — count
-                        # it as a rank slot, so it cannot be
-                        # invisible to this check and then rank 1st
-                        # itself once it tags.
-                        _rank15 += 1
-            if exclude is not None and _found15:
-                return _done15 + _rank15 > int(_l)
-            if exclude is not None:
-                # The caller's reservation is not tagged with this
-                # provider (a funding-lane side check): the
-                # full-count form over the judged name set.
-                return _done15 + sum(
-                    _inflight_n(provider=n, exclude=exclude)
-                    for n in _names15) >= int(_l)
-            return _done15 + _inflight_n(
-                provider=provider, exclude=exclude) >= int(_l)
-        except Exception:
-            return False
-    return False
+    try:
+        with _INFLIGHT_LOCK:
+            return bool(_provider_verdict_locked(
+                provider, exclude, also, _dis13, _lims13))
+    except Exception:
+        return False
+
+
+def _provider_blocked_and_tag(provider, res):
+    """Wave 16 (run-15 caps CAPS15-3): the image substitution
+    check+retag as ONE _INFLIGHT_LOCK hold — evaluate the
+    full-count form for the substitute provider and, on a pass,
+    retag the reservation before the lock releases, so no peer's
+    check can observe the state between the two. Preserves the
+    wave-15 check-before-retag anti-leapfrog ordering. Returns
+    True when the reservation now carries the substitute tag."""
+    _dis13, _lims13 = _governance()
+    try:
+        with _INFLIGHT_LOCK:
+            try:
+                _v16 = _provider_verdict_locked(
+                    provider, res, None, _dis13, _lims13)
+            except Exception:
+                _v16 = None  # mirror _provider_blocked's fail-open
+            if _v16:
+                return False
+            res["provider"] = provider
+            return True
+    except Exception:
+        return False
 
 
 def _friend_role(label):
@@ -1406,6 +1501,13 @@ def _boot_restore_telemetry():
             return
         if not usage_ok and data.get("usage"):
             USAGE_PATH.write_text(data["usage"])
+            # Wave 16 (run-15 caps): the import-time counter seed
+            # ran BEFORE this restore, so restored same-day spends
+            # were invisible to provider_limits for the rest of the
+            # day. Resync the counter from exactly the restored
+            # text (one callsite covers both restore paths).
+            with _USAGE_LOCK:
+                _provider_counts_resync(data['usage'].splitlines(keepends=True))
         if not audit_ok and data.get("audit"):
             AUDIT_PATH.write_text(data["audit"])
         _TELEMETRY["saved"] = data.get("saved", "")
@@ -1514,6 +1616,15 @@ def _provider_counts_note(entry):
         if not isinstance(p, str) or not p:
             return
         d = str(entry.get("ts", ""))[:10]
+        # Wave 16 (run-15 caps): mirror the scan predicate exactly
+        # — a row dated anything but today is IGNORED, never a
+        # rollover. The old shape treated a backdated row (a
+        # request straddling midnight) or a missing-ts row as a
+        # day flip and wiped today's counts, and a follow-on today
+        # row then defeated the reseed-on-read: a fail-open
+        # under-count for the rest of the day.
+        if d != datetime.date.today().isoformat():
+            return
         if _PROVIDER_COUNTS["date"] != d:
             _PROVIDER_COUNTS["date"] = d
             _PROVIDER_COUNTS["providers"] = {}
@@ -1524,10 +1635,11 @@ def _provider_counts_note(entry):
 
 
 def _provider_counts_resync(lines):
-    """Rebuild the counter from usage-log lines — the trim and
-    purge rewrites are the only places the log loses rows, so the
-    counter is rebuilt from exactly the lines that survive them.
-    Caller holds _USAGE_LOCK."""
+    """Rebuild the counter from usage-log lines — every writer
+    that removes or replaces rows (trim, purge, friend usage
+    reset, factory truncate, boot telemetry restore) resyncs
+    from exactly the lines that survive it. Caller holds
+    _USAGE_LOCK."""
     today = datetime.date.today().isoformat()
     counts = {}
     for ln in lines:
@@ -7270,8 +7382,14 @@ class Handler(BaseHTTPRequestHandler):
                     # (below), so a peer's in-flight attempt is
                     # visible here; exclude=self keeps this request
                     # from counting itself (the transcribe pattern).
+                    # Wave 16 (run-15 caps CAPS15-4): ONE google key
+                    # funds BOTH picks while spends meter under the
+                    # pick name, so the pair is judged SUMMED — the
+                    # wave-15 TTS also= shape. The old OR of two
+                    # single-name checks never saw the twin name's
+                    # spends against this name's limit.
                     if p in ("google", "relay_gemini"):
-                        return _provider_blocked("google", exclude=self._cap_res) or _provider_blocked("relay_gemini", exclude=self._cap_res)
+                        return _provider_blocked("google", exclude=self._cap_res, also="relay_gemini")
                     return _provider_blocked(p, exclude=self._cap_res)
                 # Wave 12 (C2): born-tagged — tag the base
                 # reservation with the picked provider BEFORE the
@@ -7483,8 +7601,14 @@ class Handler(BaseHTTPRequestHandler):
                         # Checked while not tagged _sub_p, the
                         # caller takes the full-count form; only a
                         # passing check earns the tag.
-                        if _may_substitute and not _pblocked and not _provider_blocked(_sub_p, exclude=self._cap_res):
-                            self._cap_res["provider"] = _sub_p
+                        # Wave 16 (run-15 caps CAPS15-3): the check
+                        # and the retag are now ONE _INFLIGHT_LOCK
+                        # hold inside the helper — as two adjacent
+                        # statements, a forced interleave let two
+                        # concurrent substitutions both pass the
+                        # check before either retagged (2 at
+                        # limit 1).
+                        if _may_substitute and not _pblocked and _provider_blocked_and_tag(_sub_p, self._cap_res):
                             _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
                             if _img and provider not in ("pollinations", "relay_pollinations"):
                                 _used_p, _used_m = "pollinations", "flux"
@@ -8807,127 +8931,156 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": f"password must be at least {int(_SETTINGS.get('pw_min') or 8)} characters"}).encode())
                 return
-            # The whole validate -> claim -> create -> role sequence
-            # runs under _ACCESS_LOCK: the invite is claimed (and the
-            # claim persisted) BEFORE the slow password hash and account
-            # creation, so a concurrent redemption of the same code
-            # always sees it as used. Claim rolls back if creation fails.
-            # The invite is validated BEFORE any password check: an
-            # unauthenticated caller without a valid code must learn
-            # nothing about which passwords are in use (and must not
-            # trigger the PBKDF2 taken-scan inside the lock).
+            # Wave 16 (run-15 settings): validate -> budget ->
+            # verdict -> clear -> claim -> create. The invite is
+            # validated BEFORE any password check: an unauthenticated
+            # caller without a valid code must learn nothing about
+            # which passwords are in use. The claim -> create
+            # sequence still runs under _ACCESS_LOCK (the invite is
+            # claimed, and the claim persisted, BEFORE the slow
+            # password hash and account creation, so a concurrent
+            # redemption of the same code always sees it as used;
+            # claim rolls back if creation fails).
+            _acc16 = _load_access()
+            if label in _acc16:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "that username is taken"}).encode())
+                return
+            role = _SETTINGS.get("signup_role", "friend")
+            invite = None
+            h = None
+            if code:
+                h = hashlib.sha256(code.encode()).hexdigest()
+                for inv in (_SETTINGS.get("invites") or []):
+                    if inv.get("h") == h and not inv.get("used_by") \
+                            and inv.get("expires", 0) > time.time():
+                        invite = inv
+                        break
+                if not invite:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "invite code is invalid, used or expired"}).encode())
+                    return
+                role = invite.get("role", "friend")
+            elif mode_reg == "invite":
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "an invite code is required"}).encode())
+                return
+            # Audit run-9 (S5): the per-code probe budget is
+            # consulted AND consumed BEFORE the taken/free
+            # verdict is evaluated — every attempt that reaches
+            # the password check pays, taken or free. Run-8
+            # consulted it only AFTER a taken verdict, so once
+            # the budget ran out the 429 itself became the
+            # verdict (taken -> 429, free -> account created).
+            # Post-budget both now get the identical 429.
+            # Wave 11 (F11): open mode no longer keys the budget
+            # to one flat "open" bucket — ten junk signups from
+            # distinct sources used to exhaust it and block the
+            # 11th legitimate signup, renewable every 900s. Open
+            # mode is now keyed per source (in addition to the
+            # per-IP route ledger above): junk from other sources
+            # cannot block a legitimate signup, while a same-source
+            # oracle still exhausts its own bucket. Invite mode
+            # keeps per-code keying exactly as S5 left it, and the
+            # budget is still consumed BEFORE the verdict, so
+            # post-budget taken and free stay indistinguishable.
+            _probe_key = h if code else (
+                "open:" + _client_ip(self.headers,
+                                     self.client_address[0]))
+            # Wave 12 (A2): open mode ALSO carries a flat
+            # global ceiling alongside the per-source bucket —
+            # F11's per-source keying stays exactly as shipped
+            # (it is what keeps junk sources from blocking
+            # legitimate signups), but per-source alone lets one
+            # host rotate IPv6 sources for an unbounded
+            # taken/free oracle, dropping the run-8 cross-source
+            # budget invariant. 250 verdicts/900s across all
+            # sources (100 until wave 14) is far above any
+            # plausible legitimate signup volume for this
+            # deployment. Both buckets
+            # are consumed BEFORE the verdict, so post-budget
+            # taken and free stay indistinguishable in scope.
+            _probe_ok = _rl_ok("redeemprobe", _probe_key, 10, 900)
+            if _probe_ok and not code:
+                # Wave 13 (run-12 auth): a per-candidate global
+                # sub-bucket, consulted BEFORE the global ceiling
+                # so one manufactured known-taken candidate can
+                # burn at most 10/900s of global budget across
+                # ALL sources (it used to exhaust "open:all"
+                # alone and 429 every legitimate signup).
+                _cand13 = "open:cand:" + hashlib.sha256(
+                    password.encode()).hexdigest()
+                _probe_ok = _rl_ok("redeemprobe", _cand13, 10, 900)
+            if _probe_ok and not code:
+                # Wave 14 (run-13 auth, MITIGATION): the bound is
+                # raised 100 -> 250/900 for headroom only —
+                # successes still accrue against it exactly like
+                # verdicts (no refund returns; run-12's closure
+                # holds) and the per-candidate cap still binds.
+                _probe_ok = _rl_ok("redeemprobe", "open:all",
+                                   250, 900)
+            if not _probe_ok:
+                _audit("Auth", f"Invite signup refused, probe budget exhausted: {label}")
+                self._set_json_headers(429)
+                self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
+                return
+            if _password_taken(_acc16, password) \
+                    or _is_master_password(password, quiet=True):
+                # Audit run-8: this verdict is a password-
+                # collision oracle (it confirms even the MASTER
+                # password), and the route's per-IP ledger fell
+                # to source rotation — so taken-verdicts are
+                # also budgeted per invite code across ALL
+                # sources (a flat key in open mode), and every
+                # refusal is audit-logged; the stealth was part
+                # of the original bug.
+                _audit("Auth", f"Invite signup refused, password already in use: {label}")
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
+                return
+            # Wave 15 (run-14 settings): EVERY creation path starts
+            # from the same clean slate — the label provably has no
+            # account here, so any per-user settings it carries are
+            # stranded. Wave 16 (run-15 settings D15-2/D15-3): the
+            # clear runs only NOW — after invite validation, after
+            # the probe budget was consumed, after the taken
+            # verdict, immediately before the claim persists (the
+            # wave-15 shape ran and persisted it before ANY
+            # validation, so one unauthenticated bogus-code POST
+            # wiped a stranded label, oauth pre-links included, at
+            # no budget cost) — and BEFORE _ACCESS_LOCK, so its
+            # save + outcome settle no longer stalls every
+            # concurrent creation behind a slow store. On a non-ok
+            # outcome the signup aborts with the invite UNCONSUMED
+            # and no account created. The terms_seen append and
+            # role set below then apply the signup's own state
+            # fresh.
+            _clr15 = _clear_stranded_label(label)
+            if _clr15 != "ok":
+                self._set_json_headers(
+                    409 if _clr15 == "conflict" else 500)
+                self.wfile.write(json.dumps(
+                    {"error": "signup could not be saved — try again"}).encode())
+                return
             with _ACCESS_LOCK:
                 access = _load_access()
                 if label in access:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "that username is taken"}).encode())
                     return
-                # Wave 15 (run-14 settings): EVERY creation path
-                # starts from the same clean slate. The label
-                # provably has no account here, so any per-user
-                # settings it carries are stranded — clear them
-                # BEFORE the invite claim is persisted and before
-                # _save_access; on a non-ok outcome the signup
-                # aborts with the invite UNCONSUMED and no account
-                # created. The terms_seen append and role set
-                # below then apply the signup's own state fresh.
-                _clr15 = _clear_stranded_label(label)
-                if _clr15 != "ok":
-                    self._set_json_headers(
-                        409 if _clr15 == "conflict" else 500)
+                # Wave 16: the pre-lock clear is re-verified INSIDE
+                # the lock against PERSISTED state (a memory-only
+                # recheck would reopen the AUTH14-2 class): if the
+                # persisted store disagrees with the clear — a
+                # concurrent writer re-stranded the label in the
+                # window — abort before the claim, invite still
+                # unconsumed.
+                _ps16 = _persisted_settings()
+                if _ps16 is not None and not _label_settings_absent(
+                        _ps16, label):
+                    self._set_json_headers(500)
                     self.wfile.write(json.dumps(
                         {"error": "signup could not be saved — try again"}).encode())
-                    return
-                role = _SETTINGS.get("signup_role", "friend")
-                invite = None
-                if code:
-                    h = hashlib.sha256(code.encode()).hexdigest()
-                    for inv in (_SETTINGS.get("invites") or []):
-                        if inv.get("h") == h and not inv.get("used_by") \
-                                and inv.get("expires", 0) > time.time():
-                            invite = inv
-                            break
-                    if not invite:
-                        self._set_json_headers(400)
-                        self.wfile.write(json.dumps({"error": "invite code is invalid, used or expired"}).encode())
-                        return
-                    role = invite.get("role", "friend")
-                elif mode_reg == "invite":
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "an invite code is required"}).encode())
-                    return
-                # Audit run-9 (S5): the per-code probe budget is
-                # consulted AND consumed BEFORE the taken/free
-                # verdict is evaluated — every attempt that reaches
-                # the password check pays, taken or free. Run-8
-                # consulted it only AFTER a taken verdict, so once
-                # the budget ran out the 429 itself became the
-                # verdict (taken -> 429, free -> account created).
-                # Post-budget both now get the identical 429.
-                # Wave 11 (F11): open mode no longer keys the budget
-                # to one flat "open" bucket — ten junk signups from
-                # distinct sources used to exhaust it and block the
-                # 11th legitimate signup, renewable every 900s. Open
-                # mode is now keyed per source (in addition to the
-                # per-IP route ledger above): junk from other sources
-                # cannot block a legitimate signup, while a same-source
-                # oracle still exhausts its own bucket. Invite mode
-                # keeps per-code keying exactly as S5 left it, and the
-                # budget is still consumed BEFORE the verdict, so
-                # post-budget taken and free stay indistinguishable.
-                _probe_key = h if code else (
-                    "open:" + _client_ip(self.headers,
-                                         self.client_address[0]))
-                # Wave 12 (A2): open mode ALSO carries a flat
-                # global ceiling alongside the per-source bucket —
-                # F11's per-source keying stays exactly as shipped
-                # (it is what keeps junk sources from blocking
-                # legitimate signups), but per-source alone lets one
-                # host rotate IPv6 sources for an unbounded
-                # taken/free oracle, dropping the run-8 cross-source
-                # budget invariant. 250 verdicts/900s across all
-                # sources (100 until wave 14) is far above any
-                # plausible legitimate signup volume for this
-                # deployment. Both buckets
-                # are consumed BEFORE the verdict, so post-budget
-                # taken and free stay indistinguishable in scope.
-                _probe_ok = _rl_ok("redeemprobe", _probe_key, 10, 900)
-                if _probe_ok and not code:
-                    # Wave 13 (run-12 auth): a per-candidate global
-                    # sub-bucket, consulted BEFORE the global ceiling
-                    # so one manufactured known-taken candidate can
-                    # burn at most 10/900s of global budget across
-                    # ALL sources (it used to exhaust "open:all"
-                    # alone and 429 every legitimate signup).
-                    _cand13 = "open:cand:" + hashlib.sha256(
-                        password.encode()).hexdigest()
-                    _probe_ok = _rl_ok("redeemprobe", _cand13, 10, 900)
-                if _probe_ok and not code:
-                    # Wave 14 (run-13 auth, MITIGATION): the bound is
-                    # raised 100 -> 250/900 for headroom only —
-                    # successes still accrue against it exactly like
-                    # verdicts (no refund returns; run-12's closure
-                    # holds) and the per-candidate cap still binds.
-                    _probe_ok = _rl_ok("redeemprobe", "open:all",
-                                       250, 900)
-                if not _probe_ok:
-                    _audit("Auth", f"Invite signup refused, probe budget exhausted: {label}")
-                    self._set_json_headers(429)
-                    self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
-                    return
-                if _password_taken(access, password) \
-                        or _is_master_password(password, quiet=True):
-                    # Audit run-8: this verdict is a password-
-                    # collision oracle (it confirms even the MASTER
-                    # password), and the route's per-IP ledger fell
-                    # to source rotation — so taken-verdicts are
-                    # also budgeted per invite code across ALL
-                    # sources (a flat key in open mode), and every
-                    # refusal is audit-logged; the stealth was part
-                    # of the original bug.
-                    _audit("Auth", f"Invite signup refused, password already in use: {label}")
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
                     return
                 if invite is not None:
                     # Re-verify + claim under _SETTINGS_LOCK (run-8):
@@ -10173,6 +10326,14 @@ class Handler(BaseHTTPRequestHandler):
                                         continue
                                     keep.append(line)
                                 _rewrite_lines(USAGE_PATH, keep)
+                                # Wave 16 (run-15 caps): resync the
+                                # provider counter from the surviving
+                                # lines (the trim/purge shape) — the
+                                # reset refunded the scan-based caps
+                                # but provider_limits kept counting
+                                # the removed rows for every user of
+                                # the lane until rollover.
+                                _provider_counts_resync(keep)
                     except Exception:
                         pass
                     _TODAY_CACHE["ts"] = 0.0
@@ -10481,6 +10642,12 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         with _USAGE_LOCK:
                             USAGE_PATH.write_text("")
+                            # Wave 16 (run-15 caps): the counter
+                            # dies with the log it mirrors — a
+                            # provider limit recreated later the
+                            # same day must not inherit the erased
+                            # counts.
+                            _provider_counts_resync([])
                     except Exception:
                         pass
                     try:
@@ -10544,6 +10711,29 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
                     return
                 _new_hash = _hash_password(password)
+                # Wave 15 (run-14 settings): the shared clean-slate
+                # clear runs BEFORE the account exists (the label
+                # provably has no account — the duplicate checks
+                # above and the in-lock re-check below bracket it —
+                # so every entry for it is stranded). Wave 14 ran
+                # it after _save_access with no rollback: a faulted
+                # clear left a LIVE account whose persisted settings
+                # resurrected it as suspended/moderator at restart.
+                # Wave 16 (run-15 settings D15-3): the clear runs
+                # BEFORE _ACCESS_LOCK, so its save + outcome settle
+                # no longer stalls every concurrent creation behind
+                # a slow store; inside the lock the label-absence
+                # invariant is re-verified against PERSISTED state
+                # before _save_access. On a non-ok outcome the add
+                # aborts and NO account is created; the explicit
+                # role/cap application below then lands fresh.
+                _clr15 = _clear_stranded_label(label)
+                if _clr15 != "ok":
+                    self._set_json_headers(
+                        409 if _clr15 == "conflict" else 500)
+                    self.wfile.write(json.dumps(
+                        {"error": "friend not added — leftover settings for this name could not be cleared; try again"}).encode())
+                    return
                 with _ACCESS_LOCK:
                     # Reload inside the lock (see friend_reset_pw): a
                     # stale snapshot must never erase a concurrent
@@ -10560,23 +10750,14 @@ class Handler(BaseHTTPRequestHandler):
                             self._set_json_headers(400)
                             self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
                             return
-                    # Wave 15 (run-14 settings): the shared
-                    # clean-slate clear runs BEFORE the account
-                    # exists — inside _ACCESS_LOCK, right after
-                    # the in-lock duplicate re-check above (so the
-                    # label provably has no account and every
-                    # entry for it is stranded). Wave 14 ran it
-                    # after _save_access with no rollback: a
-                    # faulted clear left a LIVE account whose
-                    # persisted settings resurrected it as
-                    # suspended/moderator at restart. On a non-ok
-                    # outcome the add aborts and NO account is
-                    # created; the explicit role/cap application
-                    # below then lands fresh, as before.
-                    _clr15 = _clear_stranded_label(label)
-                    if _clr15 != "ok":
-                        self._set_json_headers(
-                            409 if _clr15 == "conflict" else 500)
+                    # Wave 16: re-verify the clear's invariant
+                    # against PERSISTED state (never live memory —
+                    # that would reopen the AUTH14-2 class) before
+                    # the account is saved.
+                    _ps16 = _persisted_settings()
+                    if _ps16 is not None and not \
+                            _label_settings_absent(_ps16, label):
+                        self._set_json_headers(500)
                         self.wfile.write(json.dumps(
                             {"error": "friend not added — leftover settings for this name could not be cleared; try again"}).encode())
                         return
