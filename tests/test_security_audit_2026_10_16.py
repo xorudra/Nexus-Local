@@ -1462,6 +1462,30 @@ class AuditFixHarness(unittest.TestCase):
              "new_master_pw": MASTER}, admin_b)
         self.assertEqual(status, 200, body)
 
+    # -- run-6 critic: My Keys entry cap actually runs on a save -----
+    def test_30_mykeys_entry_cap_enforced(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": FRIEND,
+                      "password": FRIEND_PW, "master_pw": MASTER}, admin)
+        _, _, friend = self._login(FRIEND_PW)
+        many = {f"k{i:03d}": "v" for i in range(201)}
+        status, body, _ = self._req(
+            "POST", "/api/mykeys",
+            {"action": "save", "password": FRIEND_PW, "keys": many},
+            ck=friend)
+        self.assertEqual(status, 400, body)
+        # Nothing was saved by the refused save.
+        status, body, _ = self._req("POST", "/api/mykeys",
+                                    {"action": "view"}, ck=friend)
+        self.assertEqual(status, 200, body)
+        self.assertNotIn("k000", body["configured"])
+        # A normal save still works afterwards.
+        status, body, _ = self._req(
+            "POST", "/api/mykeys",
+            {"action": "save", "password": FRIEND_PW,
+             "keys": {"groq": "g-key-30"}}, ck=friend)
+        self.assertEqual(status, 200, body)
+
     # -- run-6: settings_get hides invite hashes; restore skips -------
     def test_31_settings_get_redacts_and_restore_skips(self):
         _, _, admin = self._login(MASTER)
@@ -1486,6 +1510,35 @@ class AuditFixHarness(unittest.TestCase):
         self.assertTrue(any(d["key"] == "daily_cap"
                             for d in body.get("diff") or []))
 
+    # -- run-6 critic: stored v1 keys die with change_master ----------
+    def test_32_v1_keys_die_with_change_master(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "rotprobe32",
+                                     "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        hdr = {"Authorization": f"Bearer {body['key']}"}
+        status, _, _ = self._req("GET", "/v1/models", headers=hdr)
+        self.assertEqual(status, 200)
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER,
+             "new_master_pw": MASTER_B}, admin)
+        self.assertEqual(status, 200, body)
+        # The pre-rotation key no longer authenticates (401, or 404
+        # when no key source remains at all).
+        status, _, _ = self._req("GET", "/v1/models", headers=hdr)
+        self.assertIn(status, (401, 404))
+        _, _, admin_b = self._login(MASTER_B)
+        status, body, _ = self._req("GET", "/api/v1-access", ck=admin_b)
+        self.assertEqual(status, 200, body)
+        self.assertFalse(any(k.get("source") == "generated"
+                             for k in body.get("keys") or []))
+        # Rotate back for the rest of the class.
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER_B,
+             "new_master_pw": MASTER}, admin_b)
+        self.assertEqual(status, 200, body)
+
     # -- run-6: password proofs share one failure budget --------------
     # Named to sort last in this class: tripping the fixture server's
     # master-proof budget must not starve any later master-gated call.
@@ -1499,6 +1552,12 @@ class AuditFixHarness(unittest.TestCase):
         # The CORRECT password is refused too while the budget is out.
         status, body, _ = self._access(
             {"action": "2fa_status", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 401, body)
+        # Run-6 critic: the 2FA actions were a parallel oracle outside
+        # the budget — with the budget out, even the CORRECT password
+        # must fail there too (pre-fix this returned 200).
+        status, body, _ = self._access(
+            {"action": "2fa_enable", "master_pw": MASTER}, admin)
         self.assertEqual(status, 401, body)
 
 

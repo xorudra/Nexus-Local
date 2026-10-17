@@ -1523,8 +1523,11 @@ def _pw_throttled(kind, key):
     oracle shaped — PBKDF2 cost was the only brake (measured:
     thousands of guesses a day from one host). 10 failures per
     (kind, key) inside 15 minutes locks further proofs for that
-    key; kind "master" keys on the client IP (mirrors the login
-    ledger), the friend kinds key on the account label."""
+    key; kind "master" uses ONE global bucket (the secret itself is
+    global, so a per-IP split would multiply the budget) — an owner's
+    successful proof refills it, and a guesser can lock the owner out
+    until the window passes (<=900 s). The friend kinds key on the
+    account label."""
     now = time.time()
     fails = [t for t in _PW_FAILS.get((kind, key), []) if now - t < 900]
     _PW_FAILS[(kind, key)] = fails
@@ -1542,7 +1545,9 @@ def _master_proof(pw):
     decrypted dict, or None for a wrong password AND while the
     budget is exhausted (callers already answer both the same way).
     Every console/inline site that used to decrypt directly goes
-    through here so no parallel unthrottled oracle remains."""
+    through here. The only other keys.enc proofs are /api/login (its
+    own per-IP attempt ledger) and the custom-provider save, which
+    runs only after this proof passes in the same request."""
     if not pw or _pw_throttled("master", ""):
         return None
     try:
@@ -3831,6 +3836,10 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(403)
             self._send_body(json.dumps({"error": "admin only"}).encode())
             return
+        if not self._ip_gate():
+            # Audit run-6 critic: the session-mint guard set honors
+            # the IP allowlist; these key-management routes skipped it.
+            return
         key = _v1_api_key()
         proto = self.headers.get("X-Forwarded-Proto", "http")
         host = self.headers.get("Host", "nexus-local.onrender.com")
@@ -3882,6 +3891,10 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(403)
             self._send_body(json.dumps({"error": "admin only"}).encode())
             return
+        if not self._ip_gate():
+            # Audit run-6 critic: the session-mint guard set honors
+            # the IP allowlist; these key-management routes skipped it.
+            return
         data = {}
         try:
             length = int(self.headers.get("Content-Length", 0))
@@ -3919,6 +3932,10 @@ class Handler(BaseHTTPRequestHandler):
         if not info or not info.get("admin"):
             self._set_json_headers(403)
             self._send_body(json.dumps({"error": "admin only"}).encode())
+            return
+        if not self._ip_gate():
+            # Audit run-6 critic: the session-mint guard set honors
+            # the IP allowlist; these key-management routes skipped it.
             return
         data = {}
         try:
@@ -3965,6 +3982,8 @@ class Handler(BaseHTTPRequestHandler):
         if not info or not info.get("admin"):
             self._set_json_headers(403)
             self.wfile.write(json.dumps({"error": "admin only"}).encode())
+            return
+        if not self._ip_gate():
             return
         if not _v1_api_key():
             self._set_json_headers(200)
@@ -9043,6 +9062,17 @@ class Handler(BaseHTTPRequestHandler):
                 # authority too (audit run-6): a pre-rotation /view
                 # link must not re-mint a session afterwards.
                 _VIEW_GRANTS.clear()
+                # Stored /v1 service keys were minted under the old
+                # password's authority too (audit run-6 critic):
+                # rotation revokes them, like factory reset does —
+                # file and live set go. (An env-bootstrapped key is
+                # operator config, outside the app's reach.)
+                try:
+                    if V1KEY_PATH.exists():
+                        V1KEY_PATH.unlink()
+                except Exception:
+                    pass
+                _V1KEYS["keys"] = []
                 self._set_json_headers()
                 _audit("System", "Master password changed")
                 self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out" + _chats_note + _intg_note}).encode())
@@ -9069,10 +9099,13 @@ class Handler(BaseHTTPRequestHandler):
             if action == "2fa_enable":
                 master_pw = data.get("master_pw") or ""
                 with _KEYS_LOCK:
-                    try:
-                        key_path = Path(__file__).parent / "keys.enc"
-                        keys = decrypt_keys(key_path, master_pw)
-                    except Exception:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    # Audit run-6 critic: this was a bare decrypt — a
+                    # parallel master-password oracle OUTSIDE the shared
+                    # failure budget. _master_proof is the one oracle:
+                    # throttled, failure-recorded, success clears.
+                    keys = _master_proof(master_pw)
+                    if keys is None:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
@@ -9095,10 +9128,13 @@ class Handler(BaseHTTPRequestHandler):
                 master_pw = data.get("master_pw") or ""
                 code = (data.get("code") or "").strip()
                 with _KEYS_LOCK:
-                    try:
-                        key_path = Path(__file__).parent / "keys.enc"
-                        keys = decrypt_keys(key_path, master_pw)
-                    except Exception:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    # Audit run-6 critic: this was a bare decrypt — a
+                    # parallel master-password oracle OUTSIDE the shared
+                    # failure budget. _master_proof is the one oracle:
+                    # throttled, failure-recorded, success clears.
+                    keys = _master_proof(master_pw)
+                    if keys is None:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
@@ -9128,10 +9164,13 @@ class Handler(BaseHTTPRequestHandler):
                 master_pw = data.get("master_pw") or ""
                 code = data.get("code") or ""
                 with _KEYS_LOCK:
-                    try:
-                        key_path = Path(__file__).parent / "keys.enc"
-                        keys = decrypt_keys(key_path, master_pw)
-                    except Exception:
+                    key_path = Path(__file__).parent / "keys.enc"
+                    # Audit run-6 critic: this was a bare decrypt — a
+                    # parallel master-password oracle OUTSIDE the shared
+                    # failure budget. _master_proof is the one oracle:
+                    # throttled, failure-recorded, success clears.
+                    keys = _master_proof(master_pw)
+                    if keys is None:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
@@ -10058,10 +10097,13 @@ class Handler(BaseHTTPRequestHandler):
                     for k in (data.get("remove") or []):
                         if isinstance(k, str) and not k.startswith("_"):
                             vault.pop(k, None)
-                        if len([k for k in vault if not k.startswith("_")]) > _USERKEY_COUNT_CAP:
-                            self._set_json_headers(400)
-                            self.wfile.write(json.dumps({"error": "too many keys in one vault"}).encode())
-                            return
+                    # Entry cap, checked once AFTER merge + removals
+                    # (audit run-6 critic: inside the remove loop it
+                    # never ran on a plain save — dead code).
+                    if len([k for k in vault if not k.startswith("_")]) > _USERKEY_COUNT_CAP:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "too many keys in one vault"}).encode())
+                        return
                     _save_userkeys(label, vault, password)
                 # Refresh session copy
                 for tok, s in SESSIONS.items():
