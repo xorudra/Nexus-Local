@@ -578,6 +578,13 @@ def _label_settings_absent(s, label):
                 for e in (s.get("oauth_links") or [])))
 
 
+# Wave 17 (run-16 settings D16-2): the settings generation
+# triple the creation clear last judged, kept per calling
+# thread — read by the in-lock creation recheck (see
+# _clear_stranded_label's return paths).
+_CLEAR_JUDGED17 = threading.local()
+
+
 def _clear_stranded_label(label):
     """Wave 15 (run-14 settings): the ONE shared clean-slate clear
     for account creation. A label that provably has NO account can
@@ -591,71 +598,103 @@ def _clear_stranded_label(label):
     end state after a faulted clear is no account at all. Returns
     the _settings_outcome verdict ("ok" when there was nothing to
     clear)."""
-    with _SETTINGS_LOCK:
-        _cl15 = False
-        for _k15 in ("roles", "user_caps", "vault_meta"):
-            _d15 = dict(_SETTINGS.get(_k15) or {})
-            if label in _d15:
-                _d15.pop(label, None)
-                _SETTINGS[_k15] = _d15
+    with _ACCESS_LOCK:
+        # Wave 17 (run-16 settings AUTH16-1/D16-1):
+        # re-verify account existence INSIDE the lock
+        # that serializes creation, BEFORE any mutation.
+        # Wave 16 moved the clear before _ACCESS_LOCK on
+        # a stale lock-free snapshot, and a refused loser's
+        # clear then wiped a concurrently-created live
+        # account's persisted role/terms (its in-lock
+        # recheck read the wiped store and certified it).
+        # Judged under the lock, the clear can only ever
+        # touch a label that has no account at mutation
+        # time. Lock order stays ACCESS -> SETTINGS (the
+        # established order; _ACCESS_LOCK is an RLock and
+        # both creation callsites hold neither lock).
+        # Accepted narrowing of run-15's D15-3: a genuinely
+        # stranded label's clear save sits in-lock again;
+        # the happy path (nothing stranded in memory or
+        # persisted) performs NO save here.
+        if label in _load_access():
+            _CLEAR_JUDGED17.triple = None
+            return "conflict"
+        with _SETTINGS_LOCK:
+            _cl15 = False
+            for _k15 in ("roles", "user_caps", "vault_meta"):
+                _d15 = dict(_SETTINGS.get(_k15) or {})
+                if label in _d15:
+                    _d15.pop(label, None)
+                    _SETTINGS[_k15] = _d15
+                    _cl15 = True
+            for _k15 in ("suspended", "terms_seen"):
+                _l15 = [x for x in (_SETTINGS.get(_k15) or [])
+                        if x != label]
+                if _l15 != (_SETTINGS.get(_k15) or []):
+                    _SETTINGS[_k15] = _l15
+                    _cl15 = True
+            _ol15 = [e for e in (_SETTINGS.get("oauth_links") or [])
+                     if not (isinstance(e, dict)
+                             and e.get("label") == label)]
+            if _ol15 != (_SETTINGS.get("oauth_links") or []):
+                _SETTINGS["oauth_links"] = _ol15
                 _cl15 = True
-        for _k15 in ("suspended", "terms_seen"):
-            _l15 = [x for x in (_SETTINGS.get(_k15) or [])
-                    if x != label]
-            if _l15 != (_SETTINGS.get(_k15) or []):
-                _SETTINGS[_k15] = _l15
-                _cl15 = True
-        _ol15 = [e for e in (_SETTINGS.get("oauth_links") or [])
-                 if not (isinstance(e, dict)
-                         and e.get("label") == label)]
-        if _ol15 != (_SETTINGS.get("oauth_links") or []):
-            _SETTINGS["oauth_links"] = _ol15
-            _cl15 = True
-    if not _cl15:
-        # Wave 16 (run-15 settings): the fast path must judge the
-        # PERSISTED store, not live memory alone. After a faulted
-        # first clear the two diverge (memory cleared / disk
-        # stranded, no rollback by design); a same-process retry
-        # that trusted memory created the account over the
-        # still-stranded store, and the next restart resurrected
-        # suspension + moderator + cap onto it. On disagreement
-        # fall through to the save + outcome check — saving the
-        # cleared memory persists the clear.
-        _ps16 = _persisted_settings()
-        if _ps16 is None or _label_settings_absent(_ps16, label):
-            _v16 = "ok"
+        if not _cl15:
+            # Wave 16 (run-15 settings): the fast path must judge the
+            # PERSISTED store, not live memory alone. After a faulted
+            # first clear the two diverge (memory cleared / disk
+            # stranded, no rollback by design); a same-process retry
+            # that trusted memory created the account over the
+            # still-stranded store, and the next restart resurrected
+            # suspension + moderator + cap onto it. On disagreement
+            # fall through to the save + outcome check — saving the
+            # cleared memory persists the clear.
+            _ps16 = _persisted_settings()
+            if _ps16 is None or _label_settings_absent(_ps16, label):
+                _v16 = "ok"
+            else:
+                _v16 = None
         else:
             _v16 = None
-    else:
-        _v16 = None
-    if _v16 is None:
-        _v16 = _settings_outcome(
-            _save_settings(),
-            lambda s: _label_settings_absent(s, label))
-    if _v16 != "ok":
-        return _v16
-    # Wave 16 (run-15 settings AUTH15-3): the file-resident
-    # per-label stores are part of the clean slate too. A stranded
-    # chats/userkeys/userintegrations file (revoke's unlinks are
-    # bare try/except-pass, so stranding is silent) permanently
-    # bricks the innocent next holder's saves — or, under a
-    # same-password re-registration, revives the revoked holder's
-    # vault wholesale, defeating revoke's stated non-revival
-    # intent. The label provably has no account at this point, so
-    # the files are orphans; each deletion is verified by a
-    # post-delete existence re-check, and a file that cannot be
-    # removed aborts creation exactly like a failed settings
-    # outcome.
-    for _pf16 in (_chat_path(label), _userkey_path(label),
-                  _intg_path(label)):
-        try:
+        if _v16 is None:
+            _v16 = _settings_outcome(
+                _save_settings(),
+                lambda s: _label_settings_absent(s, label))
+        if _v16 != "ok":
+            _CLEAR_JUDGED17.triple = None
+            return _v16
+        # Wave 16 (run-15 settings AUTH15-3): the file-resident
+        # per-label stores are part of the clean slate too. A stranded
+        # chats/userkeys/userintegrations file (revoke's unlinks are
+        # bare try/except-pass, so stranding is silent) permanently
+        # bricks the innocent next holder's saves — or, under a
+        # same-password re-registration, revives the revoked holder's
+        # vault wholesale, defeating revoke's stated non-revival
+        # intent. The label provably has no account at this point, so
+        # the files are orphans; each deletion is verified by a
+        # post-delete existence re-check, and a file that cannot be
+        # removed aborts creation exactly like a failed settings
+        # outcome.
+        for _pf16 in (_chat_path(label), _userkey_path(label),
+                      _intg_path(label)):
+            try:
+                if _pf16.exists():
+                    _pf16.unlink()
+            except Exception:
+                pass
             if _pf16.exists():
-                _pf16.unlink()
-        except Exception:
-            pass
-        if _pf16.exists():
-            return "failed"
-    return "ok"
+                _CLEAR_JUDGED17.triple = None
+                return "failed"
+        # Wave 17 (run-16 settings D16-2): record
+        # the judged generation triple — the in-lock
+        # creation recheck reuses this judgement while
+        # the triple is unmoved and no save is in
+        # flight, instead of paying a second full
+        # persisted decrypt on every clean creation.
+        _CLEAR_JUDGED17.triple = (_SETTINGS_GEN[0],
+                                  _SETTINGS_WRITTEN_GEN[0],
+                                  _SETTINGS_ACTIVE[0])
+        return "ok"
 
 
 def _boot_restore_settings():
@@ -774,19 +813,26 @@ def _provider_verdict_locked(provider, exclude, also, _dis13,
                 break
         elif exclude is not None \
                 and _e15["provider"] is None \
-                and _now16 - _e15["ts"] < 45:
+                and "surface" not in _e15:
             # Wave 15 (run-14 caps CAPS14-1): an untagged base
             # reservation OLDER than the caller (list order is
             # birth order and the loop stops at the caller) may be
             # a media spend whose body is still arriving — count
             # it as a rank slot, so it cannot be invisible to this
             # check and then rank 1st itself once it tags.
-            # Wave 16 (run-15 caps CAPS15-5): only while it is
-            # plausibly pre-tag — younger than ~45s, the
-            # body-arrival scale. A post-parse TEXT chat keeps
-            # provider=None for its whole life and can never spend
-            # this lane; unbounded, one such base blocked a media
-            # spend at limit 1.
+            # Wave 17 (run-16 caps CAPS16-2): the test is the
+            # parse-time surface stamp, NOT an age — wave 16's
+            # 45s bound (run-15 CAPS15-5's fix) let a body
+            # trickled past 45s stop ranking before it tagged,
+            # reopening the trickle leapfrog, and no age bound
+            # can satisfy both findings (body arrival has no
+            # enforced total bound for the handler's single-read
+            # shape). An UNSTAMPED base counts regardless of age
+            # — its body may still be arriving, however long a
+            # steady trickle lasts; a base STAMPED with a
+            # non-media surface (a post-parse text chat and kin,
+            # which keep provider=None for life and can never
+            # spend this lane) never counts.
             _rank15 += 1
     if exclude is not None and _found15:
         return _done15 + _rank15 > int(_l)
@@ -4780,6 +4826,10 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": {"message": "invalid JSON", "type": "invalid_request_error"}}).encode())
             return
+        # Wave 17 (run-16 caps CAPS16-2): /v1 is a text-only
+        # surface — stamp the base reservation post-parse so it
+        # never ranks against a media lane (see /api/chat).
+        self._cap_res["surface"] = "v1"
         messages = data.get("messages")
         if not isinstance(messages, list) or not messages:
             self._set_json_headers(400)
@@ -4988,6 +5038,10 @@ class Handler(BaseHTTPRequestHandler):
         # in-flight terms against the global cap exactly like
         # _v1_chat_completions does.
         self._cap_res = _inflight_add("v1:test")
+        # Wave 17 (run-16 caps CAPS16-2): a text-only surface —
+        # stamp the base reservation so it never ranks against a
+        # media lane (see /api/chat).
+        self._cap_res["surface"] = "v1"
         if _inflight_n(user="v1:test") > 4:
             self._set_json_headers(200)
             self.wfile.write(json.dumps({"ok": False, "error": "too many requests already in flight"}).encode())
@@ -7347,6 +7401,17 @@ class Handler(BaseHTTPRequestHandler):
                     mode = "code"
                 else:
                     mode = "text"
+            # Wave 17 (run-16 caps CAPS16-2): the mode is final
+            # now — stamp the base reservation with its post-parse
+            # surface for every surface that can never become a
+            # media spend of a judged lane (text/code/agent/search
+            # and any other non-media mode). Media modes are NOT
+            # stamped: they tag a provider below, before their
+            # governance checks. _provider_verdict_locked's rank
+            # loop counts a provider=None base only while it is
+            # unstamped.
+            if mode not in ("image", "voice", "video"):
+                self._cap_res["surface"] = mode
             if mode == "code":
                 message = ("You are an expert coding assistant. Provide clean, working code with brief explanations. "
                           "Use markdown code blocks with language tags.\n\n" + (message or ""))
@@ -7388,8 +7453,18 @@ class Handler(BaseHTTPRequestHandler):
                     # wave-15 TTS also= shape. The old OR of two
                     # single-name checks never saw the twin name's
                     # spends against this name's limit.
+                    # Wave 17 (run-16 caps CAPS16-1): the summed
+                    # form must ALSO judge both names' LIMITS — the
+                    # wave-16 single call read only google's limit,
+                    # so a relay_gemini-only (or stricter-relay)
+                    # limit bound nothing. The two also= calls are
+                    # OR'd: each sums both names' spends against
+                    # its own name's limit. (NOT a TTS transplant:
+                    # TTS's single-name pick-leg under-judges
+                    # twin-metered image spends.)
                     if p in ("google", "relay_gemini"):
-                        return _provider_blocked("google", exclude=self._cap_res, also="relay_gemini")
+                        return (_provider_blocked("google", exclude=self._cap_res, also="relay_gemini")
+                                or _provider_blocked("relay_gemini", exclude=self._cap_res, also="google"))
                     return _provider_blocked(p, exclude=self._cap_res)
                 # Wave 12 (C2): born-tagged — tag the base
                 # reservation with the picked provider BEFORE the
@@ -9075,13 +9150,27 @@ class Handler(BaseHTTPRequestHandler):
                 # concurrent writer re-stranded the label in the
                 # window — abort before the claim, invite still
                 # unconsumed.
-                _ps16 = _persisted_settings()
-                if _ps16 is not None and not _label_settings_absent(
-                        _ps16, label):
-                    self._set_json_headers(500)
-                    self.wfile.write(json.dumps(
-                        {"error": "signup could not be saved — try again"}).encode())
-                    return
+                # Wave 17 (run-16 settings D16-2): the re-decrypt is
+                # generation-guarded — the wave-17 clear judged
+                # persisted state INSIDE this same lock and recorded
+                # the settings generation triple at its return; the
+                # full decrypt is re-paid only when a save landed or
+                # started since (every settings writer funnels
+                # through _save_settings_impl, the counters' sole
+                # bumper) or one is in flight now. On the happy
+                # path the recheck reuses the clear's judgement.
+                _judged17 = getattr(_CLEAR_JUDGED17, "triple", None)
+                if _judged17 is None or _SETTINGS_ACTIVE[0] > 0 \
+                        or (_SETTINGS_GEN[0],
+                            _SETTINGS_WRITTEN_GEN[0],
+                            _SETTINGS_ACTIVE[0]) != _judged17:
+                    _ps16 = _persisted_settings()
+                    if _ps16 is not None and not \
+                            _label_settings_absent(_ps16, label):
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps(
+                            {"error": "signup could not be saved — try again"}).encode())
+                        return
                 if invite is not None:
                     # Re-verify + claim under _SETTINGS_LOCK (run-8):
                     # the find above read the live invites list
@@ -10754,13 +10843,24 @@ class Handler(BaseHTTPRequestHandler):
                     # against PERSISTED state (never live memory —
                     # that would reopen the AUTH14-2 class) before
                     # the account is saved.
-                    _ps16 = _persisted_settings()
-                    if _ps16 is not None and not \
-                            _label_settings_absent(_ps16, label):
-                        self._set_json_headers(500)
-                        self.wfile.write(json.dumps(
-                            {"error": "friend not added — leftover settings for this name could not be cleared; try again"}).encode())
-                        return
+                    # Wave 17 (run-16 settings D16-2): the
+                    # re-decrypt is generation-guarded exactly as
+                    # on the redeem path — re-paid only when the
+                    # settings generation triple moved since the
+                    # clear judged, or a save is in flight.
+                    _judged17 = getattr(_CLEAR_JUDGED17, "triple",
+                                        None)
+                    if _judged17 is None or _SETTINGS_ACTIVE[0] > 0 \
+                            or (_SETTINGS_GEN[0],
+                                _SETTINGS_WRITTEN_GEN[0],
+                                _SETTINGS_ACTIVE[0]) != _judged17:
+                        _ps16 = _persisted_settings()
+                        if _ps16 is not None and not \
+                                _label_settings_absent(_ps16, label):
+                            self._set_json_headers(500)
+                            self.wfile.write(json.dumps(
+                                {"error": "friend not added — leftover settings for this name could not be cleared; try again"}).encode())
+                            return
                     _fresh[label] = _new_hash
                     _save_access(_fresh, None if _mod_add else master_pw)
                     access = _fresh

@@ -158,8 +158,9 @@ class Wave16CounterUnitTests(unittest.TestCase):
 
 
 class Wave16ProviderBlockedUnitTests(unittest.TestCase):
-    """Fixes 5-7 (image funding sum, None-slot age bound,
-    substitution check+retag atomicity)."""
+    """Fixes 5-7 (image funding sum, None-slot rank rule —
+    wave-16's age bound, superseded by wave-17's surface stamp —
+    and substitution check+retag atomicity)."""
 
     def _env(self):
         orig = dict(server._SETTINGS)
@@ -196,12 +197,24 @@ class Wave16ProviderBlockedUnitTests(unittest.TestCase):
             self.assertIn('_provider_blocked("google", '
                           'exclude=self._cap_res, '
                           'also="relay_gemini")', seg)
-            self.assertNotIn('or _provider_blocked("relay_gemini"',
-                             seg)
+            # Wave 17 (run-16 CAPS16-1): the pair ALSO judges
+            # relay_gemini's limit — the second also= call is
+            # OR'd in (the wave-16 assertNotIn on it is reversed:
+            # the single call read only google's limit, so a
+            # relay-only limit bound nothing).
+            self.assertIn('_provider_blocked("relay_gemini", '
+                          'exclude=self._cap_res, '
+                          'also="google")', seg)
         finally:
             self._restore(orig, saved_i, saved_c)
 
-    # -- Fix 6: old None bases stop ranking; young ones still do --
+    # -- Fix 6: None bases rank by surface stamp, not age ---------
+    # Wave 17 (run-16 CAPS16-2) superseded this test's wave-16
+    # shape: the 45s age bound let a body trickled past 45s stop
+    # ranking before it tagged (the trickle leapfrog reopened).
+    # The bound is gone — an UNSTAMPED base ranks at any age, a
+    # base STAMPED with a non-media surface at parse time never
+    # does (CAPS15-5's pollution stays closed at its source).
     def test_w16_none_base_age_bound(self):
         orig, saved_i, saved_c = self._env()
         try:
@@ -209,13 +222,20 @@ class Wave16ProviderBlockedUnitTests(unittest.TestCase):
             server._SETTINGS["provider_disabled"] = []
             server._provider_counts_today = lambda: {}
             stale = server._inflight_add("peer16")
-            stale["ts"] = time.time() - 300  # a post-parse text chat
+            stale["ts"] = time.time() - 300  # body long arrived
             caller = server._inflight_add("u16", "huggingface")
-            # Pre-fix the stale None base alone blocked at limit 1.
+            # An old UNSTAMPED base still occupies the slot (the
+            # wave-16 age bound dropped it at 45s — CAPS16-2).
+            self.assertTrue(server._provider_blocked(
+                "huggingface", exclude=caller))
+            # Stamped as a post-parse text surface, the same old
+            # base never ranks — CAPS15-5's shape stays closed.
+            stale["surface"] = "text"
             self.assertFalse(server._provider_blocked(
                 "huggingface", exclude=caller))
             # A YOUNG untagged base (body still arriving) still
             # occupies the slot — the wave-15 trickle fix stands.
+            del stale["surface"]
             stale["ts"] = time.time()
             self.assertTrue(server._provider_blocked(
                 "huggingface", exclude=caller))
