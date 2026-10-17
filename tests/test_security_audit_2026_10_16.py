@@ -962,9 +962,14 @@ class Wave11UnitTests(unittest.TestCase):
         nm = srv / "node_modules"
         nm.mkdir()
         (nm / "dotenv").mkdir()
+        # Wave 12 (L4): a bare directory is NOT an installed dep —
+        # the gate probes package.json, so a fixture simulating an
+        # installed tree must carry one per dependency.
+        (nm / "dotenv" / "package.json").write_text("{}")
         (nm / ".package-lock.json").write_text("{}")
         if with_express:
             (nm / "express").mkdir()
+            (nm / "express" / "package.json").write_text("{}")
         (srv / "dist" / "index.js").write_text(
             "const http=require('http');const fs=require('fs');"
             "let claimed=false;"
@@ -3391,6 +3396,957 @@ class Wave11SetupStallHarness(_FixtureServerBase):
         self.assertEqual(status, 200)
         status, _, _ = self._login(attacker_pw)
         self.assertEqual(status, 401)
+
+
+
+def _respawn_fixture(cls):
+    """Restart a fixture server IN PLACE (same tmp dir, same port):
+    on-disk state survives, in-memory state reloads from it."""
+    if cls.proc is not None:
+        cls.proc.terminate()
+        try:
+            cls.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            cls.proc.kill()
+            cls.proc.wait(timeout=10)
+    env = dict(os.environ)
+    env.update({
+        "HOST": "127.0.0.1", "PORT": str(cls.port),
+        "NEXUS_RELAY_PORT": str(_free_port()),
+        "NEXUS_RESTORE_KEY": RESTORE,
+        "NEXUS_SYNC_TOKEN": SYNC_TOKEN,
+        "PYTHONPATH": str(cls.tmp),
+        "no_proxy": "127.0.0.1,localhost",
+        "NO_PROXY": "127.0.0.1,localhost",
+    })
+    cls.proc = subprocess.Popen(
+        [sys.executable, str(cls.tmp / "server.py")],
+        cwd=str(cls.tmp), env=env,
+        stdout=cls.log, stderr=subprocess.STDOUT)
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        if cls.proc.poll() is not None:
+            raise RuntimeError("fixture respawn exited early:\n"
+                               + (cls.tmp / "server.log").read_text(
+                                   errors="replace")[-2000:])
+        try:
+            status, _, _ = cls._req("GET", "/api/friend_blob")
+            if status in (200, 403):
+                return
+        except OSError:
+            pass
+        time.sleep(0.25)
+    raise RuntimeError("fixture respawn did not come up in 30s")
+
+
+class Wave12UnitTests(unittest.TestCase):
+    """Wave 12 (run-11 fixes): D1/D2/D3 outcome + CAS rollback, C1
+    reserve-then-count, and source shapes for the rest."""
+
+    def _temp_settings(self):
+        import tempfile
+        from pathlib import Path as _P
+        td = tempfile.TemporaryDirectory()
+        saved = (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+                 server.RESTORE_KEY)
+        server.SETTINGS_PATH = _P(td.name) / "settings.json"
+        server.SETTINGS_ENC_PATH = _P(td.name) / "settings.enc"
+        server.RESTORE_KEY = "unit-restore-12"
+        return td, saved
+
+    def _restore_settings_env(self, saved, orig):
+        (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+         server.RESTORE_KEY) = saved
+        server._SETTINGS.clear()
+        server._SETTINGS.update(orig)
+
+    # -- D3: the True branch verifies the persisted state -----------
+    def test_w12_outcome_true_branch_verifies_persisted(self):
+        orig = dict(server._SETTINGS)
+        td, saved = self._temp_settings()
+        try:
+            server._SETTINGS["announcement"] = "OTHER12"
+            self.assertTrue(server._save_settings())  # persisted OTHER
+            # A third writer's UNSAVED same-value mutation masks the
+            # supersession in live memory: pre-fix the True branch
+            # read live only and answered "ok" for a value that was
+            # never the persisted state at any instant.
+            server._SETTINGS["announcement"] = "MINE12"
+            self.assertEqual(
+                server._settings_outcome(
+                    True, lambda s: s.get("announcement") == "MINE12"),
+                "conflict")
+            # When the mutation IS the persisted state, a diverged
+            # live value does not matter: ok.
+            self.assertTrue(server._save_settings())  # persisted MINE12
+            server._SETTINGS["announcement"] = "DIVERGED12"
+            self.assertEqual(
+                server._settings_outcome(
+                    True, lambda s: s.get("announcement") == "MINE12"),
+                "ok")
+        finally:
+            self._restore_settings_env(saved, orig)
+            td.cleanup()
+
+    # -- D2: the False branch waits for an in-flight covering save --
+    def test_w12_outcome_false_branch_waits_for_inflight(self):
+        orig = dict(server._SETTINGS)
+        td, saved = self._temp_settings()
+        try:
+            server._SETTINGS["announcement"] = "BASE12"
+            self.assertTrue(server._save_settings())
+            server._SETTINGS["announcement"] = "GHOST12"  # A live only
+            # Simulate B's save being in flight (its snapshot carries
+            # A's mutation); it lands ~0.5s from now.
+            server._SETTINGS_ACTIVE[0] += 1
+
+            def land():
+                time.sleep(0.5)
+                try:
+                    server._save_settings()
+                finally:
+                    server._SETTINGS_ACTIVE[0] -= 1
+            t = threading.Thread(target=land)
+            t.start()
+            rolled = []
+            oc = server._settings_outcome(
+                False, lambda s: s.get("announcement") == "GHOST12",
+                lambda: rolled.append(1))
+            t.join(10)
+            # Pre-fix: the check read the stale persisted state at
+            # once, answered "failed" and rolled the invite back —
+            # while B's save then persisted it (a restart-resurrected
+            # ghost). Post-fix the wait lets it land: ok, no rollback.
+            self.assertEqual(oc, "ok")
+            self.assertEqual(rolled, [])
+            # Control: nothing in flight and the mutation truly never
+            # landed -> failed, with rollback.
+            server._SETTINGS["announcement"] = "NEVER12"
+            self.assertEqual(
+                server._settings_outcome(
+                    False, lambda s: s.get("announcement") == "NEVER12",
+                    lambda: rolled.append(1)),
+                "failed")
+            self.assertEqual(rolled, [1])
+        finally:
+            server._SETTINGS_ACTIVE[0] = 0
+            self._restore_settings_env(saved, orig)
+            td.cleanup()
+
+    # -- D1: compare-and-restore never clobbers a concurrent change -
+    def test_w12_cas_rollback_concurrent_change_survives(self):
+        orig = dict(server._SETTINGS)
+        td, saved = self._temp_settings()
+        try:
+            # Suspension shape (the verifier's A1): A suspends alice;
+            # B (concurrent, acknowledged) suspends bob instead and
+            # its real save lands; A's faulted save must NOT restore
+            # the whole list — bob's suspension survives.
+            server._SETTINGS["suspended"] = []
+            self.assertTrue(server._save_settings())
+            server._SETTINGS["suspended"] = ["alice"]       # A live
+            server._SETTINGS["suspended"] = ["bob"]         # B live
+            self.assertTrue(server._save_settings())        # B lands
+            oc = server._settings_outcome(
+                False,
+                lambda s: "alice" in (s.get("suspended") or []),
+                lambda: server._cas_rollback_list_entry(
+                    "suspended", "alice", [], ["alice"]))
+            self.assertEqual(oc, "failed")
+            self.assertEqual(server._SETTINGS["suspended"], ["bob"])
+            self.assertTrue(server._save_settings())
+            self.assertEqual(
+                server._persisted_settings()["suspended"], ["bob"])
+            # When live still equals the caller's own mutation, the
+            # compare-and-restore DOES restore the prior entry.
+            server._SETTINGS["suspended"] = ["alice"]
+            server._cas_rollback_list_entry(
+                "suspended", "alice", [], ["alice"])
+            self.assertEqual(server._SETTINGS["suspended"], [])
+            # Dict entry: a peer's entry survives; the caller's own
+            # entry is restored; a same entry since re-saved by a
+            # peer (different value) is left alone.
+            server._SETTINGS["user_caps"] = {"x": 1, "alice": 111,
+                                             "bob": 222}
+            server._cas_rollback_dict_entry(
+                "user_caps", "alice", {"x": 1},
+                {"x": 1, "alice": 111})
+            self.assertEqual(server._SETTINGS["user_caps"],
+                             {"x": 1, "bob": 222})
+            server._SETTINGS["user_caps"] = {"alice": 999}
+            server._cas_rollback_dict_entry(
+                "user_caps", "alice", {}, {"alice": 111})
+            self.assertEqual(server._SETTINGS["user_caps"],
+                             {"alice": 999})
+            # Invites: add-rollback removes only the caller's invite;
+            # remove-rollback re-adds only the caller's removal.
+            server._SETTINGS["invites"] = [{"h": "H1"}, {"h": "H2"}]
+            server._cas_rollback_invite_add("H1")
+            self.assertEqual(server._SETTINGS["invites"], [{"h": "H2"}])
+            server._cas_rollback_invite_remove([{"h": "H1"}])
+            self.assertEqual(
+                {i["h"] for i in server._SETTINGS["invites"]},
+                {"H1", "H2"})
+            # Keys: per-key compare — a key the peer re-saved with a
+            # different value survives; the caller's untouched-by-peer
+            # key is restored.
+            server._SETTINGS["daily_cap"] = 700
+            server._SETTINGS["announcement"] = "A-val"
+            server._cas_rollback_keys(
+                {"daily_cap": 200, "announcement": ""},
+                {"daily_cap": 500, "announcement": "A-val"})
+            self.assertEqual(server._SETTINGS["daily_cap"], 700)
+            self.assertEqual(server._SETTINGS["announcement"], "")
+        finally:
+            self._restore_settings_env(saved, orig)
+            td.cleanup()
+
+    # -- C1: a natural burst against a lane limit of 1 spends once -
+    def test_w12_v1_burst_limit_one(self):
+        orig_settings = dict(server._SETTINGS)
+        saved = (server._v1_route, server._v1_relay_call,
+                 server._today_counts, server._append_usage,
+                 server._provider_down, server.Handler.keys)
+        hits = []
+        try:
+            server._INFLIGHT.clear()
+            server._SETTINGS["provider_limits"] = {"relay_gemini": 1}
+            server._SETTINGS["provider_disabled"] = []
+            server._v1_route = lambda model: [("relay_gemini", "m1")]
+            server._provider_down = lambda lane: False
+            server._today_counts = lambda fresh=False: {
+                "providers": {}, "users": {}, "total": 0}
+
+            def fake_call(lane, path, payload):
+                hits.append(lane)
+                time.sleep(0.3)
+                return {"choices": [{"message": {"content": "hi"}}],
+                        "usage": {}}
+            server._v1_relay_call = fake_call
+            server._append_usage = lambda row: None
+            server.Handler.keys = {"relay_gemini": "fixture"}
+            barrier = threading.Barrier(8)
+            results = []
+
+            def worker():
+                barrier.wait(10)
+                results.append(server._v1_chat(
+                    [{"role": "user", "content": "hi"}], "nexus-auto"))
+            threads = [threading.Thread(target=worker)
+                       for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(20)
+            # Pre-fix this burst overshot to as many as 4 upstream
+            # hits against a limit of 1 (check-then-add).
+            self.assertEqual(len(hits), 1, hits)
+            self.assertEqual(
+                len([r for r in results if r[0] == 200]), 1, results)
+        finally:
+            (server._v1_route, server._v1_relay_call,
+             server._today_counts, server._append_usage,
+             server._provider_down, server.Handler.keys) = saved
+            server._SETTINGS.clear()
+            server._SETTINGS.update(orig_settings)
+            server._INFLIGHT.clear()
+
+    # -- Source shapes for C2/C3/A1/A2/A3/D4 + launcher L1-L8 --------
+    def test_w12_source_shapes(self):
+        src = (APP / "server.py").read_text()
+        # D1/D2: CAS helpers + in-flight tracking exist.
+        self.assertIn("_cas_rollback_dict_entry", src)
+        self.assertIn("_cas_rollback_invite_claim", src)
+        self.assertIn("_SETTINGS_ACTIVE", src)
+        self.assertIn("_wait_settings_settled()", src)
+        # C1: /v1 reserves before its counted check (no bare
+        # check-then-add left in _v1_chat).
+        v1seg = src[src.index("def _v1_chat"):src.index(
+            "return 502", src.index("def _v1_chat"))]
+        self.assertNotIn("_provider_blocked(lane)", v1seg)
+        self.assertIn('_inflight_add("v1", lane, attempt=True)', v1seg)
+        # C2: media checks exclude the born-tagged base reservation.
+        self.assertGreaterEqual(src.count("exclude=self._cap_res"), 6)
+        # C3: no build-time governance captures remain.
+        self.assertNotIn("_pcounts = ", src)
+        self.assertNotIn("_lims = ", src)
+        self.assertNotIn("_dis = _disabled_providers()", src)
+        # A1: ONE shared carry-over helper, called by both rotations.
+        self.assertGreaterEqual(
+            src.count("_carry_over_master_rotation("), 3)
+        # A2: the flat global ceiling rides alongside per-source.
+        self.assertIn('_rl_ok("redeemprobe", "open:all"', src)
+        self.assertIn('_rl_refund("redeemprobe", "open:all")', src)
+        # A3: the deferred first-run re-check is a quiet decrypt in
+        # the window between the entry snapshot and the encrypt.
+        i = src.index("if not _entry_keys_exist and key_path.exists():")
+        seg = src[i:src.index("encrypt_keys(keys, pw, key_path)", i)]
+        self.assertIn("decrypt_keys(", seg)
+        self.assertNotIn("_master_proof(", seg)
+        # D4: claim + factory-reset outcome checks exist.
+        self.assertIn("signup could not be saved", src)
+        self.assertIn("_reset_oc", src)
+        self.assertIn("could not be saved — set it again", src)
+        js = (REPO / "bin" / "nexuslocal.js").read_text()
+        # L1/L2/L3: one shared parser; no private regex readers left.
+        self.assertGreaterEqual(js.count("parseEngineAdminCreds"), 3)
+        self.assertIn("readEngineAdminCreds(envFile)", js)
+        self.assertIn("removeEngineAdminCreds(envFile)", js)
+        self.assertNotIn("envTxt.match(/^ENGINE_ADMIN", js)
+        # L4: the gate probes package.json per dependency.
+        self.assertIn('path.join(nodeModules, ...d.split("/"), '
+                      '"package.json")', js)
+        # L5: an unparseable manifest logs loudly and fails the gate.
+        self.assertIn("could not read the engine package.json", js)
+        # L6: optionalDependencies never feed the gate.
+        self.assertNotIn("_epkg.optionalDependencies", js)
+        self.assertNotIn("Object.keys({\n      ...(_epkg.dependencies",
+                         js)
+        # L7/L8: one shutdown path for SIGINT/SIGTERM/SIGHUP and for
+        # a dashboard that dies on its own, with SIGKILL escalation.
+        self.assertIn('process.on("SIGTERM"', js)
+        self.assertIn('process.on("SIGHUP"', js)
+        self.assertIn("SIGKILL", js)
+        self.assertIn("shutdown(code || 0)", js)
+        node = shutil.which("node")
+        if node:
+            r = subprocess.run([node, "--check",
+                                str(REPO / "bin" / "nexuslocal.js")],
+                               capture_output=True)
+            self.assertEqual(r.returncode, 0,
+                             r.stderr.decode(errors="replace"))
+
+
+class Wave12LauncherTests(unittest.TestCase):
+    """Wave 12 launcher fixes over real boots against a stub engine:
+    L1/L2/L3 shared .env grammar, L4/L5/L6 npm gate, L7/L8 shutdown."""
+
+    ENGINE_PW = "correct-pw-12"
+    ENGINE_EMAIL = "boss@example.com"
+
+    def _fixture(self, env_text, gate="ok", dash_exit=False):
+        tmp = Path(tempfile.mkdtemp(prefix="nexus-test-w12-launcher-"))
+        (tmp / "bin").mkdir()
+        shutil.copy(REPO / "bin" / "nexuslocal.js", tmp / "bin")
+        app = tmp / "app"
+        srv = app / "engine" / "server"
+        (srv / "dist").mkdir(parents=True)
+        (app / "engine-data").mkdir()
+        (app / "server.py").write_text(
+            "import os, time\n"
+            "with open(os.environ['DASH_PID'], 'w') as f:\n"
+            "    f.write(str(os.getpid()))\n"
+            f"time.sleep({2.5 if dash_exit else 120})\n")
+        (app / ".env").write_text(env_text, encoding="utf-8")
+        if gate == "corrupt":
+            (srv / "package.json").write_text("{ this is not json")
+        else:
+            deps = {"dotenv": "^17.0.0", "express": "^5.0.0"}
+            pkg = {"name": "stub", "dependencies": deps}
+            if gate == "optional":
+                pkg["dependencies"] = {"dotenv": "^17.0.0"}
+                pkg["optionalDependencies"] = {"bettr": "^1.0.0"}
+            (srv / "package.json").write_text(json.dumps(pkg))
+        (srv / "package-lock.json").write_text("{}")
+        nm = srv / "node_modules"
+        nm.mkdir()
+        (nm / "dotenv").mkdir()
+        (nm / "dotenv" / "package.json").write_text("{}")
+        (nm / ".package-lock.json").write_text("{}")
+        if gate == "ok":
+            (nm / "express").mkdir()
+            (nm / "express" / "package.json").write_text("{}")
+        elif gate == "empty-dep":
+            (nm / "express").mkdir()  # directory only: NOT installed
+        (srv / "dist" / "index.js").write_text(
+            "const http=require('http');const fs=require('fs');"
+            "fs.writeFileSync(process.env.ENGINE_PID,"
+            "String(process.pid));"
+            "http.createServer((req,res)=>{"
+            "let b='';req.on('data',c=>b+=c);req.on('end',()=>{"
+            "res.setHeader('Content-Type','application/json');"
+            "if(req.url==='/api/auth/status'){"
+            "res.end(JSON.stringify({needsSetup:false}));}"
+            "else if(req.url==='/api/auth/login'){"
+            "fs.appendFileSync(process.env.LOGIN_FILE,b+'\\n');"
+            "let ok=false;try{const j=JSON.parse(b);"
+            f"ok=j.email==='{self.ENGINE_EMAIL}'"
+            f"&&j.password==='{self.ENGINE_PW}';}}catch(e){{}}"
+            "if(ok){res.end(JSON.stringify({ok:true}));}"
+            "else{res.statusCode=401;res.end('{}');}}"
+            "else{res.statusCode=404;res.end('{}');}});"
+            "}).listen(3001,'127.0.0.1');\n")
+        return tmp
+
+    def _boot(self, tmp):
+        node = shutil.which("node")
+        if not node or not shutil.which("unshare"):
+            self.skipTest("node/unshare not available")
+        env = dict(os.environ)
+        env.update({
+            "LOGIN_FILE": str(tmp / "logins.jsonl"),
+            "ENGINE_PID": str(tmp / "engine.pid"),
+            "DASH_PID": str(tmp / "dash.pid"),
+            "no_proxy": "127.0.0.1,localhost",
+            "NO_PROXY": "127.0.0.1,localhost",
+        })
+        cmd = ["unshare", "-n", "bash", "-c",
+               "ip link set lo up 2>/dev/null; exec "
+               f"{node} {tmp / 'bin' / 'nexuslocal.js'}"]
+        proc = subprocess.Popen(
+            cmd, cwd=str(tmp), env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return proc
+
+    def _wait_for(self, proc, tmp, pred, timeout=30, what="condition"):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if pred():
+                return True
+            if proc.poll() is not None:
+                break
+            time.sleep(0.25)
+        log = ""
+        if (tmp / "startup.log").exists():
+            log = (tmp / "startup.log").read_text(errors="replace")
+        self.fail(f"launcher {what} not reached; log tail:\n"
+                  + log[-1200:])
+
+    def _logins(self, tmp):
+        f = tmp / "logins.jsonl"
+        if not f.exists():
+            return []
+        out = []
+        for line in f.read_text().splitlines():
+            try:
+                out.append(json.loads(line))
+            except Exception:
+                pass
+        return out
+
+    def _pid_dead(self, pidfile, timeout=8):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                pid = int(Path(pidfile).read_text().strip())
+            except Exception:
+                time.sleep(0.2)
+                continue
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                return False
+            time.sleep(0.2)
+        return False
+
+    def _verify_variant(self, env_text):
+        tmp = self._fixture(env_text)
+        proc = self._boot(tmp)
+        try:
+            self._wait_for(proc, tmp,
+                           lambda: len(self._logins(tmp)) >= 1,
+                           what="verify login")
+            login = self._logins(tmp)[0]
+            self.assertEqual(login["email"], self.ENGINE_EMAIL)
+            self.assertEqual(login["password"], self.ENGINE_PW)
+            # The stub answered 200 (credentials are ours): nothing
+            # may be removed and no foreign-claim warning may fire.
+            time.sleep(1)
+            env_after = (tmp / "app" / ".env").read_text(
+                encoding="utf-8")
+            self.assertIn("ENGINE_ADMIN_PASSWORD", env_after)
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertNotIn("NOT the ones from app/.env", log)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- L1: an empty first line no longer shadows valid creds ------
+    def test_w12_verify_empty_first_line_falls_through(self):
+        self._verify_variant(
+            "ENGINE_ADMIN_PASSWORD=\n"
+            f"ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL}\n"
+            f"ENGINE_ADMIN_PASSWORD={self.ENGINE_PW}\n")
+
+    # -- L2: quoted + spaced values parse like dotenv ---------------
+    def test_w12_verify_quoted_and_spaced(self):
+        self._verify_variant(
+            f'ENGINE_ADMIN_EMAIL = "{self.ENGINE_EMAIL}"\n'
+            f"ENGINE_ADMIN_PASSWORD = '{self.ENGINE_PW}'\n")
+
+    # -- L3: a BOM-prefixed first line is visible --------------------
+    def test_w12_verify_bom_first_line(self):
+        self._verify_variant(
+            f"\ufeffENGINE_ADMIN_PASSWORD={self.ENGINE_PW}\n"
+            f"ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL}\n")
+
+    # -- L7: SIGTERM runs the shared shutdown (no orphans) ---------
+    def test_w12_sigterm_stops_both_children(self):
+        import signal as _signal
+        tmp = self._fixture(
+            f"ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL}\n"
+            f"ENGINE_ADMIN_PASSWORD={self.ENGINE_PW}\n")
+        proc = self._boot(tmp)
+        try:
+            self._wait_for(proc, tmp,
+                           lambda: len(self._logins(tmp)) >= 1,
+                           what="verify login")
+            self._wait_for(proc, tmp,
+                           lambda: (tmp / "engine.pid").exists()
+                           and (tmp / "dash.pid").exists(),
+                           what="pid files")
+            proc.send_signal(_signal.SIGTERM)
+            proc.wait(timeout=15)
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertIn("Shutting down...", log)
+            self.assertTrue(self._pid_dead(tmp / "engine.pid"),
+                            "engine orphaned by SIGTERM")
+            self.assertTrue(self._pid_dead(tmp / "dash.pid"),
+                            "dashboard orphaned by SIGTERM")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- L8: a dashboard that dies on its own stops the engine ------
+    def test_w12_dashboard_exit_stops_engine(self):
+        tmp = self._fixture(
+            f"ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL}\n"
+            f"ENGINE_ADMIN_PASSWORD={self.ENGINE_PW}\n",
+            dash_exit=True)
+        proc = self._boot(tmp)
+        try:
+            self._wait_for(proc, tmp,
+                           lambda: (tmp / "engine.pid").exists(),
+                           what="engine pid")
+            proc.wait(timeout=20)
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertIn("Dashboard exited", log)
+            self.assertIn("Shutting down...", log)
+            self.assertTrue(self._pid_dead(tmp / "engine.pid"),
+                            "engine orphaned by dashboard exit")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- L4: an empty dependency directory triggers the install -----
+    def test_w12_gate_empty_dep_dir_installs(self):
+        tmp = self._fixture("ENGINE_ADMIN_PASSWORD=x\n",
+                            gate="empty-dep")
+        proc = self._boot(tmp)
+        try:
+            self._wait_for(
+                proc, tmp,
+                lambda: (tmp / "startup.log").exists()
+                and "Installing engine dependencies"
+                in (tmp / "startup.log").read_text(errors="replace"),
+                timeout=60, what="npm gate on empty dep dir")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- L5: an unparseable manifest logs loudly and fails the gate -
+    def test_w12_gate_corrupt_manifest_loud(self):
+        tmp = self._fixture("ENGINE_ADMIN_PASSWORD=x\n",
+                            gate="corrupt")
+        proc = self._boot(tmp)
+        try:
+            self._wait_for(
+                proc, tmp,
+                lambda: (tmp / "startup.log").exists()
+                and "Installing engine dependencies"
+                in (tmp / "startup.log").read_text(errors="replace"),
+                timeout=60, what="npm gate on corrupt manifest")
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertIn("could not read the engine package.json",
+                          log)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- L6: a missing OPTIONAL dependency never triggers install --
+    def test_w12_gate_optional_dep_ignored(self):
+        tmp = self._fixture(
+            f"ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL}\n"
+            f"ENGINE_ADMIN_PASSWORD={self.ENGINE_PW}\n",
+            gate="optional")
+        proc = self._boot(tmp)
+        try:
+            self._wait_for(proc, tmp,
+                           lambda: len(self._logins(tmp)) >= 1,
+                           what="verify login")
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertNotIn("Installing engine dependencies", log)
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class Wave12FaultHarness(_FixtureServerBase):
+    """D4 over real HTTP, with _save_settings fault-injected in the
+    disposable copy (a flag file makes every settings save fail)."""
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+        sp = cls.tmp / "server.py"
+        txt = sp.read_text()
+        anchor = "def _save_settings():\n"
+        assert txt.count(anchor) == 1
+        sp.write_text(txt.replace(
+            anchor,
+            anchor + "    if (Path(__file__).parent / "
+                     "\"SAVE_FAULT\").exists():\n"
+                     "        return False\n", 1))
+        _respawn_fixture(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def _fault(self, on):
+        flag = self.tmp / "SAVE_FAULT"
+        if on:
+            flag.write_text("x")
+        else:
+            flag.unlink(missing_ok=True)
+
+    # -- D4: a faulted used_by save cannot mint a second account ----
+    def test_61_invite_claim_faulted_save(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "friend", "days": 1,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        code = body["code"]
+        self._fault(True)
+        try:
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": "claim61", "password": "claim61-pw",
+                 "code": code},
+                headers={"X-Forwarded-For": "10.61.0.1"})
+            # Pre-fix: 200 ok, and the SAME code minted a second
+            # account after a restart.
+            self.assertEqual(status, 500, body)
+        finally:
+            self._fault(False)
+        # No account was created by the faulted claim.
+        status, _, _ = self._login("claim61-pw")
+        self.assertEqual(status, 401)
+        # The claim was rolled back: the code still redeems, once.
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "claim61b", "password": "claim61b-pw",
+             "code": code},
+            headers={"X-Forwarded-For": "10.61.0.2"})
+        self.assertEqual(status, 200, body)
+        _respawn_fixture(self.__class__)
+        # After a restart the invite is used by claim61b only, the
+        # account exists exactly once, and the code is spent.
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, _, _ = self._login("claim61b-pw")
+        self.assertEqual(status, 200)
+        status, _, _ = self._login("claim61-pw")
+        self.assertEqual(status, 401)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "claim61c", "password": "claim61c-pw",
+             "code": code},
+            headers={"X-Forwarded-For": "10.61.0.3"})
+        self.assertEqual(status, 400, body)
+
+    # -- D4: add-friend role/cap saves are outcome-checked ----------
+    def test_62_add_friend_role_cap_faulted_save(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        self._fault(True)
+        try:
+            status, body, _ = self._access(
+                {"action": "add", "label": "fault62",
+                 "password": "fault62-pw", "master_pw": MASTER,
+                 "role": "moderator", "cap": 1234}, admin)
+            self.assertEqual(status, 500, body)
+        finally:
+            self._fault(False)
+        # The account itself persisted (it is saved before the role),
+        # but neither the role nor the cap may pretend to have.
+        status, _, _ = self._login("fault62-pw")
+        self.assertEqual(status, 200)
+        _respawn_fixture(self.__class__)
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"global_cap": 0}}, admin)
+        self.assertEqual(status, 200, body)
+        settings = body.get("settings") or {}
+        self.assertNotIn("fault62", settings.get("roles") or {})
+        self.assertNotIn("fault62", settings.get("user_caps") or {})
+
+    # -- D4: a faulted factory-reset save answers an honest 500 -----
+    def test_63_factory_reset_faulted_save(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"announcement": "PRE-RESET-63"}}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "friend_set_cap", "label": FRIEND,
+             "cap": 4321, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        self._fault(True)
+        try:
+            status, body, _ = self._access(
+                {"action": "factory_reset", "master_pw": MASTER,
+                 "confirm": "RESET"}, admin)
+            # Pre-fix: 200 ok:true, then the pre-reset settings
+            # silently resurrected at restart.
+            self.assertEqual(status, 500, body)
+            self.assertIn("revert at restart",
+                          body.get("error", ""), body)
+        finally:
+            self._fault(False)
+        _respawn_fixture(self.__class__)
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"global_cap": 0}}, admin)
+        self.assertEqual(status, 200, body)
+        settings = body.get("settings") or {}
+        # The 500 was honest: the persisted (pre-reset) settings are
+        # exactly what a restart resurrects.
+        self.assertEqual(settings.get("announcement"), "PRE-RESET-63")
+        self.assertEqual(
+            (settings.get("user_caps") or {}).get(FRIEND), 4321)
+
+
+class Wave12RotationHarness(_FixtureServerBase):
+    """A1: a proven /setup rotation carries the master-encrypted
+    artefacts over to the new master, like change_master does."""
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def test_71_setup_rotation_carry_over(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        # An admin saved chat under the current master.
+        status, body, _ = self._req(
+            "POST", "/api/chats",
+            {"action": "save", "title": "w12 canary chat",
+             "messages": [{"r": "user", "t": "canary-71"}]}, ck=admin)
+        self.assertEqual(status, 200, body)
+        # An owner integrations vault under the current master.
+        intg_dir = self.tmp / "userintegrations"
+        intg_dir.mkdir(exist_ok=True)
+        encrypt_keys({"linear": {"api_key": "lin-fixture-71"}},
+                     MASTER, intg_dir / "_owner.enc")
+        # The proven /setup rotation to a new master.
+        status, body = self._form("/setup", {
+            "password": MASTER_B, "confirm": MASTER_B,
+            "current_master": MASTER, "k_groq": "sk-rotated-71"},
+            admin)
+        self.assertEqual(status, 302, body)
+        # users.enc (friend-list disaster backup) opens under the
+        # NEW master now — pre-fix it stayed under the old one.
+        from key_security import decrypt_keys as _dec
+        users = _dec(self.tmp / "users.enc", MASTER_B)
+        self.assertIn(FRIEND, users)
+        with self.assertRaises(Exception):
+            _dec(self.tmp / "users.enc", MASTER)
+        # The owner integrations vault carried over too.
+        vault = _dec(intg_dir / "_owner.enc", MASTER_B)
+        self.assertEqual(vault["linear"]["api_key"], "lin-fixture-71")
+        # Admin chats open under the new master (pre-fix: 400
+        # "chat storage unavailable in this session").
+        _, _, admin_b = self._login(MASTER_B)
+        self.assertTrue(admin_b)
+        status, body, _ = self._req("POST", "/api/chats",
+                                    {"action": "list"}, ck=admin_b)
+        self.assertEqual(status, 200, body)
+        titles = [c["title"] for c in body.get("chats", [])]
+        self.assertIn("w12 canary chat", titles)
+        # Disaster path: wipe the working access files, restart —
+        # the friend list restores from users.enc under the NEW
+        # master at the admin's login, so the friend can sign in.
+        (self.tmp / "access.json").unlink(missing_ok=True)
+        (self.tmp / "access.enc").unlink(missing_ok=True)
+        _respawn_fixture(self.__class__)
+        _, _, admin_b = self._login(MASTER_B)
+        self.assertTrue(admin_b)
+        status, _, _ = self._login(FRIEND_PW)
+        self.assertEqual(status, 200)
+        # Rotate back so the fixture ends on the original master.
+        status, body = self._form("/setup", {
+            "password": MASTER, "confirm": MASTER,
+            "current_master": MASTER_B, "k_groq": "sk-shared-fake"},
+            admin_b)
+        self.assertEqual(status, 302, body)
+
+
+class Wave12FirstRunHarness(_FixtureServerBase):
+    """A3: first-run race losers (unproven deferred re-checks) must
+    not burn the owner's global master-proof budget."""
+    FIXTURE_FILES = ()
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def test_81_first_run_losers_dont_burn_budget(self):
+        victim_pw = "victim-master-81"
+        loser_pw = "loser-master-81"
+        body_a = urllib.parse.urlencode({
+            "password": loser_pw, "confirm": loser_pw,
+            "current_master": "wrong-master-81",
+            "k_groq": "sk-loser"}).encode()
+        socks = []
+        try:
+            for _i in range(12):
+                sock = socket.create_connection(
+                    ("127.0.0.1", self.port), timeout=30)
+                sock.sendall((
+                    "POST /setup HTTP/1.1\r\n"
+                    "Host: 127.0.0.1\r\n"
+                    "Content-Type: application/x-www-form-urlencoded\r\n"
+                    f"Content-Length: {len(body_a)}\r\n"
+                    "Connection: close\r\n\r\n").encode() + body_a[:8])
+                socks.append(sock)
+            time.sleep(0.5)
+            # The genuine first setup completes meanwhile.
+            status, _ = self._form("/setup", {
+                "password": victim_pw, "confirm": victim_pw,
+                "k_groq": "sk-victim"})
+            self.assertEqual(status, 302)
+            # Every held loser now lands on the deferred re-check:
+            # all get the same 401 as any unproven rotation.
+            for sock in socks:
+                sock.sendall(body_a[8:])
+                resp = b""
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    resp += chunk
+                status_line = resp.split(b"\r\n", 1)[0].decode(
+                    errors="replace")
+                self.assertIn("401", status_line, resp[:400])
+        finally:
+            for sock in socks:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+        # Pre-fix, the losers' deferred proofs debited the shared
+        # ("master", "") budget 10 times and this CORRECT-master
+        # console proof was refused (401) for up to 900s.
+        _, _, admin = self._login(victim_pw)
+        self.assertTrue(admin)
+        status, body, _ = self._req(
+            "POST", "/api/access",
+            {"action": "2fa_status", "master_pw": victim_pw},
+            ck=admin)
+        self.assertEqual(status, 200, body)
+
+
+class Wave12OpenHarness(_FixtureServerBase):
+    """A2: open mode keeps per-source signups working while a flat
+    global ceiling restores the cross-source oracle bound."""
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def test_91_open_mode_global_ceiling_binds(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"registration": "open"}}, admin)
+        self.assertEqual(status, 200, body)
+        try:
+            # Per-source signup still works (and refunds its global
+            # hit on success, so legitimate volume never accrues).
+            for i, label in enumerate(("legit91a", "legit91b")):
+                status, body, _ = self._req(
+                    "POST", "/api/invite/redeem",
+                    {"label": label, "password": f"{label}-pw"},
+                    headers={"X-Forwarded-For": f"10.91.0.{i + 1}"})
+                self.assertEqual(status, 200, (label, body))
+            # 100 taken verdicts, each from a DISTINCT source: every
+            # per-source bucket is fresh, so only the global ceiling
+            # can bind. (Threaded: each verdict is a PBKDF2 scan.)
+            import concurrent.futures
+
+            def probe(i):
+                return self._req(
+                    "POST", "/api/invite/redeem",
+                    {"label": f"taken91_{i}", "password": FRIEND_PW},
+                    headers={"X-Forwarded-For": f"10.91.1.{i}"})[0]
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=8) as ex:
+                codes = list(ex.map(probe, range(100)))
+            self.assertEqual(codes, [400] * 100)
+            # The 101st verdict — taken or free, from a brand-new
+            # source — is the same generic 429 (pre-fix: 400/200,
+            # an unbounded cross-source oracle).
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": "taken91_x", "password": FRIEND_PW},
+                headers={"X-Forwarded-For": "10.91.9.9"})
+            self.assertEqual(status, 429, body)
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": "free91", "password": "free91-pw-999"},
+                headers={"X-Forwarded-For": "10.91.9.10"})
+            self.assertEqual(status, 429, body)
+        finally:
+            self._access(
+                {"action": "settings_set", "master_pw": MASTER,
+                 "patch": {"registration": "invite"}}, admin)
 
 
 if __name__ == "__main__":

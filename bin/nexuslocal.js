@@ -40,6 +40,57 @@ function findPython() {
   return null;
 }
 
+// Wave 12 (L1/L2/L3): ONE shared .env reader for the ENGINE_ADMIN
+// credentials, used by the claim path, the verify path and the
+// credential-removal path. dotenv grammar for these keys: a leading
+// BOM is stripped, whitespace around `=` is tolerated, one layer of
+// surrounding single/double quotes is stripped, an EMPTY value
+// counts as ABSENT (a later line for the same key wins over an
+// empty earlier one), and the first non-empty match wins. The old
+// private regex readers disagreed with all of that: an empty first
+// line shadowed valid credentials in verifyClaim, quoted/spaced
+// values were read literally (a quoted password was POSTed with its
+// quotes on, and the 401 that earned deleted every credential
+// line), and a BOM made the first line invisible.
+function parseEngineAdminCreds(envTxt) {
+  let txt = envTxt || "";
+  if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+  const out = { hasEmail: false, hasPassword: false };
+  for (const line of txt.split(/\r?\n/)) {
+    const m = line.match(/^\s*(ENGINE_ADMIN_EMAIL|ENGINE_ADMIN_PASSWORD)\s*=\s*(.*)$/);
+    if (!m) continue;
+    const isEmail = m[1] === "ENGINE_ADMIN_EMAIL";
+    if (isEmail) out.hasEmail = true; else out.hasPassword = true;
+    let v = m[2].trim();
+    if (v.length >= 2
+        && ((v[0] === '"' && v[v.length - 1] === '"')
+            || (v[0] === "'" && v[v.length - 1] === "'"))) {
+      v = v.slice(1, -1);
+    }
+    if (!v) continue;  // empty = absent: fall through to a later line
+    if (isEmail && out.email === undefined) out.email = v;
+    if (!isEmail && out.password === undefined) out.password = v;
+  }
+  return out;
+}
+
+function readEngineAdminCreds(envFile) {
+  try {
+    return parseEngineAdminCreds(fs.readFileSync(envFile, "utf8"));
+  } catch (e) {
+    return { hasEmail: false, hasPassword: false };
+  }
+}
+
+function removeEngineAdminCreds(envFile) {
+  // The credential-removal path uses the same grammar: drop EVERY
+  // ENGINE_ADMIN line, whatever its spacing, quoting or BOM.
+  const envTxt = fs.readFileSync(envFile, "utf8");
+  fs.writeFileSync(envFile,
+    envTxt.replace(/^\uFEFF?\s*ENGINE_ADMIN_(EMAIL|PASSWORD)\s*=.*\r?\n?/gm, ""));
+  try { fs.chmodSync(envFile, 0o600); } catch (e) {}
+}
+
 function main() {
   console.log("============================================");
   console.log(" Nexus-Local - Your Personal AI Dashboard");
@@ -91,14 +142,24 @@ function main() {
   try {
     const _epkg = JSON.parse(fs.readFileSync(
       path.join(engineServer, "package.json"), "utf8"));
-    const _edeps = Object.keys({
-      ...(_epkg.dependencies || {}),
-      ...(_epkg.optionalDependencies || {})});
+    // Wave 12 (L4/L5/L6): probe each direct dependency's
+    // package.json (an empty directory left by an interrupted copy
+    // or an antivirus quarantine is NOT an installed dependency),
+    // cover `dependencies` ONLY (npm legitimately omits
+    // optionalDependencies, so gating on them never converged and
+    // any npm ci failure then failed the whole boot), and treat an
+    // unreadable or unparseable manifest as a gate FAILURE said
+    // loudly — the old silent catch{} fell back to the two
+    // sentinels and hid exactly the damage this gate exists for.
+    const _edeps = Object.keys(_epkg.dependencies || {});
     if (_edeps.some((d) => !fs.existsSync(
-        path.join(nodeModules, ...d.split("/"))))) {
+        path.join(nodeModules, ...d.split("/"), "package.json")))) {
       _depsMissing = true;
     }
-  } catch (e) {}
+  } catch (e) {
+    log(`WARNING: could not read the engine package.json (${e.message}) — treating engine dependencies as missing and reinstalling.`);
+    _depsMissing = true;
+  }
   if (_depsMissing) {
     log("Installing engine dependencies (first run)...");
     console.log("Installing engine (first run)...");
@@ -209,14 +270,12 @@ function main() {
     });
     const claimState = { tries: 0, lastWhy: "no attempt yet" };
     const verifyClaim = (http) => {
-      let email = null, pw = null;
-      try {
-        const envTxt = fs.readFileSync(envFile, "utf8");
-        const em = envTxt.match(/^ENGINE_ADMIN_EMAIL=(.*)$/m);
-        const pm = envTxt.match(/^ENGINE_ADMIN_PASSWORD=(.*)$/m);
-        if (em) email = em[1].trim();
-        if (pm) pw = pm[1].trim();
-      } catch (e) {}
+      // Wave 12 (L1/L2/L3): the shared dotenv-style reader — an
+      // empty first line no longer shadows valid credentials, and
+      // quoted/spaced/BOM values parse the way dotenv parses them.
+      const _creds = readEngineAdminCreds(envFile);
+      let email = _creds.email || null, pw = _creds.password || null;
+      let emailDefaulted = false;
       if (!pw) {
         log("WARNING: the engine admin was already claimed but app/.env holds no ENGINE_ADMIN credentials — on a fresh install, another local process claimed it first.");
         return;
@@ -229,6 +288,7 @@ function main() {
       // so loudly instead of verifying against a null identity.
       if (!email) {
         email = "owner@example.com";
+        emailDefaulted = true;
         log("WARNING: app/.env holds an ENGINE_ADMIN_PASSWORD but no ENGINE_ADMIN_EMAIL — verifying the claim against the default owner@example.com.");
       }
       // Audit run-9 (L1): the old verify made ONE login POST and
@@ -253,12 +313,15 @@ function main() {
           r2.on("end", () => {
             if (r2.statusCode === 200) return; // ours — done
             if (r2.statusCode === 401 || r2.statusCode === 403) {
-              try {
-                const envTxt = fs.readFileSync(envFile, "utf8");
-                fs.writeFileSync(envFile,
-                  envTxt.replace(/^ENGINE_ADMIN_(EMAIL|PASSWORD)=.*\n?/gm, ""));
-                try { fs.chmodSync(envFile, 0o600); } catch (e) {}
-              } catch (e) {}
+              if (emailDefaulted) {
+                // Wave 12 (L1): a login attempted with the DEFAULT
+                // email (the .env recorded none) is not a
+                // definitive verdict on the recorded password —
+                // credentials are never deleted on it.
+                log("WARNING: the engine admin login with the recorded password and the default email was refused — credentials KEPT, because app/.env records no email to verify against. Check the engine and app/.env.");
+                return;
+              }
+              try { removeEngineAdminCreds(envFile); } catch (e) {}
               log("WARNING: the engine admin is claimed by credentials that are NOT the ones from app/.env (now removed) — another local process won the first-run claim, and the engine's stored provider keys may be exposed to it.");
               return;
             }
@@ -313,40 +376,37 @@ function main() {
             // appending, and never duplicate the email line.
             try { fs.chmodSync(envFile, 0o600); } catch (e) {}
             const envTxt = fs.readFileSync(envFile, "utf8");
-            const em = envTxt.match(/^ENGINE_ADMIN_EMAIL=(.*)$/m);
-            const pm = envTxt.match(/^ENGINE_ADMIN_PASSWORD=(.*)$/m);
-            // Wave 11 (F12/F13): an EMPTY-valued line counts as
-            // ABSENT everywhere — the same test verifyClaim's
-            // fallback already applied. Readers are first-match, so
-            // an empty line left in place would shadow any appended
-            // credential forever (the claim POSTed {"email":""} and
-            // the engine 400'd for the life of the process; an
-            // appended password behind an empty line was never read
-            // and the next boot cried foreign-claim). Empty lines
-            // are therefore REWRITTEN IN PLACE with the value being
+            // Wave 12 (L1/L2/L3): the shared dotenv-style reader
+            // (claimStep keeps no private reader any more). Wave 11
+            // (F12/F13) semantics ride on top of it: an EMPTY-valued
+            // line counts as ABSENT — readers used to be
+            // first-match, so an empty line left in place shadowed
+            // any appended credential forever. Empty lines are
+            // therefore REWRITTEN IN PLACE with the value being
             // recorded, never duplicated by an append.
-            if (em && em[1].trim()) email = em[1].trim();
-            if (pm) pw = pm[1].trim();
-            const emEmpty = !!em && !em[1].trim();
-            const pmEmpty = !!pm && !pm[1].trim();
+            const _creds = parseEngineAdminCreds(envTxt);
+            if (_creds.email) email = _creds.email;
+            if (_creds.password) pw = _creds.password;
+            const emEmpty = _creds.hasEmail && !_creds.email;
+            const pmEmpty = _creds.hasPassword && !_creds.password;
             if (!pw) {
               pw = require("crypto").randomBytes(24).toString("hex");
               let txt = envTxt, add = "";
               if (pmEmpty) {
-                txt = txt.replace(/^ENGINE_ADMIN_PASSWORD=.*$/m,
+                txt = txt.replace(/^\uFEFF?\s*ENGINE_ADMIN_PASSWORD\s*=.*$/m,
                                   `ENGINE_ADMIN_PASSWORD=${pw}`);
               } else {
                 add += `\nENGINE_ADMIN_PASSWORD=${pw}\n`;
               }
               if (emEmpty) {
-                txt = txt.replace(/^ENGINE_ADMIN_EMAIL=.*$/m,
+                txt = txt.replace(/^\uFEFF?\s*ENGINE_ADMIN_EMAIL\s*=.*$/m,
                                   `ENGINE_ADMIN_EMAIL=${email}`);
-              } else if (!em) {
+              } else if (!_creds.hasEmail) {
                 add += `\nENGINE_ADMIN_EMAIL=${email}`;
               }
               if (txt !== envTxt) fs.writeFileSync(envFile, txt);
               if (add) fs.appendFileSync(envFile, add);
-            } else if (!em || emEmpty) {
+            } else if (!_creds.hasEmail || emEmpty) {
               // Audit run-9 (L2): a pre-existing password with NO
               // email line — record the email actually being used
               // (the default above) so verifyClaim never has to
@@ -356,7 +416,7 @@ function main() {
               // shadowed duplicate.
               if (emEmpty) {
                 fs.writeFileSync(envFile, envTxt.replace(
-                  /^ENGINE_ADMIN_EMAIL=.*$/m,
+                  /^\uFEFF?\s*ENGINE_ADMIN_EMAIL\s*=.*$/m,
                   `ENGINE_ADMIN_EMAIL=${email}`));
               } else {
                 fs.appendFileSync(envFile, `\nENGINE_ADMIN_EMAIL=${email}\n`);
@@ -415,20 +475,45 @@ function main() {
     shell: python.startsWith('"'),
   });
 
-  dashboard.on("close", (code) => {
-    log(`Dashboard exited with code ${code}`);
-    process.exit(code || 0);
-  });
-
-  // Graceful shutdown — kill engine AND dashboard
-  process.on("SIGINT", () => {
+  // Wave 12 (L7/L8): ONE shutdown path for every exit route —
+  // SIGINT, SIGTERM, SIGHUP, and the dashboard dying on its own.
+  // The old shape handled only SIGINT, and that only
+  // fire-and-forget: SIGTERM/SIGHUP killed the launcher and
+  // orphaned BOTH children holding ports 3001/8080 (the next boot
+  // then died on EADDRINUSE), and a dashboard exit orphaned the
+  // engine the same way. The shared path sets the flag, stops BOTH
+  // children (SIGTERM, a short grace, then SIGKILL), then exits.
+  let _shutdownCode = 0;
+  const shutdown = (code) => {
+    if (shuttingDown) return;
     shuttingDown = true;  // F15: the engine exit this causes is ours
+    _shutdownCode = code || 0;
     log("Shutting down...");
     if (engine) {
-      try { engine.kill(); } catch (e) {}
+      try { engine.kill("SIGTERM"); } catch (e) {}
     }
-    dashboard.kill("SIGINT");
+    try { dashboard.kill("SIGTERM"); } catch (e) {}
+    setTimeout(() => {
+      if (engine) {
+        try { engine.kill("SIGKILL"); } catch (e) {}
+      }
+      try { dashboard.kill("SIGKILL"); } catch (e) {}
+    }, 1500);
+    setTimeout(() => process.exit(_shutdownCode), 2000);
+  };
+
+  dashboard.on("close", (code) => {
+    log(`Dashboard exited with code ${code}`);
+    if (!shuttingDown) {
+      // L8: the dashboard died on its own — stop the engine via
+      // the same shutdown path instead of orphaning it.
+      shutdown(code || 0);
+    }
   });
+
+  process.on("SIGINT", () => shutdown(0));
+  process.on("SIGTERM", () => shutdown(0));
+  process.on("SIGHUP", () => shutdown(0));
 }
 
 main();

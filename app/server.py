@@ -252,9 +252,10 @@ _SETTINGS_LOCK = threading.RLock()
 _SETTINGS_IO_LOCK = threading.Lock()
 _SETTINGS_GEN = [0]
 _SETTINGS_WRITTEN_GEN = [0]
+_SETTINGS_ACTIVE = [0]
 
 
-def _save_settings():
+def _save_settings_impl():
     """Persist settings atomically and report success (audit run-7):
     the old direct write_text tore under concurrent writers (a torn
     file at boot was silently dropped) and swallowed every failure
@@ -317,6 +318,28 @@ def _save_settings():
         return ok
 
 
+def _save_settings():
+    """Wave 12 (D2): count in-flight saves so _settings_outcome can
+    tell "not yet landed" (a covering save is still in its encrypt
+    phase) from "never landed", instead of reading a stale persisted
+    snapshot mid-flight and manufacturing a ghost."""
+    _SETTINGS_ACTIVE[0] += 1
+    try:
+        return _save_settings_impl()
+    finally:
+        _SETTINGS_ACTIVE[0] -= 1
+
+
+def _wait_settings_settled(timeout=3.0):
+    """Bounded wait for in-flight settings saves to settle (D2):
+    generation-ordered and IO-serialised saves mean that once no
+    save is active, the persisted state is final for every mutation
+    applied so far."""
+    deadline = time.time() + timeout
+    while _SETTINGS_ACTIVE[0] > 0 and time.time() < deadline:
+        time.sleep(0.02)
+
+
 def _persisted_settings():
     """The settings state that actually landed on disk: the encrypted
     mirror first (it is the boot source of truth), then the plain
@@ -339,6 +362,100 @@ def _persisted_settings():
     return None
 
 
+def _cas_rollback_dict_entry(container, entry, prior, new):
+    """Wave 12 (D1): compare-and-restore ONE dict entry — restore the
+    caller's prior value for `entry` ONLY if the live entry still
+    equals the caller's own mutation; a concurrent writer's entry
+    (same container, or the same entry since re-saved) is never
+    clobbered. The old whole-container restore silently undid a
+    concurrent acknowledged change, and the next unrelated save then
+    persisted the clobber. Runs under _SETTINGS_LOCK (the outcome
+    helper invokes rollbacks under it)."""
+    live = _SETTINGS.get(container)
+    if not isinstance(live, dict):
+        return
+    new_has = entry in (new or {})
+    if (entry in live) != new_has:
+        return
+    if new_has and live.get(entry) != (new or {}).get(entry):
+        return
+    live = dict(live)
+    if entry in (prior or {}):
+        live[entry] = prior[entry]
+    else:
+        live.pop(entry, None)
+    _SETTINGS[container] = live
+
+
+def _cas_rollback_list_entry(container, entry, prior, new):
+    """D1 compare-and-restore for a membership list (suspended):
+    restore `entry`'s presence to its prior state only if live
+    presence still equals the caller's own mutation."""
+    live = _SETTINGS.get(container)
+    if not isinstance(live, list):
+        return
+    if (entry in live) != (entry in (new or [])):
+        return
+    live = list(live)
+    if entry in (prior or []):
+        if entry not in live:
+            live.append(entry)
+    else:
+        live = [x for x in live if x != entry]
+    _SETTINGS[container] = live
+
+
+def _cas_rollback_invite_add(code_hash):
+    """D1: undo an invite_create by removing ONLY the caller's own
+    invite (matched by hash) if it is still live."""
+    live = _SETTINGS.get("invites")
+    if isinstance(live, list):
+        _SETTINGS["invites"] = [i for i in live
+                                if i.get("h") != code_hash]
+
+
+def _cas_rollback_invite_remove(removed):
+    """D1: undo an invite_revoke by re-adding ONLY the entries this
+    caller removed, and only those still absent live."""
+    live = _SETTINGS.get("invites")
+    if not isinstance(live, list):
+        return
+    have = {i.get("h") for i in live}
+    add = [i for i in (removed or []) if i.get("h") not in have]
+    if add:
+        _SETTINGS["invites"] = list(live) + add
+
+
+def _cas_rollback_invite_claim(code_hash, label):
+    """D4: undo an invite claim — clear used_by only if the live
+    invite still carries THIS caller's claim."""
+    live = _SETTINGS.get("invites")
+    if isinstance(live, list):
+        for i in live:
+            if i.get("h") == code_hash and i.get("used_by") == label:
+                i["used_by"] = None
+
+
+def _cas_rollback_keys(prior, new, snapshot_prior=None,
+                       snapshot_new=None):
+    """D1 per-key compare-and-restore (settings_set / restore_apply):
+    each key is restored only if live still equals the caller's own
+    value for that key — a concurrent writer's acknowledged change
+    to the SAME key (persisted under them) otherwise survived in the
+    persisted state but was rolled back in live memory and then
+    clobbered by the next save. The restore backup_snapshot rides
+    the same compare on its own value."""
+    for k, v in (new or {}).items():
+        try:
+            if _SETTINGS.get(k) == v:
+                _SETTINGS[k] = (prior or {}).get(k)
+        except Exception:
+            continue
+    if snapshot_new is not None \
+            and _SETTINGS.get("backup_snapshot") == snapshot_new:
+        _SETTINGS["backup_snapshot"] = snapshot_prior
+
+
 def _settings_outcome(sv, pred, rollback=None):
     """Wave 11 (F1/F2): verify the OUTCOME of a consequential settings
     save, not the save call's return value. _save_settings can return
@@ -350,10 +467,16 @@ def _settings_outcome(sv, pred, rollback=None):
     the caller must answer 409, never hand out a dead result), or
     "failed" (genuinely unpersisted; the in-memory mutation is rolled
     back via rollback() under _SETTINGS_LOCK so a later unrelated save
-    cannot resurrect it and the caller's 500 text becomes true)."""
-    if sv:
-        with _SETTINGS_LOCK:
-            return "ok" if pred(_SETTINGS) else "conflict"
+    cannot resurrect it and the caller's 500 text becomes true).
+    Wave 12 (D2/D3): BOTH branches now verify against the PERSISTED
+    state (the True branch used to check live memory only, so a third
+    writer's unsaved same-value mutation masked a supersession and
+    the caller was told ok for a value that was never persisted),
+    and a verdict first waits (bounded) for in-flight saves to
+    settle — a save still in its encrypt phase may already carry
+    this caller's mutation, so reading the persisted state before
+    it lands manufactures a ghost a restart resurrects."""
+    _wait_settings_settled()
     persisted = _persisted_settings()
     if persisted is not None:
         try:
@@ -361,6 +484,14 @@ def _settings_outcome(sv, pred, rollback=None):
                 return "ok"
         except Exception:
             pass
+    if sv:
+        if persisted is not None:
+            return "conflict"
+        with _SETTINGS_LOCK:
+            try:
+                return "ok" if pred(_SETTINGS) else "conflict"
+            except Exception:
+                return "conflict"
     if rollback is not None:
         with _SETTINGS_LOCK:
             rollback()
@@ -2569,6 +2700,76 @@ def _save_access(d, master_pw=None):
         except Exception:
             pass
 
+def _carry_over_master_rotation(cur, new):
+    """Re-encrypt every master-keyed artefact under a NEW master
+    password (wave 12, A1): the friend access backup (users.enc via
+    _save_access), the owner integrations vault, and the admin chat
+    store's DEK wrap (or its legacy migration). SHARED by
+    change_master and a proven /setup rotation — the two rotation
+    paths must never diverge again: /setup used to perform none of
+    these, stranding all three artefacts under the old password
+    (owner chats + integrations inaccessible until an undiscoverable
+    rotate-back, and the friend-list disaster backup silently dead).
+    An artefact that cannot be opened with the current password is
+    left byte-identical, never overwritten. Returns (chats_note,
+    intg_note) for the caller's response text."""
+    with _ACCESS_LOCK:
+        _save_access(_load_access(), new)
+    # Owner integrations vault: it is encrypted directly
+    # under the master password, so re-encrypt it too —
+    # otherwise it strands under the OLD password, silently
+    # loads as empty, and the next save overwrites it. A
+    # vault that cannot be opened with the current password
+    # is left byte-identical, never overwritten.
+    _intg_note = ""
+    try:
+        # Audit run-8: the carry-over takes _INTG_LOCK —
+        # without it, a concurrent integrations save
+        # landing mid-rotation re-encrypted the vault
+        # under the OLD password after rotation reported
+        # success, stranding every owner connection.
+        with _INTG_LOCK:
+            _ipath = _intg_path("_owner")
+            if _ipath.exists():
+                _ivault = decrypt_keys(_ipath, cur)
+                if isinstance(_ivault, dict):
+                    encrypt_keys(_ivault, new, _ipath)
+                    os.chmod(_ipath, 0o600)
+    except Exception:
+        _intg_note = "; integrations vault could not be carried over and was left unchanged"
+    # Admin saved chats: re-wrap their DEK under the NEW
+    # password (chat data stays encrypted under the same DEK).
+    # A legacy password-direct store is migrated to v2 under
+    # the new password. A store that cannot be opened with the
+    # current password is left byte-identical — never
+    # overwritten with an empty one.
+    _chats_note = ""
+    try:
+        _cp = _chat_path("Rudra")
+        if _cp.exists():
+            _env = json.loads(_cp.read_text(encoding="utf-8"))
+            if isinstance(_env, dict) and _env.get("v") == 2:
+                _dek = decrypt_raw(_chat_kek(cur, _b64d(_env["wrap_salt"])),
+                                   _b64d(_env["wrap_nonce"]),
+                                   _b64d(_env["wrapped_dek"]),
+                                   _CHAT_V2_AAD_WRAP)
+                _ws = os.urandom(16)
+                _wn, _wc = encrypt_raw(_chat_kek(new, _ws), _dek,
+                                       _CHAT_V2_AAD_WRAP)
+                _env["wrap_salt"] = _b64e(_ws)
+                _env["wrap_nonce"] = _b64e(_wn)
+                _env["wrapped_dek"] = _b64e(_wc)
+                _write_chat_file_atomic(_cp, _env)
+            else:
+                _legacy = decrypt_keys(_cp, cur)
+                if isinstance(_legacy, dict) and isinstance(_legacy.get("chats"), list):
+                    _dek, _fields = _wrap_new_dek(new)
+                    _save_admin_chats({"dek": _dek, **_fields}, _legacy)
+    except Exception:
+        _chats_note = "; saved chats could not be carried over and were left unchanged"
+    return _chats_note, _intg_note
+
+
 def _restore_access(master_pw):
     """Restore access.json from encrypted users.enc after a redeploy wiped the disk."""
     try:
@@ -3530,9 +3731,27 @@ def _v1_chat(messages, model, temperature=None):
         # (audit run-5): a lane whose daily provider_limits allowance
         # is spent is skipped, and the spend below is metered under
         # the lane's own name so the limit checks can see it.
-        if _provider_blocked(lane):
+        # Wave 12 (C1): reserve FIRST, then run the limit check
+        # counting this reservation (the _lane_spend_ok shape:
+        # completed + in-flight including this attempt must not
+        # EXCEED the limit). The old shape checked _provider_blocked
+        # first and reserved after, so a natural burst all passed the
+        # same check snapshot and overshot a lane limit of 1 up to
+        # the burst size (verifier: 4 hits against a limit of 1).
+        _vres = _inflight_add("v1", lane, attempt=True)
+        _gov_ok = True
+        _lim = (_SETTINGS.get("provider_limits") or {}).get(lane)
+        if _lim:
+            try:
+                _gov_ok = _today_counts(fresh=True)["providers"].get(
+                    lane, 0) + _inflight_n(provider=lane) <= int(_lim)
+            except Exception:
+                _gov_ok = True
+        if not _gov_ok:
+            _inflight_drop(_vres)
             continue
         if lane not in RELAY_KEYLESS and getattr(Handler, "keys", None) is None:
+            _inflight_drop(_vres)
             last_error = "vault locked"
             continue
         lane_msgs = messages
@@ -3545,11 +3764,9 @@ def _v1_chat(messages, model, temperature=None):
         payload = {"model": mdl, "messages": lane_msgs, "max_tokens": 4096}
         if temperature is not None:
             payload["temperature"] = temperature
-        # Audit run-8: hold a provider-tagged reservation across the
-        # lane attempt — /v1 took none at all, so _provider_blocked's
-        # in-flight term was always 0 here and a concurrent burst
-        # overshot per-lane limits inside one in-flight window.
-        _vres = _inflight_add("v1", lane, attempt=True)
+        # The provider-tagged reservation was taken above, before
+        # the governance check (wave 12, C1); it is held across the
+        # lane attempt and dropped in the finally below.
         try:
             try:
                 data = _v1_relay_call(lane, "/chat/completions", payload)
@@ -6219,8 +6436,23 @@ class Handler(BaseHTTPRequestHandler):
                     # keys.enc writer is already proof-gated under this
                     # same lock. The loser of the first-run race gets
                     # the same 401 as any unproven rotation.
-                    _rc_keys = _master_proof(
-                        form.get("current_master", [""])[0])
+                    # Wave 12 (A3): this deferred re-check must
+                    # NOT debit the shared global ("master", "")
+                    # failure budget — race losers are
+                    # unauthenticated requests that entered before
+                    # any proof was owed, and ten of them used to
+                    # lock the OWNER out of every master-proof
+                    # console action for up to 900s (and a correct
+                    # proof cannot clear a throttled bucket early).
+                    # A quiet decrypt (the wave-9 pattern) proves the
+                    # same fact with no budget side effects; the 401
+                    # for losers stays byte-identical.
+                    try:
+                        _rc_keys = decrypt_keys(
+                            key_path,
+                            form.get("current_master", [""])[0])
+                    except Exception:
+                        _rc_keys = None
                     if _rc_keys is None:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "current master password is wrong or missing"}).encode())
@@ -6233,6 +6465,17 @@ class Handler(BaseHTTPRequestHandler):
                 encrypt_keys(keys, pw, key_path)
                 os.chmod(key_path, 0o600)
             if keys_exist:
+                # Wave 12 (A1): a proven /setup rotation is a master
+                # rotation — carry the master-encrypted artefacts
+                # over to the NEW password via the SAME helper
+                # change_master uses, or users.enc (the friend-list
+                # disaster backup), the owner integrations vault and
+                # the admin chat DEK wrap stay stranded under the
+                # old password, and _CHAT_UNLOCKS clear wholesale
+                # for parity with change_master.
+                _carry_over_master_rotation(
+                    form.get("current_master", [""])[0], pw)
+                _CHAT_UNLOCKS.clear()
                 # Audit run-9 (S8): a PROVEN replacement is a master
                 # rotation — mirror change_master: the in-memory
                 # vault becomes the newly written one (it used to
@@ -6642,9 +6885,24 @@ class Handler(BaseHTTPRequestHandler):
                 def _img_blocked(p):
                     # Google image spends land on the google slot or
                     # its relay twin — either being governed blocks it.
+                    # Wave 12 (C2): the base reservation is tagged
+                    # with the picked provider BEFORE this pre-check
+                    # (below), so a peer's in-flight attempt is
+                    # visible here; exclude=self keeps this request
+                    # from counting itself (the transcribe pattern).
                     if p in ("google", "relay_gemini"):
-                        return _provider_blocked("google") or _provider_blocked("relay_gemini")
-                    return _provider_blocked(p)
+                        return _provider_blocked("google", exclude=self._cap_res) or _provider_blocked("relay_gemini", exclude=self._cap_res)
+                    return _provider_blocked(p, exclude=self._cap_res)
+                # Wave 12 (C2): born-tagged — tag the base
+                # reservation with the picked provider BEFORE the
+                # first governance check (_pblocked just below and
+                # every branch recheck), so a peer's check can see
+                # this in-flight attempt.
+                if provider in ("aihorde", "cloudflare", "google",
+                                "relay_gemini"):
+                    self._cap_res["provider"] = provider
+                elif provider in ("pollinations", "relay_pollinations"):
+                    self._cap_res["provider"] = "pollinations"
                 _pblocked = bool(_img_explicit and provider in (
                     "aihorde", "cloudflare", "google", "relay_gemini",
                     "pollinations", "relay_pollinations")
@@ -6676,8 +6934,7 @@ class Handler(BaseHTTPRequestHandler):
                             time.sleep(3)
                     return u
                 try:
-                    if provider == "aihorde" and model and not _pblocked and not _provider_blocked("aihorde"):
-                        self._cap_res["provider"] = "aihorde"  # run-8: tag the base reservation so provider_limits see media spend in flight
+                    if provider == "aihorde" and model and not _pblocked and not _provider_blocked("aihorde", exclude=self._cap_res):
                         _horde_rid = None
                         try:
                             hk = ((_ekeys or {}).get("aihorde") or "0000000000")
@@ -6755,8 +7012,7 @@ class Handler(BaseHTTPRequestHandler):
                                            "provider": "aihorde", "model": model,
                                            "prompt_tokens": 0, "completion_tokens": 0,
                                            "user": _chat_label, "ok": True})
-                    elif provider == "cloudflare" and model and not _pblocked and not _provider_blocked("cloudflare"):
-                        self._cap_res["provider"] = "cloudflare"  # run-8: tag the base reservation so provider_limits see media spend in flight
+                    elif provider == "cloudflare" and model and not _pblocked and not _provider_blocked("cloudflare", exclude=self._cap_res):
                         _ck = (_ekeys or {}).get("cloudflare") or ""
                         _acct, _, _tok = _ck.partition(":")
                         if not (_acct and _tok):
@@ -6783,7 +7039,6 @@ class Handler(BaseHTTPRequestHandler):
                             except Exception:
                                 _fail = "the request to Cloudflare failed (network or timeout)"
                     elif provider in ("google", "relay_gemini") and model and not _pblocked and not _img_blocked(provider):
-                        self._cap_res["provider"] = provider  # run-8: tag the base reservation so provider_limits see media spend in flight
                         gk = (_ekeys or {}).get("google") or (_ekeys or {}).get("relay_gemini") or ""
                         if not gk:
                             _fail = ("no Google key is available — the shared vault is still locked "
@@ -6825,8 +7080,10 @@ class Handler(BaseHTTPRequestHandler):
                         # 2026-10-10: picked Gemini, silently got Pollinations).
                         _may_substitute = (provider in ("pollinations", "relay_pollinations")
                                            or provider in (None, "", "auto") or not _img_explicit)
-                        if _may_substitute and not _pblocked and not _provider_blocked("pollinations"):
-                            self._cap_res["provider"] = "pollinations"  # run-8: tag the base reservation so provider_limits see media spend in flight
+                        if _may_substitute:
+                            # Wave 12 (C2): tag BEFORE the check.
+                            self._cap_res["provider"] = "pollinations"
+                        if _may_substitute and not _pblocked and not _provider_blocked("pollinations", exclude=self._cap_res):
                             _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
                             if _img and provider not in ("pollinations", "relay_pollinations"):
                                 _used_p, _used_m = "pollinations", "flux"
@@ -6906,8 +7163,9 @@ class Handler(BaseHTTPRequestHandler):
                 # limit state of BOTH lanes was bypassed and the
                 # in-flight term accrued to a lane that never spends.
                 # Which key pays is unchanged.
-                if _provider_blocked(_prov) or _provider_blocked(
-                        _prov if (_ekeys or {}).get(_prov) else "groq"):
+                self._cap_res["provider"] = _prov  # wave 12 (C2): tag BEFORE the governance check (born-tagged, the transcribe pattern)
+                if _provider_blocked(_prov, exclude=self._cap_res) or _provider_blocked(
+                        _prov if (_ekeys or {}).get(_prov) else "groq", exclude=self._cap_res):
                     # Wave 11 (F3): govern the lane that PAYS — when
                     # _prov holds no key of its own, _gk above fell
                     # back to the groq key, so the groq lane's own
@@ -6916,8 +7174,6 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(403)
                     self.wfile.write(json.dumps({"error": "voice is unavailable — the Groq provider is disabled or over its daily limit"}).encode())
                     return
-                self._cap_res["provider"] = _prov  # run-8: tag the base reservation so provider_limits see media spend in flight
-
                 # Chunk on sentence boundaries, <=180 chars each
                 _chunks, _cur = [], ""
                 for _piece in _re_v.split(r"(?<=[.!?])\s+", _text):
@@ -7041,12 +7297,11 @@ class Handler(BaseHTTPRequestHandler):
                 _H = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
                 if _hk:
                     _H["Authorization"] = f"Bearer {_hk}"
-                if _provider_blocked("huggingface"):
+                self._cap_res["provider"] = "huggingface"  # wave 12 (C2): tag BEFORE the governance check (born-tagged)
+                if _provider_blocked("huggingface", exclude=self._cap_res):
                     self._set_json_headers(403)
                     self.wfile.write(json.dumps({"error": "video is unavailable — the provider is disabled or over its daily limit"}).encode())
                     return
-                self._cap_res["provider"] = "huggingface"  # run-8: tag the base reservation so provider_limits see media spend in flight
-
                 _sess = _uuid_v.uuid4().hex[:12]
                 _neg = "worst quality, inconsistent motion, blurry, jittery, distorted"
                 _data = [_prompt_v, _neg, None, None, 512, 704, "text-to-video", 3, 9, 42, True, 1, True]
@@ -7672,14 +7927,17 @@ class Handler(BaseHTTPRequestHandler):
             # Admin console policy: max attempts, provider order,
             # enable/disable and per-provider daily limits.
             _max_att = max(1, int(_SETTINGS.get("max_attempts") or 4))
-            _dis = _disabled_providers()
-            _lims = _SETTINGS.get("provider_limits") or {}
-            _pcounts = _today_counts()["providers"]
-
             def _lane_ok(p):
-                if p in _dis:
+                # Wave 12 (C3): governance is read LIVE on every
+                # check. The build-time captures (_dis/_lims) went
+                # stale the moment an admin changed provider_disabled
+                # or provider_limits mid-request — validated saves
+                # install NEW objects, so the captures never
+                # refreshed — and this request's remaining spends
+                # ignored the change entirely.
+                if p in _disabled_providers():
                     return False
-                _l = _lims.get(p)
+                _l = (_SETTINGS.get("provider_limits") or {}).get(p)
                 if not _l:
                     return True
                 # Audit run-7: FRESH counts plus the in-flight term —
@@ -7697,9 +7955,9 @@ class Handler(BaseHTTPRequestHandler):
                 # not EXCEED the limit. The old shape checked first and
                 # reserved after, and two rendezvoused spends both
                 # passed a limit of 1.
-                if p in _dis:
+                if p in _disabled_providers():
                     return False
-                _l = _lims.get(p)
+                _l = (_SETTINGS.get("provider_limits") or {}).get(p)
                 if not _l:
                     return True
                 return (_today_counts(fresh=True)["providers"].get(p, 0)
@@ -8172,7 +8430,23 @@ class Handler(BaseHTTPRequestHandler):
                 _probe_key = h if code else (
                     "open:" + _client_ip(self.headers,
                                          self.client_address[0]))
-                if not _rl_ok("redeemprobe", _probe_key, 10, 900):
+                # Wave 12 (A2): open mode ALSO carries a flat
+                # global ceiling alongside the per-source bucket —
+                # F11's per-source keying stays exactly as shipped
+                # (it is what keeps junk sources from blocking
+                # legitimate signups), but per-source alone lets one
+                # host rotate IPv6 sources for an unbounded
+                # taken/free oracle, dropping the run-8 cross-source
+                # budget invariant. 100 verdicts/900s across all
+                # sources is far above any plausible legitimate
+                # signup volume for this deployment. Both buckets
+                # are consumed BEFORE the verdict, so post-budget
+                # taken and free stay indistinguishable in scope.
+                _probe_ok = _rl_ok("redeemprobe", _probe_key, 10, 900)
+                if _probe_ok and not code:
+                    _probe_ok = _rl_ok("redeemprobe", "open:all",
+                                       100, 900)
+                if not _probe_ok:
                     _audit("Auth", f"Invite signup refused, probe budget exhausted: {label}")
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
@@ -8209,8 +8483,28 @@ class Handler(BaseHTTPRequestHandler):
                             return
                         invite = _live
                         invite["used_by"] = label  # claim, locks held
-                    # S2: save after the lock releases (see _save_userkeys).
-                    _save_settings()           # persist before the hash
+                    # Wave 12 (D4): the claim save is outcome-checked
+                    # like every other consequential save. A faulted
+                    # used_by save used to answer ok anyway; at
+                    # restart the invite read unused again, so ONE
+                    # code minted TWO accounts. On failure the claim
+                    # is rolled back (compare-and-restore) and the
+                    # request aborts BEFORE _save_access creates the
+                    # account — the claim already precedes creation.
+                    _csv = _save_settings()  # persist before the hash
+                    _coc = _settings_outcome(
+                        _csv,
+                        lambda s: any(
+                            i.get("h") == h
+                            and i.get("used_by") == label
+                            for i in (s.get("invites") or [])),
+                        lambda: _cas_rollback_invite_claim(h, label))
+                    if _coc != "ok":
+                        self._set_json_headers(
+                            409 if _coc == "conflict" else 500)
+                        self.wfile.write(json.dumps(
+                            {"error": "signup could not be saved — try again"}).encode())
+                        return
                 try:
                     access[label] = _hash_password(password)
                     _save_access(access)
@@ -8247,6 +8541,8 @@ class Handler(BaseHTTPRequestHandler):
                 # refund cannot reopen the taken/free oracle; refused
                 # attempts above keep their hits.
                 _rl_refund("redeemprobe", _probe_key)
+                if not code:
+                    _rl_refund("redeemprobe", "open:all")
             _audit("Users", f"Signed up via invite: {label} ({role})",
                    ip=_client_ip(self.headers, self.client_address[0]))
             _alert("signup", "signup", {"label": label, "role": role})
@@ -8838,8 +9134,8 @@ class Handler(BaseHTTPRequestHandler):
                         == caps.get(stored)
                         and (stored in (s.get("user_caps") or {}))
                         == (stored in caps),
-                        lambda: _SETTINGS.__setitem__("user_caps",
-                                                      _prior_caps))
+                        lambda: _cas_rollback_dict_entry(
+                            "user_caps", stored, _prior_caps, caps))
                     if _oc == "conflict":
                         self._set_json_headers(409)
                         self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
@@ -8873,8 +9169,8 @@ class Handler(BaseHTTPRequestHandler):
                         _sv,
                         lambda s: (stored in (s.get("suspended") or []))
                         == bool(data.get("on")),
-                        lambda: _SETTINGS.__setitem__("suspended",
-                                                      _prior_susp))
+                        lambda: _cas_rollback_list_entry(
+                            "suspended", stored, _prior_susp, susp))
                     if _oc == "conflict":
                         self._set_json_headers(409)
                         self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
@@ -8919,8 +9215,8 @@ class Handler(BaseHTTPRequestHandler):
                         _sv,
                         lambda s: (s.get("roles") or {}).get(stored)
                         == (None if role == "friend" else role),
-                        lambda: _SETTINGS.__setitem__("roles",
-                                                      _prior_roles))
+                        lambda: _cas_rollback_dict_entry(
+                            "roles", stored, _prior_roles, roles))
                     if _oc == "conflict":
                         self._set_json_headers(409)
                         self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
@@ -9206,8 +9502,7 @@ class Handler(BaseHTTPRequestHandler):
                         _sv,
                         lambda s: any(i.get("h") == h
                                       for i in (s.get("invites") or [])),
-                        lambda: _SETTINGS.__setitem__("invites",
-                                                      _prior_invites))
+                        lambda: _cas_rollback_invite_add(h))
                     if _oc == "conflict":
                         self._set_json_headers(409)
                         self.wfile.write(json.dumps({"error": "invite superseded by a concurrent change — no code was created, try again"}).encode())
@@ -9236,6 +9531,9 @@ class Handler(BaseHTTPRequestHandler):
                         _prior_invites_r = list(invites)
                         keep = [i for i in invites
                                 if not (len(gid) >= 6 and i["h"].startswith(gid))]
+                        _removed_r = [i for i in invites
+                                      if len(gid) >= 6
+                                      and i["h"].startswith(gid)]
                         if len(keep) == len(invites):
                             self._set_json_headers(404)
                             self.wfile.write(json.dumps({"error": "invite not found"}).encode())
@@ -9247,8 +9545,8 @@ class Handler(BaseHTTPRequestHandler):
                         lambda s: not any(
                             len(gid) >= 6 and i["h"].startswith(gid)
                             for i in (s.get("invites") or [])),
-                        lambda: _SETTINGS.__setitem__("invites",
-                                                      _prior_invites_r))
+                        lambda: _cas_rollback_invite_remove(
+                            _removed_r))
                     if _oc == "conflict":
                         self._set_json_headers(409)
                         self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
@@ -9416,7 +9714,8 @@ class Handler(BaseHTTPRequestHandler):
                         _saved,
                         lambda s: all(s.get(k) == v
                                       for k, v in clean.items()),
-                        lambda: _SETTINGS.update(_prior_set))
+                        lambda: _cas_rollback_keys(_prior_set,
+                                                   clean))
                     if _oc == "conflict":
                         self._set_json_headers(409)
                         self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
@@ -9487,10 +9786,11 @@ class Handler(BaseHTTPRequestHandler):
                             "config": {k: _SETTINGS.get(k)
                                        for k in sorted(_RESTORE_ALLOWED)}}
                         _SETTINGS.update(clean)
+                        _new_snap = _SETTINGS["backup_snapshot"]
                     _sv = _save_settings()  # S2: after the lock releases
                     def _rst_rollback():
-                        _SETTINGS.update(_prior_rst)
-                        _SETTINGS["backup_snapshot"] = _prior_snap
+                        _cas_rollback_keys(_prior_rst, clean,
+                                           _prior_snap, _new_snap)
                     _oc = _settings_outcome(
                         _sv,
                         lambda s: all(s.get(k) == v
@@ -9633,7 +9933,19 @@ class Handler(BaseHTTPRequestHandler):
                         with _SETTINGS_LOCK:
                             _SETTINGS.clear()
                             _SETTINGS.update(json.loads(json.dumps(_SETTINGS_DEFAULTS)))
-                        _save_settings()  # S2: after the lock releases
+                        # Wave 12 (D4): outcome-check the reset save.
+                        # There is NO rollback arm here — the settings
+                        # are wiped in memory and the vaults/chats are
+                        # really deleted — so a failed save earns the
+                        # honest 500 below instead of an ok:true while
+                        # the pre-reset settings resurrect at restart.
+                        _reset_oc = _settings_outcome(
+                            _save_settings(),
+                            lambda s: not (s.get("user_caps") or {})
+                            and not (s.get("roles") or {})
+                            and not (s.get("suspended") or [])
+                            and not (s.get("invites") or [])
+                            and not (s.get("announcement") or ""))
                         _PROVIDER_HEALTH.clear()
                     try:
                         # Audit run-8: truncates take _AUDIT_LOCK —
@@ -9665,6 +9977,10 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                     _audit("System", "Factory reset: friends, passes, settings and sessions cleared")
+                    if _reset_oc != "ok":
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "reset applied, but the cleared settings could not be saved — they will revert at restart"}).encode())
+                        return
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
                     return
@@ -9737,21 +10053,51 @@ class Handler(BaseHTTPRequestHandler):
                 if _nrole in ("moderator", "viewer") \
                         and not (_mod_add and _nrole == "moderator"):
                     with _SETTINGS_LOCK:
-                        roles = dict(_SETTINGS.get("roles") or {})
+                        _prior_roles_a = dict(
+                            _SETTINGS.get("roles") or {})
+                        roles = dict(_prior_roles_a)
                         roles[label] = _nrole
                         _SETTINGS["roles"] = roles
-                    # S2: save after the lock releases.
-                    if not _save_settings():
-                        _audit("System", f"role assignment could not be saved for {label}")
+                    # Wave 12 (D4): outcome-check the role save (a
+                    # per-entry pred + compare-and-restore rollback
+                    # is sufficient here) — a faulted save used to
+                    # log-and-continue behind an ok:true whose role
+                    # silently vanished at restart while the account
+                    # itself (already persisted) stayed.
+                    _oc = _settings_outcome(
+                        _save_settings(),
+                        lambda s: (s.get("roles") or {}).get(label)
+                        == _nrole,
+                        lambda: _cas_rollback_dict_entry(
+                            "roles", label, _prior_roles_a, roles))
+                    if _oc != "ok":
+                        self._set_json_headers(
+                            409 if _oc == "conflict" else 500)
+                        self.wfile.write(json.dumps(
+                            {"error": "friend added, but the role could not be saved — set it again from the console"}).encode())
+                        return
                 if isinstance(data.get("cap"), (int, float)) \
                         and 0 <= int(data["cap"]) <= 100000:
                     with _SETTINGS_LOCK:
-                        caps = dict(_SETTINGS.get("user_caps") or {})
+                        _prior_caps_a = dict(
+                            _SETTINGS.get("user_caps") or {})
+                        caps = dict(_prior_caps_a)
                         caps[label] = int(data["cap"])
                         _SETTINGS["user_caps"] = caps
-                    # S2: save after the lock releases.
-                    if not _save_settings():
-                        _audit("System", f"cap assignment could not be saved for {label}")
+                    # Wave 12 (D4): outcome-check the cap save, same
+                    # shape as the role save above.
+                    _oc = _settings_outcome(
+                        _save_settings(),
+                        lambda s: (s.get("user_caps") or {}).get(label)
+                        == int(data["cap"]),
+                        lambda: _cas_rollback_dict_entry(
+                            "user_caps", label, _prior_caps_a, caps))
+                    if _oc != "ok":
+                        self._set_json_headers(
+                            409 if _oc == "conflict" else 500)
+                        self.wfile.write(json.dumps(
+                            {"error": "friend added, but the daily cap could not be saved — set it again from the console"}).encode())
+                        return
                 _audit("Users", f"Friend added: {label}{_actor}")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
@@ -9907,60 +10253,7 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "that password is already in use by a friend — pick a different master password"}).encode())
                         return
                     encrypt_keys(kd, new, key_path)
-                with _ACCESS_LOCK:
-                    _save_access(_load_access(), new)
-                # Owner integrations vault: it is encrypted directly
-                # under the master password, so re-encrypt it too —
-                # otherwise it strands under the OLD password, silently
-                # loads as empty, and the next save overwrites it. A
-                # vault that cannot be opened with the current password
-                # is left byte-identical, never overwritten.
-                _intg_note = ""
-                try:
-                    # Audit run-8: the carry-over takes _INTG_LOCK —
-                    # without it, a concurrent integrations save
-                    # landing mid-rotation re-encrypted the vault
-                    # under the OLD password after rotation reported
-                    # success, stranding every owner connection.
-                    with _INTG_LOCK:
-                        _ipath = _intg_path("_owner")
-                        if _ipath.exists():
-                            _ivault = decrypt_keys(_ipath, cur)
-                            if isinstance(_ivault, dict):
-                                encrypt_keys(_ivault, new, _ipath)
-                                os.chmod(_ipath, 0o600)
-                except Exception:
-                    _intg_note = "; integrations vault could not be carried over and was left unchanged"
-                # Admin saved chats: re-wrap their DEK under the NEW
-                # password (chat data stays encrypted under the same DEK).
-                # A legacy password-direct store is migrated to v2 under
-                # the new password. A store that cannot be opened with the
-                # current password is left byte-identical — never
-                # overwritten with an empty one.
-                _chats_note = ""
-                try:
-                    _cp = _chat_path("Rudra")
-                    if _cp.exists():
-                        _env = json.loads(_cp.read_text(encoding="utf-8"))
-                        if isinstance(_env, dict) and _env.get("v") == 2:
-                            _dek = decrypt_raw(_chat_kek(cur, _b64d(_env["wrap_salt"])),
-                                               _b64d(_env["wrap_nonce"]),
-                                               _b64d(_env["wrapped_dek"]),
-                                               _CHAT_V2_AAD_WRAP)
-                            _ws = os.urandom(16)
-                            _wn, _wc = encrypt_raw(_chat_kek(new, _ws), _dek,
-                                                   _CHAT_V2_AAD_WRAP)
-                            _env["wrap_salt"] = _b64e(_ws)
-                            _env["wrap_nonce"] = _b64e(_wn)
-                            _env["wrapped_dek"] = _b64e(_wc)
-                            _write_chat_file_atomic(_cp, _env)
-                        else:
-                            _legacy = decrypt_keys(_cp, cur)
-                            if isinstance(_legacy, dict) and isinstance(_legacy.get("chats"), list):
-                                _dek, _fields = _wrap_new_dek(new)
-                                _save_admin_chats({"dek": _dek, **_fields}, _legacy)
-                except Exception:
-                    _chats_note = "; saved chats could not be carried over and were left unchanged"
+                _chats_note, _intg_note = _carry_over_master_rotation(cur, new)
                 Handler.keys = kd
                 SESSIONS.clear()
                 _CHAT_UNLOCKS.clear()
