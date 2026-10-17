@@ -966,10 +966,12 @@ class Wave11UnitTests(unittest.TestCase):
         # the gate probes package.json, so a fixture simulating an
         # installed tree must carry one per dependency.
         (nm / "dotenv" / "package.json").write_text("{}")
+        (nm / "dotenv" / "index.js").write_text("")
         (nm / ".package-lock.json").write_text("{}")
         if with_express:
             (nm / "express").mkdir()
             (nm / "express" / "package.json").write_text("{}")
+            (nm / "express" / "index.js").write_text("")
         (srv / "dist" / "index.js").write_text(
             "const http=require('http');const fs=require('fs');"
             "let claimed=false;"
@@ -3658,7 +3660,7 @@ class Wave12UnitTests(unittest.TestCase):
         self.assertIn("_cas_rollback_dict_entry", src)
         self.assertIn("_cas_rollback_invite_claim", src)
         self.assertIn("_SETTINGS_ACTIVE", src)
-        self.assertIn("_wait_settings_settled()", src)
+        self.assertIn("_wait_settings_settled(", src)
         # C1: /v1 reserves before its counted check (no bare
         # check-then-add left in _v1_chat).
         v1seg = src[src.index("def _v1_chat"):src.index(
@@ -3676,7 +3678,9 @@ class Wave12UnitTests(unittest.TestCase):
             src.count("_carry_over_master_rotation("), 3)
         # A2: the flat global ceiling rides alongside per-source.
         self.assertIn('_rl_ok("redeemprobe", "open:all"', src)
-        self.assertIn('_rl_refund("redeemprobe", "open:all")', src)
+        # Wave 13: the global refund is GONE (free verdicts accrue
+        # against the ceiling again); only the per-source refund stays.
+        self.assertNotIn('_rl_refund("redeemprobe", "open:all")', src)
         # A3: the deferred first-run re-check is a quiet decrypt in
         # the window between the entry snapshot and the encrypt.
         i = src.index("if not _entry_keys_exist and key_path.exists():")
@@ -3694,12 +3698,16 @@ class Wave12UnitTests(unittest.TestCase):
         self.assertIn("removeEngineAdminCreds(envFile)", js)
         self.assertNotIn("envTxt.match(/^ENGINE_ADMIN", js)
         # L4: the gate probes package.json per dependency.
-        self.assertIn('path.join(nodeModules, ...d.split("/"), '
-                      '"package.json")', js)
+        # Wave 13: the probe is loadability (require.resolve), not
+        # existence.
+        self.assertIn("require.resolve(d, { paths: [engineServer] })", js)
         # L5: an unparseable manifest logs loudly and fails the gate.
         self.assertIn("could not read the engine package.json", js)
         # L6: optionalDependencies never feed the gate.
-        self.assertNotIn("_epkg.optionalDependencies", js)
+        # Wave 13: exactly ONE optional is gated — better-sqlite3,
+        # which the engine hard-requires on non-Android platforms.
+        self.assertIn('(_epkg.optionalDependencies || {})["better-sqlite3"]',
+                      js)
         self.assertNotIn("Object.keys({\n      ...(_epkg.dependencies",
                          js)
         # L7/L8: one shutdown path for SIGINT/SIGTERM/SIGHUP and for
@@ -3752,10 +3760,12 @@ class Wave12LauncherTests(unittest.TestCase):
         nm.mkdir()
         (nm / "dotenv").mkdir()
         (nm / "dotenv" / "package.json").write_text("{}")
+        (nm / "dotenv" / "index.js").write_text("")
         (nm / ".package-lock.json").write_text("{}")
         if gate == "ok":
             (nm / "express").mkdir()
             (nm / "express" / "package.json").write_text("{}")
+            (nm / "express" / "index.js").write_text("")
         elif gate == "empty-dep":
             (nm / "express").mkdir()  # directory only: NOT installed
         (srv / "dist" / "index.js").write_text(
@@ -4308,31 +4318,51 @@ class Wave12OpenHarness(_FixtureServerBase):
              "patch": {"registration": "open"}}, admin)
         self.assertEqual(status, 200, body)
         try:
-            # Per-source signup still works (and refunds its global
-            # hit on success, so legitimate volume never accrues).
+            # Wave 13 semantics (run-12 auth fixes): a successful
+            # signup refunds its PER-SOURCE hit but NOT its global
+            # hit, so creations accrue against the 100/900 ceiling
+            # exactly like taken verdicts; and each candidate has a
+            # 10/900 per-candidate global sub-bucket, so ONE
+            # candidate can no longer burn the ceiling alone. The
+            # ceiling is therefore exhausted with TEN distinct
+            # candidates: 10 creations (10 global hits) + 9 taken
+            # probes each (90 more) = 100. (Pre-wave-13 this test
+            # used one candidate x100 — the very burn fix 15 kills —
+            # and relied on the global refund fix 14 removes.)
+            cands = []
             for i, label in enumerate(("legit91a", "legit91b")):
+                pw = f"{label}-pw"
                 status, body, _ = self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": label, "password": f"{label}-pw"},
+                    {"label": label, "password": pw},
                     headers={"X-Forwarded-For": f"10.91.0.{i + 1}"})
                 self.assertEqual(status, 200, (label, body))
-            # 100 taken verdicts, each from a DISTINCT source: every
-            # per-source bucket is fresh, so only the global ceiling
-            # can bind. (Threaded: each verdict is a PBKDF2 scan.)
+                cands.append(pw)
+            for i in range(8):
+                label = f"cand91_{i}"
+                pw = f"cand91-pw-{i}"
+                status, body, _ = self._req(
+                    "POST", "/api/invite/redeem",
+                    {"label": label, "password": pw},
+                    headers={"X-Forwarded-For": f"10.91.2.{i}"})
+                self.assertEqual(status, 200, (label, body))
+                cands.append(pw)
             import concurrent.futures
 
-            def probe(i):
+            def probe(job):
+                ci, k = job
                 return self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": f"taken91_{i}", "password": FRIEND_PW},
-                    headers={"X-Forwarded-For": f"10.91.1.{i}"})[0]
+                    {"label": f"taken91_{ci}_{k}", "password": cands[ci]},
+                    headers={"X-Forwarded-For":
+                             f"10.91.1.{ci * 9 + k}"})[0]
+            jobs = [(ci, k) for ci in range(10) for k in range(9)]
             with concurrent.futures.ThreadPoolExecutor(
                     max_workers=8) as ex:
-                codes = list(ex.map(probe, range(100)))
-            self.assertEqual(codes, [400] * 100)
+                codes = list(ex.map(probe, jobs))
+            self.assertEqual(codes, [400] * 90)
             # The 101st verdict — taken or free, from a brand-new
-            # source — is the same generic 429 (pre-fix: 400/200,
-            # an unbounded cross-source oracle).
+            # source — is the same generic 429.
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
                 {"label": "taken91_x", "password": FRIEND_PW},
@@ -4343,6 +4373,647 @@ class Wave12OpenHarness(_FixtureServerBase):
                 {"label": "free91", "password": "free91-pw-999"},
                 headers={"X-Forwarded-For": "10.91.9.10"})
             self.assertEqual(status, 429, body)
+        finally:
+            self._access(
+                {"action": "settings_set", "master_pw": MASTER,
+                 "patch": {"registration": "invite"}}, admin)
+
+
+class Wave13UnitTests(unittest.TestCase):
+    """Wave 13 (run-12 fixes): governance snapshot, locked
+    reserve+count primitive, settle barrier, CAS persisted-context,
+    firstrun ledger separation, and source shapes."""
+
+    def _temp_settings(self):
+        import tempfile
+        from pathlib import Path as _P
+        td = tempfile.TemporaryDirectory()
+        saved = (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+                 server.RESTORE_KEY)
+        server.SETTINGS_PATH = _P(td.name) / "settings.json"
+        server.SETTINGS_ENC_PATH = _P(td.name) / "settings.enc"
+        server.RESTORE_KEY = "unit-restore-13"
+        return td, saved
+
+    def _restore_settings_env(self, saved, orig):
+        (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+         server.RESTORE_KEY) = saved
+        server._SETTINGS.clear()
+        server._SETTINGS.update(orig)
+
+    # -- Fix 3: _governance returns ONE consistent snapshot --------
+    def test_w13_governance_snapshot_never_torn(self):
+        orig = dict(server._SETTINGS)
+        try:
+            state_a = ({"x13"}, {"y13": 1})
+            state_b = ({"y13"}, {"x13": 1})
+            stop = []
+
+            def writer():
+                flip = False
+                while not stop:
+                    with server._SETTINGS_LOCK:
+                        if flip:
+                            server._SETTINGS["provider_disabled"] = ["x13"]
+                            server._SETTINGS["provider_limits"] = {"y13": 1}
+                        else:
+                            server._SETTINGS["provider_disabled"] = ["y13"]
+                            server._SETTINGS["provider_limits"] = {"x13": 1}
+                    flip = not flip
+
+            with server._SETTINGS_LOCK:
+                server._SETTINGS["provider_disabled"] = ["x13"]
+                server._SETTINGS["provider_limits"] = {"y13": 1}
+            t = threading.Thread(target=writer)
+            t.start()
+            try:
+                for _i in range(3000):
+                    dis, lims = server._governance()
+                    snap = (set(dis), dict(lims))
+                    self.assertIn(snap, (state_a, state_b),
+                                  f"torn snapshot: {snap}")
+            finally:
+                stop.append(True)
+                t.join(10)
+            # The returned limits are a copy, not the live dict.
+            _d, lims = server._governance()
+            lims["zz13"] = 5
+            self.assertNotIn("zz13",
+                             server._SETTINGS.get("provider_limits") or {})
+        finally:
+            server._SETTINGS.clear()
+            server._SETTINGS.update(orig)
+
+    # -- Fix 2: reserve+count admits exactly one at limit 1 -------
+    def test_w13_reserve_capped_admits_exactly_one(self):
+        saved = list(server._INFLIGHT)
+        try:
+            server._INFLIGHT.clear()
+            barrier = threading.Barrier(8)
+            got = []
+
+            def worker():
+                barrier.wait(10)
+                got.append(server._inflight_reserve_capped(
+                    "u13", "prov13", 0, 1))
+            threads = [threading.Thread(target=worker) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(20)
+            # Pre-fix shape (add -> count -> drop as separate ops)
+            # let rendezvoused spends refuse EACH OTHER (0 admitted).
+            admitted = [r for r in got if r is not None]
+            self.assertEqual(len(admitted), 1, got)
+            self.assertEqual(server._inflight_n(provider="prov13"), 1)
+            # A completed spend already at the limit refuses.
+            self.assertIsNone(server._inflight_reserve_capped(
+                "u13", "prov13", 1, 1))
+            for r in admitted:
+                server._inflight_drop(r)
+        finally:
+            server._INFLIGHT.clear()
+            server._INFLIGHT.extend(saved)
+
+    # -- Fix 9: a save starting DURING the check re-opens the verdict
+    def test_w13_outcome_barrier_save_starts_during_check(self):
+        orig = dict(server._SETTINGS)
+        td, saved = self._temp_settings()
+        orig_persisted = server._persisted_settings
+        try:
+            server._SETTINGS["announcement"] = "BASE13"
+            self.assertTrue(server._save_settings())
+            server._SETTINGS["announcement"] = "GHOST13"  # caller live
+            calls = []
+
+            def patched():
+                calls.append(1)
+                if len(calls) == 1:
+                    # A covering save starts during this read and
+                    # lands the caller's GHOST mutation; this read
+                    # itself still returns the stale BASE snapshot.
+                    def land():
+                        server._save_settings()
+                    threading.Thread(target=land).start()
+                    # The save must have STARTED (its activity
+                    # counter incremented) before this read returns,
+                    # exactly as a real covering save starting during
+                    # a ~0.7s mirror decrypt would have.
+                    _dl = time.time() + 5
+                    while server._SETTINGS_ACTIVE[0] == 0 \
+                            and time.time() < _dl:
+                        time.sleep(0.005)
+                    return {"announcement": "BASE13"}
+                return orig_persisted()
+            server._persisted_settings = patched
+            rolled = []
+            oc = server._settings_outcome(
+                False, lambda s: s.get("announcement") == "GHOST13",
+                lambda: rolled.append(1))
+            # Pre-fix: the one-shot wait had already returned, the
+            # stale read answered "failed" and rolled back — then
+            # the covering save landed GHOST anyway (the ghost).
+            self.assertEqual(oc, "ok")
+            self.assertEqual(rolled, [])
+            self.assertEqual(
+                orig_persisted().get("announcement"), "GHOST13")
+        finally:
+            server._persisted_settings = orig_persisted
+            self._restore_settings_env(saved, orig)
+            td.cleanup()
+
+    # -- Fix 9b: bound expiry with a save in flight -> conflict -----
+    def test_w13_outcome_bound_expiry_conflict_no_rollback(self):
+        orig = dict(server._SETTINGS)
+        td, saved = self._temp_settings()
+        try:
+            server._SETTINGS["announcement"] = "BASE13"
+            self.assertTrue(server._save_settings())
+            server._SETTINGS["announcement"] = "NEVER13"
+            server._SETTINGS_ACTIVE[0] += 1  # a save that never lands
+            rolled = []
+            try:
+                oc = server._settings_outcome(
+                    False,
+                    lambda s: s.get("announcement") == "NEVER13",
+                    lambda: rolled.append(1))
+            finally:
+                server._SETTINGS_ACTIVE[0] -= 1
+            # Pre-fix: "failed" + rollback after the 3s wait, even
+            # though the in-flight save might still land the change.
+            self.assertEqual(oc, "conflict")
+            self.assertEqual(rolled, [])
+        finally:
+            server._SETTINGS_ACTIVE[0] = 0
+            self._restore_settings_env(saved, orig)
+            td.cleanup()
+
+    # -- Fix 10: CAS rollback spares a peer's identical change ------
+    def test_w13_cas_persisted_identical_peer_survives(self):
+        orig = dict(server._SETTINGS)
+        td, saved = self._temp_settings()
+        try:
+            # The peer's IDENTICAL suspension of alice landed and
+            # persisted (the peer was told ok). The caller's own
+            # patch {suspended+alice, announcement=A13} faulted: its
+            # announcement never persisted.
+            server._SETTINGS["suspended"] = ["alice"]
+            server._SETTINGS["announcement"] = ""
+            self.assertTrue(server._save_settings())  # persisted peer
+            server._SETTINGS["announcement"] = "A13"  # caller live only
+
+            def rollback():
+                server._cas_rollback_list_entry(
+                    "suspended", "alice", [], ["alice"])
+                server._cas_rollback_keys(
+                    {"announcement": ""}, {"announcement": "A13"})
+            oc = server._settings_outcome(
+                False,
+                lambda s: "alice" in (s.get("suspended") or [])
+                and s.get("announcement") == "A13",
+                rollback)
+            self.assertEqual(oc, "failed")
+            # Pre-fix the value-equality CAS removed alice: live
+            # presence equalled the caller's value, which was ALSO
+            # the peer's acknowledged, persisted value.
+            self.assertEqual(server._SETTINGS["suspended"], ["alice"])
+            self.assertEqual(server._SETTINGS["announcement"], "")
+        finally:
+            self._restore_settings_env(saved, orig)
+            td.cleanup()
+
+    # -- Fix 16: the firstrun ledger is its own bucket --------------
+    def test_w13_firstrun_ledger_separate_from_master(self):
+        saved = dict(server._PW_FAILS)
+        try:
+            server._PW_FAILS.clear()
+            for _i in range(10):
+                self.assertFalse(server._pw_throttled("firstrun", ""))
+                server._pw_failed("firstrun", "")
+            self.assertTrue(server._pw_throttled("firstrun", ""))
+            # A3 property: the shared master budget is untouched —
+            # the owner's correct master still proves afterwards.
+            self.assertNotIn(("master", ""), server._PW_FAILS)
+            self.assertFalse(server._pw_throttled("master", ""))
+        finally:
+            server._PW_FAILS.clear()
+            server._PW_FAILS.update(saved)
+
+    # -- Source shapes for the whole wave ---------------------------
+    def test_w13_source_shapes(self):
+        src = (APP / "server.py").read_text()
+        js = (REPO / "bin" / "nexuslocal.js").read_text()
+        # Caps: governance snapshot used at every check site.
+        self.assertGreaterEqual(src.count("_governance()"), 5)
+        self.assertIn("def _inflight_reserve_capped", src)
+        v1seg = src[src.index("def _v1_chat"):src.index(
+            "return 502", src.index("def _v1_chat"))]
+        self.assertIn("_inflight_reserve_capped(", v1seg)
+        self.assertGreaterEqual(src.count("_lane_spend_reserve("), 4)
+        # Caps fix 1: the pollinations born-tag keeps the pick name.
+        self.assertIn('self._cap_res["provider"] = provider', src)
+        self.assertIn("_provider_blocked(_sub_p, exclude=self._cap_res)",
+                      src)
+        # Auth: per-candidate bucket; firstrun ledger wired BEFORE
+        # the quiet decrypt, debiting only on failure.
+        self.assertIn('"open:cand:"', src)
+        i = src.index("if not _entry_keys_exist and key_path.exists():")
+        seg = src[i:src.index("encrypt_keys(keys, pw, key_path)", i)]
+        self.assertLess(seg.index('_pw_throttled("firstrun", "")'),
+                        seg.index("decrypt_keys("))
+        self.assertIn('_pw_failed("firstrun", "")', seg)
+        self.assertNotIn('_pw_failed("master", "")', seg)
+        # Auth fix 17: collision guard on /setup (both proof sites)
+        # and the floor raised to 10.
+        self.assertGreaterEqual(
+            src.count("_password_taken(_load_access(), pw)"), 2)
+        self.assertIn("len(pw) < 10", src)
+        # Settings: whole-document factory pred, honest revoke and
+        # signup-role outcomes.
+        self.assertIn("_SETTINGS_DEFAULTS.items()", src)
+        self.assertIn("cleanup could not be saved", src)
+        self.assertIn("signed up, but the role could not be saved", src)
+        # Launcher: export prefix everywhere, comment rule, early
+        # handlers, tracked installs.
+        self.assertGreaterEqual(js.count("(?:export\\s+)?"), 4)
+        self.assertIn('v.indexOf("#")', js)
+        self.assertIn("runInstall(_npmCmd", js)
+        self.assertLess(js.index('process.on("SIGTERM"'),
+                        js.index("Installing engine dependencies"))
+        node = shutil.which("node")
+        if node:
+            r = subprocess.run([node, "--check",
+                                str(REPO / "bin" / "nexuslocal.js")],
+                               capture_output=True)
+            self.assertEqual(r.returncode, 0,
+                             r.stderr.decode(errors="replace"))
+
+
+class Wave13LauncherTests(unittest.TestCase):
+    """Wave 13 launcher fixes over real boots: export prefix,
+    inline comments, loadability gate, better-sqlite3 gate, and
+    shutdown during the install phase. Fixture/boot/verify helpers
+    are borrowed from a Wave12LauncherTests instance (so the wave-12
+    tests themselves are not re-run under this class)."""
+
+    ENGINE_EMAIL = Wave12LauncherTests.ENGINE_EMAIL
+    ENGINE_PW = Wave12LauncherTests.ENGINE_PW
+
+    def _h(self):
+        return Wave12LauncherTests()
+
+    # -- Fix 5: export-prefixed credentials parse -------------------
+    def test_w13_verify_export_prefix(self):
+        self._h()._verify_variant(
+            f"export ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL}\n"
+            f"export ENGINE_ADMIN_PASSWORD={self.ENGINE_PW}\n")
+
+    # -- Fix 4: inline comments follow dotenv -----------------------
+    def test_w13_verify_inline_comments(self):
+        self._h()._verify_variant(
+            f"ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL} # the owner\n"
+            f"ENGINE_ADMIN_PASSWORD={self.ENGINE_PW}#tail\n")
+
+    def test_w13_verify_comment_only_value_is_absent(self):
+        self._h()._verify_variant(
+            "ENGINE_ADMIN_PASSWORD= # none yet\n"
+            f"ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL}\n"
+            f"ENGINE_ADMIN_PASSWORD={self.ENGINE_PW}\n")
+
+    # -- Fix 5: a foreign claim removes EXPORT lines too ------------
+    def test_w13_export_lines_removed_on_foreign_claim(self):
+        tmp = self._h()._fixture(
+            f"export ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL}\n"
+            "export ENGINE_ADMIN_PASSWORD=wrong-pw-13\n")
+        proc = self._h()._boot(tmp)
+        try:
+            self._h()._wait_for(proc, tmp,
+                           lambda: len(self._h()._logins(tmp)) >= 1,
+                           what="verify login")
+            # The stub refused (401, definitive, email not defaulted):
+            # the credentials are removed — export lines included.
+            time.sleep(1)
+            env_after = (tmp / "app" / ".env").read_text(
+                encoding="utf-8")
+            self.assertNotIn("ENGINE_ADMIN_PASSWORD", env_after)
+            self.assertNotIn("ENGINE_ADMIN_EMAIL", env_after)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Fix 6: a dep with no entry point fails the gate ------------
+    def test_w13_gate_missing_entry_point_installs(self):
+        tmp = self._h()._fixture("ENGINE_ADMIN_PASSWORD=x\n")
+        (tmp / "app" / "engine" / "server" / "node_modules"
+         / "express" / "index.js").unlink()
+        proc = self._h()._boot(tmp)
+        try:
+            self._h()._wait_for(
+                proc, tmp,
+                lambda: (tmp / "startup.log").exists()
+                and "Installing engine dependencies"
+                in (tmp / "startup.log").read_text(errors="replace"),
+                timeout=60, what="npm gate on entry-less dep")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Fix 7: missing better-sqlite3 (non-Android) fails the gate -
+    def test_w13_gate_better_sqlite3_installs(self):
+        if sys.platform == "android":
+            self.skipTest("Android keeps the exemption")
+        tmp = self._h()._fixture("ENGINE_ADMIN_PASSWORD=x\n")
+        srv = tmp / "app" / "engine" / "server"
+        pkg = json.loads((srv / "package.json").read_text())
+        pkg["optionalDependencies"] = {"better-sqlite3": "^11.0.0"}
+        (srv / "package.json").write_text(json.dumps(pkg))
+        proc = self._h()._boot(tmp)
+        try:
+            self._h()._wait_for(
+                proc, tmp,
+                lambda: (tmp / "startup.log").exists()
+                and "Installing engine dependencies"
+                in (tmp / "startup.log").read_text(errors="replace"),
+                timeout=60, what="npm gate on missing better-sqlite3")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Fix 8: SIGTERM during install kills the npm child ----------
+    def test_w13_sigterm_during_install_kills_npm(self):
+        import signal as _signal
+        node = shutil.which("node")
+        if not node or not shutil.which("unshare"):
+            self.skipTest("node/unshare not available")
+        tmp = self._h()._fixture("ENGINE_ADMIN_PASSWORD=x\n")
+        (tmp / "app" / "engine" / "server" / "node_modules"
+         / "express" / "index.js").unlink()  # gate -> install phase
+        fakebin = tmp / "fakebin"
+        fakebin.mkdir()
+        npm_stub = fakebin / "npm"
+        npm_stub.write_text(
+            "#!/bin/sh\n"
+            "echo $$ > \"$NPM_PID_FILE\"\n"
+            "exec sleep 120\n")
+        npm_stub.chmod(0o755)
+        env = dict(os.environ)
+        env.update({
+            "NPM_PID_FILE": str(tmp / "npm.pid"),
+            "PATH": str(fakebin) + os.pathsep + env.get("PATH", ""),
+            "no_proxy": "127.0.0.1,localhost",
+            "NO_PROXY": "127.0.0.1,localhost",
+        })
+        cmd = ["unshare", "-n", "bash", "-c",
+               "ip link set lo up 2>/dev/null; exec "
+               f"{node} {tmp / 'bin' / 'nexuslocal.js'}"]
+        proc = subprocess.Popen(
+            cmd, cwd=str(tmp), env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            self._h()._wait_for(proc, tmp, lambda: (tmp / "npm.pid").exists(),
+                           timeout=60, what="npm install in flight")
+            proc.send_signal(_signal.SIGTERM)
+            proc.wait(timeout=15)
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertIn("Shutting down...", log)
+            self.assertTrue(self._h()._pid_dead(tmp / "npm.pid"),
+                            "npm child orphaned by SIGTERM during install")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class Wave13FaultHarness(_FixtureServerBase):
+    """Run-12 data fixes over real HTTP with settings saves
+    fault-injected in the disposable copy: SAVE_FAULT fails every
+    save; SAVE_FAIL2 fails from the second save onwards (the claim
+    save lands, the role save faults)."""
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+        sp = cls.tmp / "server.py"
+        txt = sp.read_text()
+        anchor = "def _save_settings():\n"
+        assert txt.count(anchor) == 1
+        sp.write_text(txt.replace(
+            anchor,
+            anchor + "    if (Path(__file__).parent / "
+                     "\"SAVE_FAULT\").exists():\n"
+                     "        return False\n"
+                     "    _f13 = Path(__file__).parent / \"SAVE_FAIL2\"\n"
+                     "    if _f13.exists():\n"
+                     "        try:\n"
+                     "            _n13 = int(_f13.read_text() or \"0\")\n"
+                     "        except Exception:\n"
+                     "            _n13 = 0\n"
+                     "        _n13 += 1\n"
+                     "        _f13.write_text(str(_n13))\n"
+                     "        if _n13 >= 2:\n"
+                     "            return False\n", 1))
+        _respawn_fixture(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def _fault(self, on):
+        flag = self.tmp / "SAVE_FAULT"
+        if on:
+            flag.write_text("x")
+        else:
+            flag.unlink(missing_ok=True)
+
+    def _fail2(self, on):
+        flag = self.tmp / "SAVE_FAIL2"
+        if on:
+            flag.write_text("0")
+        else:
+            flag.unlink(missing_ok=True)
+
+    # -- Fix 12: a faulted revoke cleanup save answers 500 ----------
+    def test_11_revoke_faulted_cleanup_save(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "add", "label": "rev13", "password": "rev13-pw",
+             "master_pw": MASTER, "role": "moderator", "cap": 777},
+            admin)
+        self.assertEqual(status, 200, body)
+        self._fault(True)
+        try:
+            status, body, _ = self._access(
+                {"action": "revoke", "label": "rev13",
+                 "master_pw": MASTER}, admin)
+            # Pre-fix: 200 ok, and the role/cap resurrected at
+            # restart to be inherited by a re-created friend.
+            self.assertEqual(status, 500, body)
+            self.assertIn("cleanup could not be saved",
+                          body.get("error", ""), body)
+        finally:
+            self._fault(False)
+        # The account itself really is revoked.
+        status, _, _ = self._login("rev13-pw")
+        self.assertEqual(status, 401)
+
+    # -- Fix 11: a faulted reset with empty collections but dirty
+    #    scalars answers 500 (the old pred answered 200) -------------
+    def test_12_factory_reset_faulted_save_scalars(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"maintenance": True, "daily_cap": 999,
+                       "instance_name": "PRE13-NAME",
+                       "provider_disabled": ["groq"]}}, admin)
+        self.assertEqual(status, 200, body)
+        self._fault(True)
+        try:
+            status, body, _ = self._access(
+                {"action": "factory_reset", "master_pw": MASTER,
+                 "confirm": "RESET"}, admin)
+            # Pre-fix: the 5-collection pred saw empty collections
+            # and answered 200 while maintenance/daily_cap/
+            # instance_name/provider_disabled resurrected.
+            self.assertEqual(status, 500, body)
+        finally:
+            self._fault(False)
+
+    # -- Fix 13: claim lands, role save faults -> honest 500 --------
+    def test_13_signup_role_faulted_save(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "moderator",
+             "days": 1, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        code = body["code"]
+        self._fail2(True)
+        try:
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": "role13", "password": "role13-pw",
+                 "code": code},
+                headers={"X-Forwarded-For": "10.13.0.1"})
+            # Pre-fix: 200 ok, and the moderator role silently
+            # downgraded to friend at restart.
+            self.assertEqual(status, 500, body)
+            self.assertIn("role could not be saved",
+                          body.get("error", ""), body)
+        finally:
+            self._fail2(False)
+        # The account exists (the claim and creation were durable) —
+        # only the role is missing, exactly as the 500 says.
+        status, _, _ = self._login("role13-pw")
+        self.assertEqual(status, 200)
+
+
+class Wave13SetupHarness(_FixtureServerBase):
+    """Fix 17: /setup rotation applies change_master's collision
+    guard and its 10-char floor; same-master stays allowed."""
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def test_21_setup_rotation_collision_and_floor(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        # 9-char new master: refused (pre-fix the floor was 8).
+        status, body = self._form("/setup", {
+            "password": "short-99x", "confirm": "short-99x",
+            "current_master": MASTER, "k_groq": "sk-x21"}, admin)
+        self.assertEqual(status, 400, body)
+        # New master == a friend's password: refused AFTER the
+        # proof, like change_master (pre-fix: 302, and the friend's
+        # password then signed in as admin "Rudra").
+        status, body = self._form("/setup", {
+            "password": FRIEND_PW, "confirm": FRIEND_PW,
+            "current_master": MASTER, "k_groq": "sk-x21"}, admin)
+        self.assertEqual(status, 400, body)
+        self.assertIn("already in use by a friend",
+                      body.get("error", ""), body)
+        # The master is unchanged and the friend is NOT shadowed:
+        # the friend's password still signs in as the friend.
+        _, _, admin2 = self._login(MASTER)
+        self.assertTrue(admin2)
+        status, body, _ = self._login(FRIEND_PW)
+        self.assertEqual(status, 200)
+        self.assertFalse(body.get("admin"), body)
+        # Same-master key replacement still works (302).
+        status, body = self._form("/setup", {
+            "password": MASTER, "confirm": MASTER,
+            "current_master": MASTER, "k_groq": "sk-shared-fake"},
+            admin2)
+        self.assertEqual(status, 302, body)
+
+
+class Wave13OpenHarness(_FixtureServerBase):
+    """Fix 15: one known-taken candidate cannot burn the global
+    signup ceiling across rotating sources."""
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def test_31_single_candidate_cannot_burn_global(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"registration": "open"}}, admin)
+        self.assertEqual(status, 200, body)
+        try:
+            # Manufacture a known-taken candidate via a normal
+            # open signup (the verifier's leg M).
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": "burnsrc13", "password": "burn-cand-13"},
+                headers={"X-Forwarded-For": "10.31.0.1"})
+            self.assertEqual(status, 200, body)
+            codes = []
+            for i in range(15):
+                status, _b, _ = self._req(
+                    "POST", "/api/invite/redeem",
+                    {"label": f"burn13_{i}", "password": "burn-cand-13"},
+                    headers={"X-Forwarded-For": f"10.31.1.{i}"})
+                codes.append(status)
+            # 10 verdicts (the creation already spent 1 sub-bucket
+            # hit, so verdicts 1-9 here are 400 and the rest 429)...
+            self.assertEqual(codes[:9], [400] * 9, codes)
+            self.assertEqual(codes[9:], [429] * 6, codes)
+            # ...and the global ceiling is NOT burned: a legitimate
+            # free signup from a fresh source still succeeds.
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": "free13", "password": "free13-pw-999"},
+                headers={"X-Forwarded-For": "10.31.9.9"})
+            self.assertEqual(status, 200, body)
         finally:
             self._access(
                 {"action": "settings_set", "master_pw": MASTER,

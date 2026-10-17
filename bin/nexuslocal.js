@@ -57,11 +57,23 @@ function parseEngineAdminCreds(envTxt) {
   if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
   const out = { hasEmail: false, hasPassword: false };
   for (const line of txt.split(/\r?\n/)) {
-    const m = line.match(/^\s*(ENGINE_ADMIN_EMAIL|ENGINE_ADMIN_PASSWORD)\s*=\s*(.*)$/);
+    const m = line.match(/^\s*(?:export\s+)?(ENGINE_ADMIN_EMAIL|ENGINE_ADMIN_PASSWORD)\s*=\s*(.*)$/);
     if (!m) continue;
     const isEmail = m[1] === "ENGINE_ADMIN_EMAIL";
     if (isEmail) out.hasEmail = true; else out.hasPassword = true;
     let v = m[2].trim();
+    // Wave 13 (run-12 launcher): dotenv's inline-comment rule —
+    // an unquoted value truncates at the first '#' (even with no
+    // preceding space, so `= # none yet` is EMPTY, i.e. absent);
+    // a quoted value ends at its closing quote and the rest is a
+    // comment. The existing quote-strip below then applies.
+    if (v.startsWith('"') || v.startsWith("'")) {
+      const q = v[0], end = v.indexOf(q, 1);
+      if (end > 0) v = v.slice(0, end + 1);
+    } else {
+      const h = v.indexOf("#");
+      if (h >= 0) v = v.slice(0, h).trim();
+    }
     if (v.length >= 2
         && ((v[0] === '"' && v[v.length - 1] === '"')
             || (v[0] === "'" && v[v.length - 1] === "'"))) {
@@ -87,11 +99,74 @@ function removeEngineAdminCreds(envFile) {
   // ENGINE_ADMIN line, whatever its spacing, quoting or BOM.
   const envTxt = fs.readFileSync(envFile, "utf8");
   fs.writeFileSync(envFile,
-    envTxt.replace(/^\uFEFF?\s*ENGINE_ADMIN_(EMAIL|PASSWORD)\s*=.*\r?\n?/gm, ""));
+    envTxt.replace(/^\uFEFF?\s*(?:export\s+)?ENGINE_ADMIN_(EMAIL|PASSWORD)\s*=.*\r?\n?/gm, ""));
   try { fs.chmodSync(envFile, 0o600); } catch (e) {}
 }
 
-function main() {
+// Wave 13 (run-12 launcher): the shutdown path and the child
+// registry live at module scope so the signal handlers can be
+// registered at the TOP of main() — before the dependency gates.
+// A pid-targeted SIGTERM during the (possibly minutes-long) first
+// install used to orphan the npm child, which kept rewriting
+// node_modules invisibly; the handlers now exist from the start
+// and shutdown() can kill the in-flight install child too.
+let engine = null;
+let dashboard = null;
+let installChild = null;
+let shuttingDown = false;
+let _shutdownCode = 0;
+
+function _killTree(child, sig) {
+  if (!child) return;
+  // Install children are spawned detached on POSIX so the whole
+  // process GROUP (sh -> npm -> its children) gets the signal.
+  if (child === installChild && process.platform !== "win32"
+      && child.pid) {
+    try { process.kill(-child.pid, sig); return; } catch (e) {}
+  }
+  try { child.kill(sig); } catch (e) {}
+}
+
+function shutdown(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;  // F15: the engine exit this causes is ours
+  _shutdownCode = code || 0;
+  log("Shutting down...");
+  _killTree(installChild, "SIGTERM");
+  _killTree(engine, "SIGTERM");
+  _killTree(dashboard, "SIGTERM");
+  setTimeout(() => {
+    _killTree(installChild, "SIGKILL");
+    _killTree(engine, "SIGKILL");
+    _killTree(dashboard, "SIGKILL");
+  }, 1500);
+  setTimeout(() => process.exit(_shutdownCode), 2000);
+}
+
+function runInstall(cmd, cwd) {
+  // Spawn (tracked) rather than execSync: the JS thread stays free
+  // so a signal during the install reaches shutdown(), which kills
+  // the install child's whole group. Resolves false on a non-zero
+  // exit (the caller keeps the old error path), true on success;
+  // during shutdown it never resolves (shutdown exits the process).
+  return new Promise((resolve) => {
+    installChild = spawn(cmd, {
+      cwd, stdio: "inherit", windowsHide: false, shell: true,
+      detached: process.platform !== "win32",
+    });
+    installChild.on("error", () => { installChild = null; resolve(false); });
+    installChild.on("close", (code) => {
+      installChild = null;
+      resolve(code === 0);
+    });
+  });
+}
+
+async function main() {
+  // Wave 13: signal handlers FIRST, before any install phase.
+  process.on("SIGINT", () => shutdown(0));
+  process.on("SIGTERM", () => shutdown(0));
+  process.on("SIGHUP", () => shutdown(0));
   console.log("============================================");
   console.log(" Nexus-Local - Your Personal AI Dashboard");
   console.log("============================================\n");
@@ -152,8 +227,27 @@ function main() {
     // loudly — the old silent catch{} fell back to the two
     // sentinels and hid exactly the damage this gate exists for.
     const _edeps = Object.keys(_epkg.dependencies || {});
-    if (_edeps.some((d) => !fs.existsSync(
-        path.join(nodeModules, ...d.split("/"), "package.json")))) {
+    // Wave 13 (run-12 launcher): probe LOADABILITY, not existence —
+    // require.resolve parses the dep's package.json AND resolves
+    // its entry point, exactly what the engine's loader will do. A
+    // manifest-only tree (or a dep whose package.json is invalid
+    // JSON) used to pass the existsSync gate while the engine died
+    // on every boot.
+    const _unloadable = (d) => {
+      try { require.resolve(d, { paths: [engineServer] }); return false; }
+      catch (e) { return true; }
+    };
+    if (_edeps.some(_unloadable)) {
+      _depsMissing = true;
+    }
+    // Wave 13: better-sqlite3 sits in optionalDependencies (npm may
+    // omit it silently, exit 0, when its native build fails), but
+    // the engine hard-requires it on every non-Android platform —
+    // gate on it there. Android/Termux keeps the wave-12 exemption
+    // (its node:sqlite fallback), so the gate still converges there.
+    if (process.platform !== "android"
+        && (_epkg.optionalDependencies || {})["better-sqlite3"]
+        && _unloadable("better-sqlite3")) {
       _depsMissing = true;
     }
   } catch (e) {
@@ -171,13 +265,9 @@ function main() {
     const _npmCmd = fs.existsSync(_lock)
       ? "npm ci --no-audit --no-fund"
       : "npm install --no-audit --no-fund";
-    try {
-      execSync(_npmCmd, {
-        cwd: engineServer,
-        stdio: "inherit",
-        windowsHide: false,
-      });
-    } catch (e) {
+    const _npmOk = await runInstall(_npmCmd, engineServer);
+    if (shuttingDown) return;
+    if (!_npmOk) {
       console.error("npm install failed. Check your internet connection and try again.");
       process.exit(1);
     }
@@ -196,7 +286,14 @@ function main() {
     // Audit run-7: install the repo's pinned requirements.txt —
     // a bare `pip install cryptography` took whatever PyPI served
     // that day (and never installed qrcode/pillow at all).
-    execSync(`${python} -m pip install -r "${path.join(APP_DIR, "requirements.txt")}" --quiet`, { stdio: "inherit", cwd: APP_DIR });
+    const _pipOk = await runInstall(
+      `${python} -m pip install -r "${path.join(APP_DIR, "requirements.txt")}" --quiet`,
+      APP_DIR);
+    if (shuttingDown) return;
+    if (!_pipOk) {
+      console.error("Python dependency install failed. Check your internet connection and try again.");
+      process.exit(1);
+    }
   }
 
   // Setup .env if missing
@@ -216,11 +313,11 @@ function main() {
 
   // Start engine (if dist exists)
   const engineDist = path.join(engineServer, "dist", "index.js");
-  let engine = null;
-  // Wave 11 (F15): set by the shutdown path BEFORE it kills the
-  // engine, so the exit handler can tell a deliberate stop from a
-  // genuine crash (which must still warn).
-  let shuttingDown = false;
+  engine = null;
+  // Wave 11 (F15): shuttingDown is set by the shutdown path BEFORE
+  // it kills the engine, so the exit handler can tell a deliberate
+  // stop from a genuine crash (which must still warn). It lives at
+  // module scope now (wave 13: the handlers register pre-install).
   if (fs.existsSync(engineDist)) {
     log("Starting engine on 127.0.0.1:3001");
     console.log("Starting engine...");
@@ -393,13 +490,13 @@ function main() {
               pw = require("crypto").randomBytes(24).toString("hex");
               let txt = envTxt, add = "";
               if (pmEmpty) {
-                txt = txt.replace(/^\uFEFF?\s*ENGINE_ADMIN_PASSWORD\s*=.*$/m,
+                txt = txt.replace(/^\uFEFF?\s*(?:export\s+)?ENGINE_ADMIN_PASSWORD\s*=.*$/m,
                                   `ENGINE_ADMIN_PASSWORD=${pw}`);
               } else {
                 add += `\nENGINE_ADMIN_PASSWORD=${pw}\n`;
               }
               if (emEmpty) {
-                txt = txt.replace(/^\uFEFF?\s*ENGINE_ADMIN_EMAIL\s*=.*$/m,
+                txt = txt.replace(/^\uFEFF?\s*(?:export\s+)?ENGINE_ADMIN_EMAIL\s*=.*$/m,
                                   `ENGINE_ADMIN_EMAIL=${email}`);
               } else if (!_creds.hasEmail) {
                 add += `\nENGINE_ADMIN_EMAIL=${email}`;
@@ -416,7 +513,7 @@ function main() {
               // shadowed duplicate.
               if (emEmpty) {
                 fs.writeFileSync(envFile, envTxt.replace(
-                  /^\uFEFF?\s*ENGINE_ADMIN_EMAIL\s*=.*$/m,
+                  /^\uFEFF?\s*(?:export\s+)?ENGINE_ADMIN_EMAIL\s*=.*$/m,
                   `ENGINE_ADMIN_EMAIL=${email}`));
               } else {
                 fs.appendFileSync(envFile, `\nENGINE_ADMIN_EMAIL=${email}\n`);
@@ -468,7 +565,7 @@ function main() {
     }, 2000);
   }
 
-  const dashboard = spawn(python.replace(/"/g, ""), ["server.py"], {
+  dashboard = spawn(python.replace(/"/g, ""), ["server.py"], {
     cwd: APP_DIR,
     stdio: "inherit",
     windowsHide: false,
@@ -477,31 +574,10 @@ function main() {
 
   // Wave 12 (L7/L8): ONE shutdown path for every exit route —
   // SIGINT, SIGTERM, SIGHUP, and the dashboard dying on its own.
-  // The old shape handled only SIGINT, and that only
-  // fire-and-forget: SIGTERM/SIGHUP killed the launcher and
-  // orphaned BOTH children holding ports 3001/8080 (the next boot
-  // then died on EADDRINUSE), and a dashboard exit orphaned the
-  // engine the same way. The shared path sets the flag, stops BOTH
-  // children (SIGTERM, a short grace, then SIGKILL), then exits.
-  let _shutdownCode = 0;
-  const shutdown = (code) => {
-    if (shuttingDown) return;
-    shuttingDown = true;  // F15: the engine exit this causes is ours
-    _shutdownCode = code || 0;
-    log("Shutting down...");
-    if (engine) {
-      try { engine.kill("SIGTERM"); } catch (e) {}
-    }
-    try { dashboard.kill("SIGTERM"); } catch (e) {}
-    setTimeout(() => {
-      if (engine) {
-        try { engine.kill("SIGKILL"); } catch (e) {}
-      }
-      try { dashboard.kill("SIGKILL"); } catch (e) {}
-    }, 1500);
-    setTimeout(() => process.exit(_shutdownCode), 2000);
-  };
-
+  // The shared path (module scope since wave 13, so it can be
+  // registered before the install phase and can kill the install
+  // child) sets the flag, stops ALL children (SIGTERM, a short
+  // grace, then SIGKILL), then exits.
   dashboard.on("close", (code) => {
     log(`Dashboard exited with code ${code}`);
     if (!shuttingDown) {
@@ -510,10 +586,6 @@ function main() {
       shutdown(code || 0);
     }
   });
-
-  process.on("SIGINT", () => shutdown(0));
-  process.on("SIGTERM", () => shutdown(0));
-  process.on("SIGHUP", () => shutdown(0));
 }
 
 main();

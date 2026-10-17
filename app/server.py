@@ -362,6 +362,15 @@ def _persisted_settings():
     return None
 
 
+# Wave 13 (run-12 data): while _settings_outcome runs a rollback it
+# pushes the PERSISTED snapshot it judged against here; the CAS
+# helpers then skip any entry whose persisted value already equals
+# the caller's intended value — that entry LANDED (a peer's
+# acknowledged change to the SAME value is state-identical), and
+# rolling it back would clobber the peer's change, not the caller's.
+_OUTCOME_PERSISTED = []
+
+
 def _cas_rollback_dict_entry(container, entry, prior, new):
     """Wave 12 (D1): compare-and-restore ONE dict entry — restore the
     caller's prior value for `entry` ONLY if the live entry still
@@ -375,6 +384,12 @@ def _cas_rollback_dict_entry(container, entry, prior, new):
     if not isinstance(live, dict):
         return
     new_has = entry in (new or {})
+    if _OUTCOME_PERSISTED:
+        _pc = (_OUTCOME_PERSISTED[-1] or {}).get(container)
+        if isinstance(_pc, dict) and (entry in _pc) == new_has \
+                and (not new_has
+                     or _pc.get(entry) == (new or {}).get(entry)):
+            return  # the entry landed in the persisted state
     if (entry in live) != new_has:
         return
     if new_has and live.get(entry) != (new or {}).get(entry):
@@ -394,6 +409,10 @@ def _cas_rollback_list_entry(container, entry, prior, new):
     live = _SETTINGS.get(container)
     if not isinstance(live, list):
         return
+    if _OUTCOME_PERSISTED:
+        _pl = (_OUTCOME_PERSISTED[-1] or {}).get(container)
+        if isinstance(_pl, list) and (entry in _pl) == (entry in (new or [])):
+            return  # the membership landed in the persisted state
     if (entry in live) != (entry in (new or [])):
         return
     live = list(live)
@@ -408,6 +427,11 @@ def _cas_rollback_list_entry(container, entry, prior, new):
 def _cas_rollback_invite_add(code_hash):
     """D1: undo an invite_create by removing ONLY the caller's own
     invite (matched by hash) if it is still live."""
+    if _OUTCOME_PERSISTED:
+        _pi = (_OUTCOME_PERSISTED[-1] or {}).get("invites")
+        if isinstance(_pi, list) and any(
+                i.get("h") == code_hash for i in _pi):
+            return  # a peer re-created/kept this invite persistently
     live = _SETTINGS.get("invites")
     if isinstance(live, list):
         _SETTINGS["invites"] = [i for i in live
@@ -421,6 +445,10 @@ def _cas_rollback_invite_remove(removed):
     if not isinstance(live, list):
         return
     have = {i.get("h") for i in live}
+    if _OUTCOME_PERSISTED:
+        _pi = (_OUTCOME_PERSISTED[-1] or {}).get("invites")
+        if isinstance(_pi, list):
+            have |= {i.get("h") for i in _pi}
     add = [i for i in (removed or []) if i.get("h") not in have]
     if add:
         _SETTINGS["invites"] = list(live) + add
@@ -429,6 +457,12 @@ def _cas_rollback_invite_remove(removed):
 def _cas_rollback_invite_claim(code_hash, label):
     """D4: undo an invite claim — clear used_by only if the live
     invite still carries THIS caller's claim."""
+    if _OUTCOME_PERSISTED:
+        _pi = (_OUTCOME_PERSISTED[-1] or {}).get("invites")
+        if isinstance(_pi, list) and any(
+                i.get("h") == code_hash and i.get("used_by") == label
+                for i in _pi):
+            return  # the claim itself landed in the persisted state
     live = _SETTINGS.get("invites")
     if isinstance(live, list):
         for i in live:
@@ -445,13 +479,18 @@ def _cas_rollback_keys(prior, new, snapshot_prior=None,
     persisted state but was rolled back in live memory and then
     clobbered by the next save. The restore backup_snapshot rides
     the same compare on its own value."""
+    _ps13 = _OUTCOME_PERSISTED[-1] if _OUTCOME_PERSISTED else None
     for k, v in (new or {}).items():
+        if isinstance(_ps13, dict) and k in _ps13 and _ps13.get(k) == v:
+            continue  # this key landed (possibly via a peer's save)
         try:
             if _SETTINGS.get(k) == v:
                 _SETTINGS[k] = (prior or {}).get(k)
         except Exception:
             continue
     if snapshot_new is not None \
+            and not (isinstance(_ps13, dict)
+                     and _ps13.get("backup_snapshot") == snapshot_new) \
             and _SETTINGS.get("backup_snapshot") == snapshot_new:
         _SETTINGS["backup_snapshot"] = snapshot_prior
 
@@ -468,34 +507,59 @@ def _settings_outcome(sv, pred, rollback=None):
     "failed" (genuinely unpersisted; the in-memory mutation is rolled
     back via rollback() under _SETTINGS_LOCK so a later unrelated save
     cannot resurrect it and the caller's 500 text becomes true).
-    Wave 12 (D2/D3): BOTH branches now verify against the PERSISTED
-    state (the True branch used to check live memory only, so a third
-    writer's unsaved same-value mutation masked a supersession and
-    the caller was told ok for a value that was never persisted),
-    and a verdict first waits (bounded) for in-flight saves to
-    settle — a save still in its encrypt phase may already carry
-    this caller's mutation, so reading the persisted state before
-    it lands manufactures a ghost a restart resurrects."""
-    _wait_settings_settled()
-    persisted = _persisted_settings()
-    if persisted is not None:
-        try:
-            if pred(persisted):
-                return "ok"
-        except Exception:
-            pass
-    if sv:
-        if persisted is not None:
+    Wave 12 (D2/D3): BOTH branches verify against the PERSISTED
+    state, and a verdict first waits (bounded) for in-flight saves
+    to settle.
+    Wave 13 (run-12 data): the settle-wait is now a real BARRIER,
+    not a one-shot wait. The judge-and-rollback step runs inside one
+    _SETTINGS_LOCK hold that re-reads the persisted state, re-checks
+    _SETTINGS_ACTIVE==0 and compares _SETTINGS_GEN before and after
+    the read; if a save started or the generation moved during the
+    check, the verdict is discarded, the loop re-waits and
+    re-judges. On overall bound expiry with a save still in flight
+    the answer is "conflict" with NO rollback (the mutation may yet
+    land — rolling it back would manufacture the ghost)."""
+    _deadline = time.time() + 12.0
+    while True:
+        _remaining = _deadline - time.time()
+        if _remaining <= 0:
             return "conflict"
+        _wait_settings_settled(timeout=min(3.0, _remaining))
         with _SETTINGS_LOCK:
-            try:
-                return "ok" if pred(_SETTINGS) else "conflict"
-            except Exception:
-                return "conflict"
-    if rollback is not None:
-        with _SETTINGS_LOCK:
-            rollback()
-    return "failed"
+            if _SETTINGS_ACTIVE[0] == 0:
+                _gen0 = _SETTINGS_GEN[0]
+                persisted = _persisted_settings()
+                if _SETTINGS_ACTIVE[0] == 0 \
+                        and _SETTINGS_GEN[0] == _gen0:
+                    if persisted is not None:
+                        try:
+                            if pred(persisted):
+                                return "ok"
+                        except Exception:
+                            pass
+                        if sv:
+                            return "conflict"
+                        if rollback is not None:
+                            _OUTCOME_PERSISTED.append(persisted)
+                            try:
+                                rollback()
+                            finally:
+                                _OUTCOME_PERSISTED.pop()
+                        return "failed"
+                    if sv:
+                        try:
+                            return "ok" if pred(_SETTINGS) \
+                                else "conflict"
+                        except Exception:
+                            return "conflict"
+                    if rollback is not None:
+                        rollback()
+                    return "failed"
+        # A save started, or the generation moved, during the check:
+        # loop back to the wait and re-judge on settled state.
+        if time.time() >= _deadline:
+            return "conflict"
+        time.sleep(0.02)
 
 
 def _boot_restore_settings():
@@ -557,6 +621,18 @@ def _disabled_providers():
     return set(_SETTINGS.get("provider_disabled") or [])
 
 
+def _governance():
+    """Wave 13 (run-12 caps): ONE governance snapshot per check —
+    the disabled-set and the limits are read together under
+    _SETTINGS_LOCK (the lock the writer, settings_set, applies both
+    keys under), so a save landing between two separate unlocked
+    reads can no longer compose a verdict from two different
+    governance states (the torn read)."""
+    with _SETTINGS_LOCK:
+        return (_disabled_providers(),
+                dict(_SETTINGS.get("provider_limits") or {}))
+
+
 def _provider_blocked(provider, exclude=None):
     """Admin provider governance for the non-chat surfaces (media,
     transcription): True when the provider is disabled in settings or
@@ -564,9 +640,10 @@ def _provider_blocked(provider, exclude=None):
     chat's _lane_ok exactly — same disabled set, same limits table,
     same usage accounting — so a provider the admin stopped for chat
     cannot keep spending through media or voice."""
-    if provider in _disabled_providers():
+    _dis13, _lims13 = _governance()
+    if provider in _dis13:
         return True
-    _l = (_SETTINGS.get("provider_limits") or {}).get(provider)
+    _l = _lims13.get(provider)
     if _l:
         try:
             return _today_counts(fresh=True)["providers"].get(provider, 0) \
@@ -1323,20 +1400,65 @@ _INFLIGHT = []
 _INFLIGHT_LOCK = threading.Lock()
 
 
-def _inflight_add(user, provider=None, attempt=False):
+def _inflight_add_locked(user, provider=None, attempt=False):
+    """Append a reservation; caller holds _INFLIGHT_LOCK."""
     e = {"user": user, "provider": provider, "ts": time.time(),
          "att": bool(attempt)}
-    with _INFLIGHT_LOCK:
-        _INFLIGHT.append(e)
+    _INFLIGHT.append(e)
     return e
+
+
+def _inflight_drop_locked(e):
+    """Drop a reservation by identity; caller holds _INFLIGHT_LOCK."""
+    for i, x in enumerate(_INFLIGHT):
+        if x is e:
+            del _INFLIGHT[i]
+            break
+
+
+def _inflight_count_locked(provider=None):
+    """Count live reservations for a provider (attempt entries
+    included, as in _inflight_n); caller holds _INFLIGHT_LOCK.
+    Expired entries are pruned by identity, as in _inflight_n."""
+    now = time.time()
+    for e in [x for x in _INFLIGHT if now - x["ts"] > 900]:
+        _inflight_drop_locked(e)
+    return sum(1 for e in _INFLIGHT
+               if provider is None or e["provider"] == provider)
+
+
+def _inflight_reserve_capped(user, provider, completed, limit):
+    """Wave 13 (run-12 caps): ONE locked reserve+count primitive.
+    The old reserve-then-count shape added, counted and dropped in
+    three separate operations, so two concurrent spends at a limit
+    of 1 each counted the other and refused EACH OTHER (0 upstream
+    hits where exactly 1 is allowed). Here the append, the count
+    (completed + in-flight including this reservation) and the
+    refuse-drop are indivisible under a single _INFLIGHT_LOCK hold,
+    held only across this one segment — never across a caller's
+    early-return branches. Returns the reservation, or None when
+    the limit is already spent."""
+    with _INFLIGHT_LOCK:
+        res = _inflight_add_locked(user, provider, attempt=True)
+        if limit:
+            try:
+                _lim13 = int(limit)
+            except Exception:
+                return res
+            if completed + _inflight_count_locked(provider) > _lim13:
+                _inflight_drop_locked(res)
+                return None
+        return res
+
+
+def _inflight_add(user, provider=None, attempt=False):
+    with _INFLIGHT_LOCK:
+        return _inflight_add_locked(user, provider, attempt)
 
 
 def _inflight_drop(e):
     with _INFLIGHT_LOCK:
-        for i, x in enumerate(_INFLIGHT):
-            if x is e:
-                del _INFLIGHT[i]
-                break
+        _inflight_drop_locked(e)
 
 
 def _inflight_n(user=None, provider=None, exclude=None):
@@ -3725,7 +3847,11 @@ def _v1_chat(messages, model, temperature=None):
     for lane, mdl in _v1_route(model):
         if _provider_down(lane):
             continue
-        if lane in _disabled_providers():
+        # Wave 13: one governance snapshot judges this lane (the
+        # disabled read and the limits read below are the same
+        # snapshot, never two states torn apart).
+        _dis13, _lims13 = _governance()
+        if lane in _dis13:
             continue
         # Provider governance applies to /v1 exactly as to chat
         # (audit run-5): a lane whose daily provider_limits allowance
@@ -3738,18 +3864,25 @@ def _v1_chat(messages, model, temperature=None):
         # first and reserved after, so a natural burst all passed the
         # same check snapshot and overshot a lane limit of 1 up to
         # the burst size (verifier: 4 hits against a limit of 1).
-        _vres = _inflight_add("v1", lane, attempt=True)
-        _gov_ok = True
-        _lim = (_SETTINGS.get("provider_limits") or {}).get(lane)
+        # Wave 13: reserve+count is ONE locked primitive — the
+        # wave-12 add->count->drop sequence let two concurrent
+        # spends at a limit of 1 refuse each other (both counted
+        # the peer's reservation, both dropped: 0 hits).
+        _lim = _lims13.get(lane)
         if _lim:
             try:
-                _gov_ok = _today_counts(fresh=True)["providers"].get(
-                    lane, 0) + _inflight_n(provider=lane) <= int(_lim)
+                _completed = _today_counts(fresh=True)["providers"].get(
+                    lane, 0)
             except Exception:
-                _gov_ok = True
-        if not _gov_ok:
-            _inflight_drop(_vres)
-            continue
+                _completed = 0
+                _lim = None
+        if _lim:
+            _vres = _inflight_reserve_capped("v1", lane, _completed,
+                                             _lim)
+            if _vres is None:
+                continue
+        else:
+            _vres = _inflight_add("v1", lane, attempt=True)
         if lane not in RELAY_KEYLESS and getattr(Handler, "keys", None) is None:
             _inflight_drop(_vres)
             last_error = "vault locked"
@@ -4815,15 +4948,15 @@ class Handler(BaseHTTPRequestHandler):
             ) if user_mode else (
                 "<div class='card'><h3>Secure your keys</h3>"
                     "<p class='hint'>This password encrypts everything and unlocks your dashboard</p>"
-                    "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8' id='pw1'></label>"
+                    "<label>Password (min 10 chars)<input type='password' name='password' required minlength='10' id='pw1'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required id='pw2'></label>"
                     + _cm_field +
                     "<div id='pwm' style='font-size:13px;margin-top:6px'></div>"
                     "<script>"
                     "document.getElementById('pw2').addEventListener('input',function(){"
                     "var a=document.getElementById('pw1').value,b=this.value;"
-                    "document.getElementById('pwm').innerHTML=a===b&&a.length>=8?'<span style=\"color:#f2f2f2\">✓ Match</span>':'<span style=\"color:#ef4444\">Must match (8+ chars)</span>';"
-                    "if(a===b&&a.length>=8)document.getElementById('st3').className='st on';});"
+                    "document.getElementById('pwm').innerHTML=a===b&&a.length>=10?'<span style=\"color:#f2f2f2\">✓ Match</span>':'<span style=\"color:#ef4444\">Must match (10+ chars)</span>';"
+                    "if(a===b&&a.length>=10)document.getElementById('st3').className='st on';});"
                     "</script>"
             )
             page = ("<!DOCTYPE html><html><head><meta charset='utf-8'>"
@@ -6354,9 +6487,9 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             form = parse_qs(self.rfile.read(length).decode())
             pw = form.get("password", [""])[0]
-            if not pw or pw != form.get("confirm", [""])[0] or len(pw) < 8:
+            if not pw or pw != form.get("confirm", [""])[0] or len(pw) < 10:
                 self._set_json_headers(400)
-                self.wfile.write(json.dumps({"error": "passwords must match and be 8+ chars"}).encode())
+                self.wfile.write(json.dumps({"error": "passwords must match and be 10+ chars"}).encode())
                 return
             # Audit run-8 (HIGH): with keys already set up, this
             # branch REPLACES the master password and the whole
@@ -6374,6 +6507,17 @@ class Handler(BaseHTTPRequestHandler):
                 if _cur_keys is None:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "current master password is wrong or missing"}).encode())
+                    return
+                # Wave 13 (run-12 auth): change_master's collision
+                # guard applies here too — AFTER the proof, mirroring
+                # its placement, so the verdict is not a free oracle.
+                # A new master equal to a friend's password would
+                # shadow that friend: password-only login tries the
+                # master branch first. Same-master stays allowed (the
+                # suite-tested key-replacement flow).
+                if _password_taken(_load_access(), pw):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "that password is already in use by a friend — pick a different master password"}).encode())
                     return
             # Audit run-9 (S4) / wave 11 (F10): the first-run re-check
             # is DEFERRED to the encrypt site below. S4 re-checked here,
@@ -6447,6 +6591,18 @@ class Handler(BaseHTTPRequestHandler):
                     # A quiet decrypt (the wave-9 pattern) proves the
                     # same fact with no budget side effects; the 401
                     # for losers stays byte-identical.
+                    # Wave 13 (run-12 auth): the quiet proof stays
+                    # quiet toward the shared ("master", "") budget
+                    # (A3), but it is COUNTED in a dedicated
+                    # ("firstrun", "") ledger with the same 10/900
+                    # shape — past 10 first-run re-check failures the
+                    # candidate is refused UNTESTED with the identical
+                    # 401, instead of every held guess getting a real
+                    # in-lock decrypt.
+                    if _pw_throttled("firstrun", ""):
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "current master password is wrong or missing"}).encode())
+                        return
                     try:
                         _rc_keys = decrypt_keys(
                             key_path,
@@ -6454,8 +6610,16 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         _rc_keys = None
                     if _rc_keys is None:
+                        _pw_failed("firstrun", "")
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "current master password is wrong or missing"}).encode())
+                        return
+                    # Wave 13: the collision guard also binds this
+                    # (deferred-proof) rotation — checked only after
+                    # the proof above passes, as on change_master.
+                    if _password_taken(_load_access(), pw):
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "that password is already in use by a friend — pick a different master password"}).encode())
                         return
                     _cur_keys = _rc_keys
                     keys_exist = True
@@ -6902,7 +7066,15 @@ class Handler(BaseHTTPRequestHandler):
                                 "relay_gemini"):
                     self._cap_res["provider"] = provider
                 elif provider in ("pollinations", "relay_pollinations"):
-                    self._cap_res["provider"] = "pollinations"
+                    # Wave 13 (run-12 caps): tag the PICK name — the
+                    # old normalisation to "pollinations" split the
+                    # lane's accounting across two names, so the
+                    # pre-check's in-flight term (keyed on the pick
+                    # name) saw nobody and concurrent spends
+                    # overshot a relay_pollinations limit by the
+                    # whole burst. Tag, checks and metering now
+                    # share the pick name (the console's limit key).
+                    self._cap_res["provider"] = provider
                 _pblocked = bool(_img_explicit and provider in (
                     "aihorde", "cloudflare", "google", "relay_gemini",
                     "pollinations", "relay_pollinations")
@@ -7080,10 +7252,16 @@ class Handler(BaseHTTPRequestHandler):
                         # 2026-10-10: picked Gemini, silently got Pollinations).
                         _may_substitute = (provider in ("pollinations", "relay_pollinations")
                                            or provider in (None, "", "auto") or not _img_explicit)
+                        # Wave 13: a pollinations-pair pick substitutes
+                        # under its OWN name; any other pick
+                        # substitutes under "pollinations".
+                        _sub_p = provider if provider in (
+                            "pollinations", "relay_pollinations") \
+                            else "pollinations"
                         if _may_substitute:
                             # Wave 12 (C2): tag BEFORE the check.
-                            self._cap_res["provider"] = "pollinations"
-                        if _may_substitute and not _pblocked and not _provider_blocked("pollinations", exclude=self._cap_res):
+                            self._cap_res["provider"] = _sub_p
+                        if _may_substitute and not _pblocked and not _provider_blocked(_sub_p, exclude=self._cap_res):
                             _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
                             if _img and provider not in ("pollinations", "relay_pollinations"):
                                 _used_p, _used_m = "pollinations", "flux"
@@ -7935,9 +8113,12 @@ class Handler(BaseHTTPRequestHandler):
                 # install NEW objects, so the captures never
                 # refreshed — and this request's remaining spends
                 # ignored the change entirely.
-                if p in _disabled_providers():
+                # Wave 13: the live read is ONE _governance()
+                # snapshot — disabled and limits from the same state.
+                _dis13, _lims13 = _governance()
+                if p in _dis13:
                     return False
-                _l = (_SETTINGS.get("provider_limits") or {}).get(p)
+                _l = _lims13.get(p)
                 if not _l:
                     return True
                 # Audit run-7: FRESH counts plus the in-flight term —
@@ -7955,13 +8136,37 @@ class Handler(BaseHTTPRequestHandler):
                 # not EXCEED the limit. The old shape checked first and
                 # reserved after, and two rendezvoused spends both
                 # passed a limit of 1.
-                if p in _disabled_providers():
+                # Wave 13: judged on ONE _governance() snapshot.
+                _dis13, _lims13 = _governance()
+                if p in _dis13:
                     return False
-                _l = (_SETTINGS.get("provider_limits") or {}).get(p)
+                _l = _lims13.get(p)
                 if not _l:
                     return True
                 return (_today_counts(fresh=True)["providers"].get(p, 0)
                         + _inflight_n(provider=p)) <= int(_l)
+
+            def _lane_spend_reserve(p):
+                # Wave 13 (run-12 caps): reserve+count as ONE locked
+                # primitive (the _v1_chat shape): the caller's attempt
+                # reservation is taken AND counted indivisibly, so
+                # concurrent spends at a limit of 1 admit exactly one
+                # instead of refusing each other. Returns the
+                # reservation, or None when the lane is disabled or
+                # its limit is spent (nothing is held then).
+                _dis13, _lims13 = _governance()
+                if p in _dis13:
+                    return None
+                _l = _lims13.get(p)
+                if not _l:
+                    return _inflight_add(_chat_label, p, attempt=True)
+                try:
+                    _completed = _today_counts(
+                        fresh=True)["providers"].get(p, 0)
+                except Exception:
+                    return _inflight_add(_chat_label, p, attempt=True)
+                return _inflight_reserve_capped(
+                    _chat_label, p, _completed, _l)
 
             _kept = [(p, m) for (p, m) in _attempts if _lane_ok(p)]
             if not _kept:
@@ -8148,13 +8353,12 @@ class Handler(BaseHTTPRequestHandler):
                         # Wave 11 (F4): reserve FIRST, then check with
                         # the reservation counted (S13 checked first and
                         # reserved after — the check-then-add window).
-                        _ares = _inflight_add(_chat_label, _cp, attempt=True)
-                        if not _lane_spend_ok(_cp):
+                        _ares = _lane_spend_reserve(_cp)
+                        if _ares is None:
                             # S13: re-test the lane immediately
                             # before THIS spend — a lane that filled
                             # up since admission (or since the last
                             # round) is skipped, not spent on.
-                            _inflight_drop(_ares)
                             continue
                         try:
                             _res = _attempt(_cp, _cm, 60, _msgs)
@@ -8199,11 +8403,10 @@ class Handler(BaseHTTPRequestHandler):
                 if _final is None:
                     _msgs.append({"role": "user", "content": "Give your final answer now, without any tool block."})
                     # Wave 11 (F4): reserve first, then check counted.
-                    _ares = _inflight_add(_chat_label, _ap2, attempt=True)
-                    if not _lane_spend_ok(_ap2):
+                    _ares = _lane_spend_reserve(_ap2)
+                    if _ares is None:
                         # S13: the final call is a spend too — the
                         # lane's limit binds it like every other.
-                        _inflight_drop(_ares)
                         _final = "I couldn't complete that. Try again."
                     else:
                         try:
@@ -8233,8 +8436,8 @@ class Handler(BaseHTTPRequestHandler):
                 # reservation counted — S13 checked first and reserved
                 # after, leaving a microsecond check-then-add window
                 # where two rendezvoused spends both passed.
-                _ares = _inflight_add(_chat_label, _ap, attempt=True)
-                if not _lane_spend_ok(_ap):
+                _ares = _lane_spend_reserve(_ap)
+                if _ares is None:
                     # Audit run-9 (S13): _lane_ok was a snapshot
                     # taken at build time and never re-checked at
                     # spend — rendezvoused concurrent builds each
@@ -8243,8 +8446,9 @@ class Handler(BaseHTTPRequestHandler):
                     # counting peer attempt reservations (the
                     # in-flight term inside _lane_ok); a lane that
                     # filled up meanwhile fails over, or refuses
-                    # when it was the last one.
-                    _inflight_drop(_ares)
+                    # when it was the last one. (Wave 13: the
+                    # reserve primitive already dropped the refused
+                    # reservation — nothing is held here.)
                     _trace.append({"p": _ap, "m": _am, "ok": False,
                                    "ms": 0,
                                    "e": "provider daily limit reached"})
@@ -8444,6 +8648,16 @@ class Handler(BaseHTTPRequestHandler):
                 # taken and free stay indistinguishable in scope.
                 _probe_ok = _rl_ok("redeemprobe", _probe_key, 10, 900)
                 if _probe_ok and not code:
+                    # Wave 13 (run-12 auth): a per-candidate global
+                    # sub-bucket, consulted BEFORE the global ceiling
+                    # so one manufactured known-taken candidate can
+                    # burn at most 10/900s of global budget across
+                    # ALL sources (it used to exhaust "open:all"
+                    # alone and 429 every legitimate signup).
+                    _cand13 = "open:cand:" + hashlib.sha256(
+                        password.encode()).hexdigest()
+                    _probe_ok = _rl_ok("redeemprobe", _cand13, 10, 900)
+                if _probe_ok and not code:
                     _probe_ok = _rl_ok("redeemprobe", "open:all",
                                        100, 900)
                 if not _probe_ok:
@@ -8513,6 +8727,8 @@ class Handler(BaseHTTPRequestHandler):
                     # satisfied.
                     _w10_seen = False
                     _w10_role = False
+                    _prior_roles13 = None
+                    _new_roles13 = None
                     with _SETTINGS_LOCK:
                         _seen = list(_SETTINGS.get("terms_seen") or [])
                         if label not in _seen:
@@ -8520,15 +8736,44 @@ class Handler(BaseHTTPRequestHandler):
                             _SETTINGS["terms_seen"] = _seen
                             _w10_seen = True
                         if role in ("moderator", "viewer"):
-                            roles = dict(_SETTINGS.get("roles") or {})
+                            _prior_roles13 = dict(
+                                _SETTINGS.get("roles") or {})
+                            roles = dict(_prior_roles13)
                             roles[label] = role
                             _SETTINGS["roles"] = roles
+                            _new_roles13 = dict(roles)
                             _w10_role = True
                     # S2: saves after the lock releases (one save
                     # persists both mutations; the old code saved
                     # after each — same final state on disk).
                     if _w10_seen or _w10_role:
-                        _save_settings()
+                        _rsv13 = _save_settings()
+                        # Wave 13 (run-12 data): the ROLE save is
+                        # outcome-checked like the claim save above.
+                        # It used to discard its result: a fault
+                        # between the (durable) claim/account and this
+                        # save answered 200 while the role silently
+                        # downgraded to friend at restart. The
+                        # account EXISTS and the code is spent, so
+                        # the honest answer names exactly that; the
+                        # live role entry is CAS-rolled back so the
+                        # running server does not claim it either.
+                        # (terms_seen alone stays best-effort.)
+                        if _w10_role:
+                            _roc13 = _settings_outcome(
+                                _rsv13,
+                                lambda s: (s.get("roles") or {}).get(
+                                    label) == role)
+                            if _roc13 != "ok":
+                                with _SETTINGS_LOCK:
+                                    _cas_rollback_dict_entry(
+                                        "roles", label,
+                                        _prior_roles13, _new_roles13)
+                                self._set_json_headers(
+                                    409 if _roc13 == "conflict" else 500)
+                                self.wfile.write(json.dumps(
+                                    {"error": "signed up, but the role could not be saved — the owner can set it from the console"}).encode())
+                                return
                 except Exception:
                     if invite is not None:
                         with _SETTINGS_LOCK:
@@ -8541,8 +8786,11 @@ class Handler(BaseHTTPRequestHandler):
                 # refund cannot reopen the taken/free oracle; refused
                 # attempts above keep their hits.
                 _rl_refund("redeemprobe", _probe_key)
-                if not code:
-                    _rl_refund("redeemprobe", "open:all")
+                # Wave 13 (run-12 auth): the GLOBAL hit is NOT
+                # refunded any more — successes accrue against the
+                # 100/900 ceiling exactly like taken verdicts, so
+                # free verdicts share the cross-source bound again.
+                # The per-source refund above stays (F11 fairness).
             _audit("Users", f"Signed up via invite: {label} ({role})",
                    ip=_client_ip(self.headers, self.client_address[0]))
             _alert("signup", "signup", {"label": label, "role": role})
@@ -9941,11 +10189,21 @@ class Handler(BaseHTTPRequestHandler):
                         # the pre-reset settings resurrect at restart.
                         _reset_oc = _settings_outcome(
                             _save_settings(),
-                            lambda s: not (s.get("user_caps") or {})
-                            and not (s.get("roles") or {})
-                            and not (s.get("suspended") or [])
-                            and not (s.get("invites") or [])
-                            and not (s.get("announcement") or ""))
+                            # Wave 13 (run-12 data): the pred verifies
+                            # the FULL intended reset state — the old
+                            # 5-collection check answered ok while
+                            # maintenance/daily_cap/instance_name/
+                            # provider_disabled resurrected at restart
+                            # whenever those collections were already
+                            # empty. Judged over the persisted document
+                            # merged over the defaults (exactly what
+                            # the boot merge would load).
+                            lambda s: all(
+                                {**_SETTINGS_DEFAULTS,
+                                 **{kk: s[kk] for kk in s
+                                    if kk in _SETTINGS_DEFAULTS}}.get(k)
+                                == v
+                                for k, v in _SETTINGS_DEFAULTS.items()))
                         _PROVIDER_HEALTH.clear()
                     try:
                         # Audit run-8: truncates take _AUDIT_LOCK —
@@ -10105,6 +10363,7 @@ class Handler(BaseHTTPRequestHandler):
             if action == "revoke":
                 label = (data.get("label") or "").strip()
                 master_pw = data.get("master_pw") or ""
+                _revoke_oc13 = "ok"
                 if not master_pw:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "master password required"}).encode())
@@ -10183,8 +10442,30 @@ class Handler(BaseHTTPRequestHandler):
                                     _w10_dirty = True
                             # S2: one save after the lock releases
                             # persists both cleanup mutations.
+                            # Wave 13 (run-12 data): that save is
+                            # outcome-checked — it used to discard its
+                            # result, so a faulted revoke answered 200
+                            # while the role/cap resurrected at restart
+                            # and were inherited by a re-created friend.
                             if _w10_dirty:
-                                _save_settings()
+                                _revoke_oc13 = _settings_outcome(
+                                    _save_settings(),
+                                    lambda s: label not in (
+                                        s.get("roles") or {})
+                                    and label not in (
+                                        s.get("user_caps") or {})
+                                    and label not in (
+                                        s.get("vault_meta") or {})
+                                    and label not in (
+                                        s.get("suspended") or [])
+                                    and label not in (
+                                        s.get("terms_seen") or [])
+                                    and not any(
+                                        isinstance(e, dict)
+                                        and e.get("label") == label
+                                        for e in (
+                                            s.get("oauth_links")
+                                            or [])))
                             # Delete their personal key vault too
                             try:
                                 vp = _userkey_path(label)
@@ -10216,6 +10497,13 @@ class Handler(BaseHTTPRequestHandler):
                         # a revoked account leaves no per-user history.
                         _purge_label_history(label)
                 _audit("Users", f"Friend revoked: {label}")
+                if _revoke_oc13 != "ok":
+                    # The account itself IS revoked (durable via
+                    # _save_access); only the settings cleanup could
+                    # not be saved — say exactly that.
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "friend revoked, but their per-user settings cleanup could not be saved"}).encode())
+                    return
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
