@@ -237,29 +237,63 @@ _RESTORE_NONCES = {}
 
 
 _SETTINGS_LOCK = threading.RLock()
+_SETTINGS_IO_LOCK = threading.Lock()
+_SETTINGS_GEN = [0]
+_SETTINGS_WRITTEN_GEN = [0]
 
 
 def _save_settings():
     """Persist settings atomically and report success (audit run-7):
     the old direct write_text tore under concurrent writers (a torn
     file at boot was silently dropped) and swallowed every failure
-    behind ok:true responses. Returns True only when the working
-    copy actually landed."""
+    behind ok:true responses. Returns True only when the change
+    actually landed.
+    Run-8 shape: the snapshot is taken under _SETTINGS_LOCK but the
+    ~0.3-0.7s PBKDF2 mirror encrypt happens OUTSIDE it (holding the
+    RMW lock across the encrypt convoyed every settings writer
+    behind each save — worst observed 11.75s), and the encrypted
+    mirror is written FIRST (boot reads it as the source of truth,
+    so a crash between the writes must leave the NEWER state in the
+    mirror — plain-first silently reverted an acknowledged change
+    at boot). A failed mirror fails the save when a restore key is
+    configured. A generation guard keeps a slow save from
+    overwriting a newer one that landed meanwhile; the newer
+    snapshot necessarily includes this change (its mutation was
+    applied before this snapshot was taken)."""
     with _SETTINGS_LOCK:
+        _SETTINGS_GEN[0] += 1
+        gen = _SETTINGS_GEN[0]
+        snap_text = json.dumps(_SETTINGS, indent=2)
+    enc_tmp = None
+    if RESTORE_KEY:
+        enc_tmp = "%s.%d.tmp" % (SETTINGS_ENC_PATH, threading.get_ident())
+        try:
+            encrypt_keys(json.loads(snap_text), RESTORE_KEY,
+                         Path(enc_tmp))
+        except Exception:
+            return False
+    with _SETTINGS_IO_LOCK:
+        if gen < _SETTINGS_WRITTEN_GEN[0]:
+            if enc_tmp:
+                try:
+                    os.unlink(enc_tmp)
+                except Exception:
+                    pass
+            return True
         ok = True
         try:
+            if enc_tmp:
+                os.chmod(enc_tmp, 0o600)
+                os.replace(enc_tmp, SETTINGS_ENC_PATH)
             tmp = "%s.%d.tmp" % (SETTINGS_PATH, threading.get_ident())
             with open(tmp, "w") as f:
-                f.write(json.dumps(_SETTINGS, indent=2))
+                f.write(snap_text)
             os.chmod(tmp, 0o600)
             os.replace(tmp, SETTINGS_PATH)
         except Exception:
             ok = False
-        if RESTORE_KEY:
-            try:
-                encrypt_keys(_SETTINGS, RESTORE_KEY, SETTINGS_ENC_PATH)
-            except Exception:
-                pass
+        if ok:
+            _SETTINGS_WRITTEN_GEN[0] = gen
         return ok
 
 
@@ -322,7 +356,7 @@ def _disabled_providers():
     return set(_SETTINGS.get("provider_disabled") or [])
 
 
-def _provider_blocked(provider):
+def _provider_blocked(provider, exclude=None):
     """Admin provider governance for the non-chat surfaces (media,
     transcription): True when the provider is disabled in settings or
     today's provider_limits allowance for it is used up. Mirrors text
@@ -335,7 +369,7 @@ def _provider_blocked(provider):
     if _l:
         try:
             return _today_counts(fresh=True)["providers"].get(provider, 0) \
-                + _inflight_n(provider=provider) >= int(_l)
+                + _inflight_n(provider=provider, exclude=exclude) >= int(_l)
         except Exception:
             return False
     return False
@@ -793,10 +827,11 @@ def _housekeeper():
                   (ab == "weekly"
                    and _SETTINGS.get("last_backup") != wk)
             if due:
-                _SETTINGS["backup_snapshot"] = {
-                    "ts": datetime.datetime.now().isoformat(),
-                    "config": _public_settings_snapshot()}
-                _SETTINGS["last_backup"] = iso if ab == "daily" else wk
+                with _SETTINGS_LOCK:
+                    _SETTINGS["backup_snapshot"] = {
+                        "ts": datetime.datetime.now().isoformat(),
+                        "config": _public_settings_snapshot()}
+                    _SETTINGS["last_backup"] = iso if ab == "daily" else wk
                 changed = True
                 _audit("System", f"Auto-backup completed ({ab})")
             if changed:
@@ -928,6 +963,13 @@ def _flush_telemetry():
 
 
 def _flush_telemetry_locked():
+    # Audit run-8: clear dirty BEFORE snapshotting the tails. The
+    # old order set it after the ~0.7s encrypt, so a row appended
+    # mid-flush landed after the snapshot yet had its flag cleared
+    # anyway — never mirrored, and lost on the next redeploy. Rows
+    # appended from here on re-set the flag and ride the next flush.
+    _was_dirty = _TELEMETRY["dirty"]
+    _TELEMETRY["dirty"] = False
     try:
         payload = {"v": 1,
                    "saved": datetime.datetime.now().isoformat(),
@@ -935,10 +977,10 @@ def _flush_telemetry_locked():
                    "audit": _tail_text(AUDIT_PATH, _TELEMETRY_AUDIT_LINES)}
         encrypt_keys(payload, RESTORE_KEY, TELEMETRY_ENC_PATH)
         _TELEMETRY["saved"] = payload["saved"]
-        _TELEMETRY["dirty"] = False
         _TELEMETRY["last_flush"] = time.time()
         return True
     except Exception:
+        _TELEMETRY["dirty"] = _was_dirty
         return False
 
 
@@ -1074,8 +1116,9 @@ def _today_total_requests(fresh=False):
 _INFLIGHT = []
 
 
-def _inflight_add(user, provider=None):
-    e = {"user": user, "provider": provider, "ts": time.time()}
+def _inflight_add(user, provider=None, attempt=False):
+    e = {"user": user, "provider": provider, "ts": time.time(),
+         "att": bool(attempt)}
     _INFLIGHT.append(e)
     return e
 
@@ -1087,21 +1130,35 @@ def _inflight_drop(e):
         pass
 
 
-def _inflight_n(user=None, provider=None):
+def _inflight_n(user=None, provider=None, exclude=None):
     """Admitted-but-not-yet-counted requests (audit run-6): the cap
     checks used to read only COMPLETED usage rows through a 20s
     cache, so a parallel burst all passed the same stale snapshot.
     Checks now read fresh counts PLUS these reservations; entries
     expire after 15 minutes so a wedged request cannot reserve
-    forever."""
+    forever (expired entries are pruned here, audit run-8).
+    Counting rules (audit run-8): a caller checking its OWN admission
+    passes exclude=<its reservation> — wave 8 reserved before the
+    checks and then counted the caller's own slot, so cap=1 refused
+    the first request of the day. Unfiltered counts (per-user and
+    instance totals) count LOGICAL requests: per-attempt entries
+    (att=True) belong to a request already counted by its base
+    reservation and are skipped; provider-filtered counts include
+    them, since a provider limit binds attempts."""
     now = time.time()
+    live = [e for e in _INFLIGHT if now - e["ts"] <= 900]
+    if len(live) != len(_INFLIGHT):
+        _INFLIGHT[:] = live
     n = 0
-    for e in list(_INFLIGHT):
-        if now - e["ts"] > 900:
+    for e in live:
+        if exclude is not None and e is exclude:
             continue
         if user is not None and e["user"] != user:
             continue
-        if provider is not None and e["provider"] != provider:
+        if provider is not None:
+            if e["provider"] != provider:
+                continue
+        elif e.get("att"):
             continue
         n += 1
     return n
@@ -1118,6 +1175,19 @@ def _instance_cap_reached():
 
 
 _V1_CAP_AUDIT = [0.0]
+
+
+def _ts_or(x, dflt=0):
+    """int(x) that never raises (audit run-8): a stored OAuth token
+    whose expires field is not numeric used to raise straight
+    through the chat attempt path — a 500 that also orphaned the
+    attempt's cap reservation. Unparseable reads as dflt, which
+    for an expiry means 'expired': refresh is attempted and a
+    failed refresh fails closed."""
+    try:
+        return int(x)
+    except Exception:
+        return dflt
 
 
 def _finite_num(x):
@@ -1477,10 +1547,11 @@ def _save_userkeys(label, keys_dict, password):
                 for k, v in sorted((keys_dict or {}).items())
                 if isinstance(v, str) and len(v) >= 8
                 and not str(k).endswith("_url")]
-        vm = dict(_SETTINGS.get("vault_meta") or {})
-        vm[label] = meta
-        _SETTINGS["vault_meta"] = vm
-        _save_settings()
+        with _SETTINGS_LOCK:
+            vm = dict(_SETTINGS.get("vault_meta") or {})
+            vm[label] = meta
+            _SETTINGS["vault_meta"] = vm
+            _save_settings()
     except Exception:
         pass
 
@@ -1941,7 +2012,7 @@ def _aioauth_exchange(lane, code, verifier):
                          % (st, _intg_err_text(j)))
     tok = {"access": j["access_token"],
            "refresh": j.get("refresh_token") or "",
-           "expires": int(time.time()) + int(j.get("expires_in") or 3600),
+           "expires": int(time.time()) + _ts_or(j.get("expires_in") or 3600, 3600),
            "email": "", "account_id": "", "project": "", "plan": ""}
     if lane == "codex" and j.get("id_token"):
         claims = _jwt_claims(j["id_token"])
@@ -1977,7 +2048,7 @@ def _aioauth_refresh(lane, tok):
     out["access"] = j["access_token"]
     if j.get("refresh_token"):
         out["refresh"] = j["refresh_token"]
-    out["expires"] = int(time.time()) + int(j.get("expires_in") or 3600)
+    out["expires"] = int(time.time()) + _ts_or(j.get("expires_in") or 3600, 3600)
     if lane == "codex" and j.get("id_token"):
         claims = _jwt_claims(j["id_token"])
         auth = claims.get("https://api.openai.com/auth") or {}
@@ -1997,12 +2068,12 @@ def _aioauth_fresh(info, lane):
     tok = (store.get("ai_oauth") or {}).get(lane)
     if not isinstance(tok, dict) or not tok.get("access"):
         return None
-    if int(tok.get("expires") or 0) < time.time() + 90:
+    if _ts_or(tok.get("expires")) < time.time() + 90:
         new = _aioauth_refresh(lane, tok)
         if new:
             store.setdefault("ai_oauth", {})[lane] = new
             return new
-        if int(tok.get("expires") or 0) < time.time():
+        if _ts_or(tok.get("expires")) < time.time():
             return None
     return tok
 
@@ -2548,13 +2619,28 @@ def _password_taken(access, password, skip_label=None):
     return any(l != skip_label and _verify_password(password, h)[0]
                for l, h in (access or {}).items())
 
-def _is_master_password(password):
+def _is_master_password(password, quiet=False):
     """True when the candidate IS the master password (it decrypts the
     shared vault). A friend password must never equal it: password-only
     login tries the master branch first, so such an account would be
     permanently shadowed — and its holder would land in an admin
     session. Checked at every friend-password set site and, in reverse,
-    when the master password itself is rotated."""
+    when the master password itself is rotated.
+    quiet=True performs the same decrypt test WITHOUT the shared
+    budget's side effects (audit run-8): _master_proof records every
+    miss in the GLOBAL master budget, so the password-collision
+    probes an unproven caller (a moderator, an invite holder) is
+    allowed to make could exhaust it and lock the owner out of every
+    master proof for up to 900s. The check itself must stay — it is
+    what stops a friend password shadowing the master."""
+    if quiet:
+        if not password:
+            return False
+        try:
+            decrypt_keys(Path(__file__).parent / "keys.enc", password)
+            return True
+        except Exception:
+            return False
     return _master_proof(password) is not None
 
 # ---------------------------------------------------------------------------
@@ -2642,9 +2728,12 @@ def _append_usage_locked(entry):
 
 
 def _purge_label_history(label):
-    # Lock order is always USAGE -> TELEMETRY (the flush takes
-    # TELEMETRY alone), so this cannot deadlock.
-    with _USAGE_LOCK, _TELEMETRY_LOCK:
+    # Lock order is always USAGE -> TELEMETRY -> AUDIT (the flush
+    # takes TELEMETRY alone, _audit takes AUDIT alone, and AUDIT is
+    # a leaf), so this cannot deadlock. Run-8: the audit rewrite
+    # below used to run WITHOUT _AUDIT_LOCK, so audit rows appended
+    # between its read and its replace were silently dropped.
+    with _USAGE_LOCK, _TELEMETRY_LOCK, _AUDIT_LOCK:
         return _purge_label_history_locked(label)
 
 
@@ -3175,17 +3264,25 @@ _V1_MODELS_CACHE = {"at": 0.0, "ids": []}
 V1KEY_PATH = Path(__file__).parent / "v1key.enc"
 _V1KEYS = {"keys": []}
 _V1KEYS_TOUCH = {"at": 0.0}
+# Audit run-8: the store had NO lock at all — a /v1 request's
+# last_used touch-save could land after an admin's delete and write
+# the pre-delete list back, resurrecting a revoked bearer key (the
+# same hole defeated the factory-reset / change-master wipes).
+# Every mutation, save and wipe of the store takes this lock; it is
+# an RLock so helpers may compose.
+_V1KEYS_LOCK = threading.RLock()
 
 
 def _save_v1keys():
     if not RESTORE_KEY:
         return False
-    try:
-        encrypt_keys({"keys": _V1KEYS["keys"]}, RESTORE_KEY, V1KEY_PATH)
-        os.chmod(V1KEY_PATH, 0o600)
-        return True
-    except Exception:
-        return False
+    with _V1KEYS_LOCK:
+        try:
+            encrypt_keys({"keys": _V1KEYS["keys"]}, RESTORE_KEY, V1KEY_PATH)
+            os.chmod(V1KEY_PATH, 0o600)
+            return True
+        except Exception:
+            return False
 
 
 def _load_v1key():
@@ -3195,6 +3292,11 @@ def _load_v1key():
         d = decrypt_keys(V1KEY_PATH, RESTORE_KEY)
     except Exception:
         return
+    with _V1KEYS_LOCK:
+        _load_v1key_locked(d)
+
+
+def _load_v1key_locked(d):
     if isinstance(d, dict) and isinstance(d.get("keys"), list):
         _V1KEYS["keys"] = [k for k in d["keys"]
                            if isinstance(k, dict) and k.get("key")]
@@ -3224,13 +3326,14 @@ def _create_v1key(name):
              "key": "nxk-" + secrets.token_hex(24),
              "created": int(time.time()), "last_used": None,
              "disabled": False}
-    _V1KEYS["keys"].append(entry)
-    if not _save_v1keys():
-        # Audit run-7: a key that could not be persisted must not be
-        # handed out — it would die at the next restart while the
-        # caller believes it works (and a "deleted" key came back).
-        _V1KEYS["keys"].remove(entry)
-        return None
+    with _V1KEYS_LOCK:
+        _V1KEYS["keys"].append(entry)
+        if not _save_v1keys():
+            # Audit run-7: a key that could not be persisted must not be
+            # handed out — it would die at the next restart while the
+            # caller believes it works (and a "deleted" key came back).
+            _V1KEYS["keys"].remove(entry)
+            return None
     return entry
 
 
@@ -3263,16 +3366,17 @@ def _v1_match(bearer):
     if not bearer:
         return None
     if _V1KEYS["keys"]:
-        for k in _V1KEYS["keys"]:
-            if k.get("disabled"):
-                continue
-            if _hmac.compare_digest(bearer, k["key"]):
-                k["last_used"] = int(time.time())
-                now = time.time()
-                if now - _V1KEYS_TOUCH["at"] > 60:
-                    _V1KEYS_TOUCH["at"] = now
-                    _save_v1keys()
-                return k
+        with _V1KEYS_LOCK:
+            for k in _V1KEYS["keys"]:
+                if k.get("disabled"):
+                    continue
+                if _hmac.compare_digest(bearer, k["key"]):
+                    k["last_used"] = int(time.time())
+                    now = time.time()
+                    if now - _V1KEYS_TOUCH["at"] > 60:
+                        _V1KEYS_TOUCH["at"] = now
+                        _save_v1keys()
+                    return k
         return None
     env = os.environ.get("NEXUS_V1_API_KEY", "")
     if env and _hmac.compare_digest(bearer, env):
@@ -3353,27 +3457,35 @@ def _v1_chat(messages, model, temperature=None):
         payload = {"model": mdl, "messages": lane_msgs, "max_tokens": 4096}
         if temperature is not None:
             payload["temperature"] = temperature
+        # Audit run-8: hold a provider-tagged reservation across the
+        # lane attempt — /v1 took none at all, so _provider_blocked's
+        # in-flight term was always 0 here and a concurrent burst
+        # overshot per-lane limits inside one in-flight window.
+        _vres = _inflight_add("v1", lane, attempt=True)
         try:
-            data = _v1_relay_call(lane, "/chat/completions", payload)
-            reply = data["choices"][0]["message"]["content"]
-            if not isinstance(reply, str):
-                raise ValueError("unexpected upstream shape")
-            _note_success(lane)
-            usage = data.get("usage") or {}
-            _append_usage({"ts": datetime.datetime.now().isoformat(),
-                           "provider": lane, "via": "v1", "model": mdl,
-                           "prompt_tokens": usage.get("prompt_tokens", 0),
-                           "completion_tokens": usage.get("completion_tokens", 0)})
-            data.setdefault("model", mdl)
-            return 200, data, lane
-        except HTTPError as e:
-            _note_failure(lane, f"HTTP {e.code}")
-            last_error = f"{lane} returned {e.code}"
-            continue
-        except Exception:
-            _note_failure(lane, "unreachable")
-            last_error = f"{lane} unreachable"
-            continue
+            try:
+                data = _v1_relay_call(lane, "/chat/completions", payload)
+                reply = data["choices"][0]["message"]["content"]
+                if not isinstance(reply, str):
+                    raise ValueError("unexpected upstream shape")
+                _note_success(lane)
+                usage = data.get("usage") or {}
+                _append_usage({"ts": datetime.datetime.now().isoformat(),
+                               "provider": lane, "via": "v1", "model": mdl,
+                               "prompt_tokens": usage.get("prompt_tokens", 0),
+                               "completion_tokens": usage.get("completion_tokens", 0)})
+                data.setdefault("model", mdl)
+                return 200, data, lane
+            except HTTPError as e:
+                _note_failure(lane, f"HTTP {e.code}")
+                last_error = f"{lane} returned {e.code}"
+                continue
+            except Exception:
+                _note_failure(lane, "unreachable")
+                last_error = f"{lane} unreachable"
+                continue
+        finally:
+            _inflight_drop(_vres)
     return 502, {"error": {"message": f"all Nexus lanes failed ({last_error})",
                            "type": "upstream_error"}}, ""
 
@@ -3856,11 +3968,22 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(429)
             self.wfile.write(json.dumps({"error": {"message": "rate limit", "type": "rate_limit_error"}}).encode())
             return
+        # Audit run-8: reserve BEFORE the cap gate and hold the
+        # reservation across dispatch (do_POST's finally drops it).
+        # The gate read only COMPLETED rows, so a concurrent burst
+        # all passed inside one in-flight window — global_cap=2
+        # waved 6 simultaneous calls through and the day total
+        # landed at 6.
+        self._cap_res = _inflight_add("v1")
         # Hard daily stop (reel-risk fix 2026-10-10): the instance-wide
         # cap the owner sets in the console also binds the /v1 API —
         # a looping consumer or a leaked service key must not be able
         # to burn the whole day's provider quota at 60 requests/min.
-        if _instance_cap_reached():
+        if _instance_cap_reached() or (
+                int(_SETTINGS.get("global_cap") or 0)
+                and _today_total_requests(fresh=True)
+                + _inflight_n(exclude=self._cap_res)
+                >= int(_SETTINGS.get("global_cap") or 0)):
             if time.time() - _V1_CAP_AUDIT[0] >= 600:
                 _V1_CAP_AUDIT[0] = time.time()
                 _audit("System", "/v1 stopped: instance daily cap hit "
@@ -4007,30 +4130,38 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(401)
             self._send_body(json.dumps({"error": "master password required"}).encode())
             return
-        entry = None
-        for k in _V1KEYS["keys"]:
-            if k["id"] == data.get("id", ""):
-                entry = k
-                break
-        if entry is None:
-            self._set_json_headers(404)
-            self._send_body(json.dumps({"error": "no such key"}).encode())
-            return
-        if action == "delete":
-            _V1KEYS["keys"].remove(entry)
-        elif action == "rotate":
-            # The reference design's per-row refresh button, for
-            # real: same key entry, brand-new secret, and the
-            # last-used stamp resets — the new secret has never
-            # been used.
-            entry["key"] = "nxk-" + secrets.token_hex(24)
-            entry["last_used"] = None
-        else:
-            entry["disabled"] = (action == "disable")
-        if not _save_v1keys():
-            self._set_json_headers(500)
-            self._send_body(json.dumps({"error": "key change could not be saved — it will not survive a restart"}).encode())
-            return
+        # Audit run-8: lookup, mutation and save are one locked
+        # unit, and a failed save now ROLLS BACK the in-memory
+        # mutation — wave 8 answered an honest 500 but left memory
+        # and disk diverged until restart (a "deleted" key was dead
+        # in memory yet alive again after the next boot).
+        with _V1KEYS_LOCK:
+            entry = None
+            for k in _V1KEYS["keys"]:
+                if k["id"] == data.get("id", ""):
+                    entry = k
+                    break
+            if entry is None:
+                self._set_json_headers(404)
+                self._send_body(json.dumps({"error": "no such key"}).encode())
+                return
+            _snap = [dict(k) for k in _V1KEYS["keys"]]
+            if action == "delete":
+                _V1KEYS["keys"].remove(entry)
+            elif action == "rotate":
+                # The reference design's per-row refresh button, for
+                # real: same key entry, brand-new secret, and the
+                # last-used stamp resets — the new secret has never
+                # been used.
+                entry["key"] = "nxk-" + secrets.token_hex(24)
+                entry["last_used"] = None
+            else:
+                entry["disabled"] = (action == "disable")
+            if not _save_v1keys():
+                _V1KEYS["keys"] = _snap
+                self._set_json_headers(500)
+                self._send_body(json.dumps({"error": "key change could not be saved — it will not survive a restart"}).encode())
+                return
         verb = {"disable": "disabled", "enable": "enabled",
                 "delete": "deleted", "rotate": "rotated"}[action]
         _audit("Vault", f"/v1 service key {verb}: {entry['name']}")
@@ -4046,6 +4177,13 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": "admin only"}).encode())
             return
         if not self._ip_gate():
+            return
+        # Audit run-8: each self-test spends a REAL completion and
+        # the route was session-only with no throttle — an admin
+        # session alone could loop it against the provider quotas.
+        if not _rl_ok("v1test", _client_ip(self.headers, self.client_address[0]) or "", 10, 900):
+            self._set_json_headers(429)
+            self.wfile.write(json.dumps({"ok": False, "error": "too many self-tests — try again later"}).encode())
             return
         if not _v1_api_key():
             self._set_json_headers(200)
@@ -4319,6 +4457,9 @@ class Handler(BaseHTTPRequestHandler):
                 "</div></details>"
                 "</details>"
             )
+            _cm_field = ("<label>Current master password<input type='password' name='current_master' required></label>"
+                         "<p class='hint'>Replacing the shared keys requires proving the current master password.</p>"
+                         ) if (keys_exist and info and info.get("admin")) else ""
             secure_card = (
                 "<div class='card'><h3>Confirm it\u2019s you</h3>"
                 "<p class='hint'>Your account password encrypts your personal key vault. Keys are stored only for your account and are never shared.</p>"
@@ -4328,6 +4469,7 @@ class Handler(BaseHTTPRequestHandler):
                     "<p class='hint'>This password encrypts everything and unlocks your dashboard</p>"
                     "<label>Password (min 8 chars)<input type='password' name='password' required minlength='8' id='pw1'></label>"
                     "<label>Confirm password<input type='password' name='confirm' required id='pw2'></label>"
+                    + _cm_field +
                     "<div id='pwm' style='font-size:13px;margin-top:6px'></div>"
                     "<script>"
                     "document.getElementById('pw2').addEventListener('input',function(){"
@@ -5868,6 +6010,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "passwords must match and be 8+ chars"}).encode())
                 return
+            # Audit run-8 (HIGH): with keys already set up, this
+            # branch REPLACES the master password and the whole
+            # shared vault — and it asked only for an admin SESSION.
+            # A stolen session cookie could overwrite keys.enc under
+            # an attacker-chosen password, wiping every provider key
+            # and the TOTP secret, with no proof and no audit row.
+            # The current master must now be proven (the budgeted
+            # _master_proof) whenever a master already exists;
+            # first-time setup stays proof-free.
+            _cur_keys = None
+            if keys_exist:
+                _cur_keys = _master_proof(form.get("current_master", [""])[0])
+                if _cur_keys is None:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "current master password is wrong or missing"}).encode())
+                    return
             keys = {}
             for n in PROVIDER_NAMES:
                 v = form.get("k_" + n, [""])[0].strip()
@@ -5905,9 +6063,17 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
                     return
                 keys["freellmapi_url"] = gw_url
+            if _cur_keys:
+                # Internal entries the form does not carry (the TOTP
+                # secret / pending secret) survive a key replacement.
+                for _ik, _iv in _cur_keys.items():
+                    if _ik.startswith("_") and _ik not in keys:
+                        keys[_ik] = _iv
             with _KEYS_LOCK:
                 encrypt_keys(keys, pw, key_path)
                 os.chmod(key_path, 0o600)
+            _audit("System", "Shared keys replaced via /setup (current master proven)"
+                   if keys_exist else "First-time setup completed")
             self.send_response(302)
             self.send_header("Location", "/login")
             self.end_headers()
@@ -6026,18 +6192,28 @@ class Handler(BaseHTTPRequestHandler):
             # cap and the instance global cap bind transcription too,
             # and a successful transcription records a usage row.
             _label_t = _tinfo.get("label", "")
+            # Audit run-8: per-account in-flight ceiling — with the
+            # reservation now taken before the body read, slow-body
+            # requests pin a slot (and a thread) for the whole 300s
+            # arrival window; the per-minute bucket alone allowed
+            # ~200 held slots per account, enough to refuse the whole
+            # instance whenever global_cap was set below that.
+            if _label_t and _inflight_n(user=_label_t) >= 4:
+                self._set_json_headers(429)
+                self.wfile.write(json.dumps({"error": "too many requests already in flight — wait for them to finish"}).encode())
+                return
             self._cap_res = _inflight_add(_label_t, "groq")
             if not _tinfo.get("admin") and _label_t:
                 _cap = (_SETTINGS.get("user_caps") or {}).get(
                     _label_t, _SETTINGS.get("daily_cap", 200))
-                if _cap and _today_counts(fresh=True)["users"].get(_label_t, 0) + _inflight_n(user=_label_t) >= int(_cap):
+                if _cap and _today_counts(fresh=True)["users"].get(_label_t, 0) + _inflight_n(user=_label_t, exclude=self._cap_res) >= int(_cap):
                     _audit("Users", f"Daily cap hit: {_label_t} ({_cap}/day)")
                     _alert("cap_hit", "cap", {"label": _label_t, "cap": int(_cap)})
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
                     return
                 _gcap = int(_SETTINGS.get("global_cap") or 0)
-                if _gcap and _today_total_requests(fresh=True) + _inflight_n() >= _gcap:
+                if _gcap and _today_total_requests(fresh=True) + _inflight_n(exclude=self._cap_res) >= _gcap:
                     _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
                     _alert("cap_hit", "cap", {"label": _label_t, "cap": _gcap, "scope": "instance"})
                     self._set_json_headers(429)
@@ -6051,7 +6227,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "invalid JSON"}).encode())
                 return
-            if _provider_blocked("groq") or _provider_blocked("relay_groq"):
+            if _provider_blocked("groq", exclude=self._cap_res) or _provider_blocked("relay_groq"):
                 self._set_json_headers(403)
                 self.wfile.write(json.dumps({"error": "voice input is unavailable — the Groq provider is disabled or over its daily limit"}).encode())
                 return
@@ -6132,23 +6308,33 @@ class Handler(BaseHTTPRequestHandler):
             _ekeys = self._effective_keys()
             _sinfo = self._session_info() or {}
             _chat_label = _sinfo.get("label", "")
+            # Per-account in-flight ceiling (audit run-8, see the
+            # transcribe twin): bounds slow-body reservation hostage
+            # to 4 held slots per account.
+            if _chat_label and _inflight_n(user=_chat_label) >= 4:
+                self._set_json_headers(429)
+                self.wfile.write(json.dumps({"error": "too many requests already in flight — wait for them to finish"}).encode())
+                return
             # Reserve BEFORE the cap checks and the body read (audit
             # run-7): reserving after the parse let concurrent
-            # requests with slow bodies all pass admission.
+            # requests with slow bodies all pass admission. The
+            # checks exclude this request's own reservation (run-8):
+            # counting it made every cap effectively cap-1, and
+            # cap=1 refused the first request of the day outright.
             self._cap_res = _inflight_add(_chat_label)
             # Daily cap (admin console policy): friends only, counted
             # from today's usage entries. Cap 0 = no cap.
             if not _sinfo.get("admin") and _chat_label:
                 _cap = (_SETTINGS.get("user_caps") or {}).get(
                     _chat_label, _SETTINGS.get("daily_cap", 200))
-                if _cap and _today_counts(fresh=True)["users"].get(_chat_label, 0) + _inflight_n(user=_chat_label) >= int(_cap):
+                if _cap and _today_counts(fresh=True)["users"].get(_chat_label, 0) + _inflight_n(user=_chat_label, exclude=self._cap_res) >= int(_cap):
                     _audit("Users", f"Daily cap hit: {_chat_label} ({_cap}/day)")
                     _alert("cap_hit", "cap", {"label": _chat_label, "cap": int(_cap)})
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
                     return
                 _gcap = int(_SETTINGS.get("global_cap") or 0)
-                if _gcap and _today_total_requests(fresh=True) + _inflight_n() >= _gcap:
+                if _gcap and _today_total_requests(fresh=True) + _inflight_n(exclude=self._cap_res) >= _gcap:
                     _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
                     _alert("cap_hit", "cap", {"label": _chat_label, "cap": _gcap, "scope": "instance"})
                     self._set_json_headers(429)
@@ -6293,6 +6479,7 @@ class Handler(BaseHTTPRequestHandler):
                     return u
                 try:
                     if provider == "aihorde" and model and not _pblocked and not _provider_blocked("aihorde"):
+                        self._cap_res["provider"] = "aihorde"  # run-8: tag the base reservation so provider_limits see media spend in flight
                         _horde_rid = None
                         try:
                             hk = ((_ekeys or {}).get("aihorde") or "0000000000")
@@ -6371,6 +6558,7 @@ class Handler(BaseHTTPRequestHandler):
                                            "prompt_tokens": 0, "completion_tokens": 0,
                                            "user": _chat_label, "ok": True})
                     elif provider == "cloudflare" and model and not _pblocked and not _provider_blocked("cloudflare"):
+                        self._cap_res["provider"] = "cloudflare"  # run-8: tag the base reservation so provider_limits see media spend in flight
                         _ck = (_ekeys or {}).get("cloudflare") or ""
                         _acct, _, _tok = _ck.partition(":")
                         if not (_acct and _tok):
@@ -6397,6 +6585,7 @@ class Handler(BaseHTTPRequestHandler):
                             except Exception:
                                 _fail = "the request to Cloudflare failed (network or timeout)"
                     elif provider in ("google", "relay_gemini") and model and not _pblocked and not _img_blocked(provider):
+                        self._cap_res["provider"] = provider  # run-8: tag the base reservation so provider_limits see media spend in flight
                         gk = (_ekeys or {}).get("google") or (_ekeys or {}).get("relay_gemini") or ""
                         if not gk:
                             _fail = ("no Google key is available — the shared vault is still locked "
@@ -6439,6 +6628,7 @@ class Handler(BaseHTTPRequestHandler):
                         _may_substitute = (provider in ("pollinations", "relay_pollinations")
                                            or provider in (None, "", "auto") or not _img_explicit)
                         if _may_substitute and not _pblocked and not _provider_blocked("pollinations"):
+                            self._cap_res["provider"] = "pollinations"  # run-8: tag the base reservation so provider_limits see media spend in flight
                             _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
                             if _img and provider not in ("pollinations", "relay_pollinations"):
                                 _used_p, _used_m = "pollinations", "flux"
@@ -6516,6 +6706,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(403)
                     self.wfile.write(json.dumps({"error": "voice is unavailable — the Groq provider is disabled or over its daily limit"}).encode())
                     return
+                self._cap_res["provider"] = _fund  # run-8: tag the base reservation so provider_limits see media spend in flight
+
                 # Chunk on sentence boundaries, <=180 chars each
                 _chunks, _cur = [], ""
                 for _piece in _re_v.split(r"(?<=[.!?])\s+", _text):
@@ -6643,6 +6835,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(403)
                     self.wfile.write(json.dumps({"error": "video is unavailable — the provider is disabled or over its daily limit"}).encode())
                     return
+                self._cap_res["provider"] = "huggingface"  # run-8: tag the base reservation so provider_limits see media spend in flight
+
                 _sess = _uuid_v.uuid4().hex[:12]
                 _neg = "worst quality, inconsistent motion, blurry, jittery, distorted"
                 _data = [_prompt_v, _neg, None, None, 512, 704, "text-to-video", 3, 9, 42, True, 1, True]
@@ -7453,9 +7647,11 @@ class Handler(BaseHTTPRequestHandler):
                     _ok = False
                     _reply = ""
                     for (_cp, _cm) in _agent_list[:3]:
-                        _ares = _inflight_add(_chat_label, _cp)
-                        _res = _attempt(_cp, _cm, 60, _msgs)
-                        _inflight_drop(_ares)
+                        _ares = _inflight_add(_chat_label, _cp, attempt=True)
+                        try:
+                            _res = _attempt(_cp, _cm, 60, _msgs)
+                        finally:
+                            _inflight_drop(_ares)
                         if _res[0]:
                             _ok = True
                             _ap2, _am2 = _cp, _cm
@@ -7494,9 +7690,11 @@ class Handler(BaseHTTPRequestHandler):
                     _msgs.append({"role": "user", "content": f"Tool result ({_tname}):\n{str(_tres)[:7000]}\n\nContinue: use another tool if needed, else give the final answer."})
                 if _final is None:
                     _msgs.append({"role": "user", "content": "Give your final answer now, without any tool block."})
-                    _ares = _inflight_add(_chat_label, _ap2)
-                    _res = _attempt(_ap2, _am2, 60, _msgs)
-                    _inflight_drop(_ares)
+                    _ares = _inflight_add(_chat_label, _ap2, attempt=True)
+                    try:
+                        _res = _attempt(_ap2, _am2, 60, _msgs)
+                    finally:
+                        _inflight_drop(_ares)
                     _final = _res[1] if _res[0] else "I couldn't complete that. Try again."
                 if _used_tools:
                     _final = (_final or "") + "\n\n---\n\U0001f527 Tools used: " + ", ".join(_used_tools)
@@ -7516,10 +7714,12 @@ class Handler(BaseHTTPRequestHandler):
                 _hf = _attempts[0][0] if _i > 0 else (
                     _prev_by_id if _prev_by_id and _prev_by_id != _ap else None)
                 _ta = time.time()
-                _ares = _inflight_add(_chat_label, _ap)
-                _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30,
-                                       msgs=_msgs_for(_ap, _hf))
-                _inflight_drop(_ares)
+                _ares = _inflight_add(_chat_label, _ap, attempt=True)
+                try:
+                    _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30,
+                                           msgs=_msgs_for(_ap, _hf))
+                finally:
+                    _inflight_drop(_ares)
                 _trace.append({"p": _ap, "m": _am, "ok": bool(_ok),
                                "ms": int((time.time() - _ta) * 1000),
                                **({} if _ok else {"e": str(_rest[1])[:160]})})
@@ -7674,33 +7874,64 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "an invite code is required"}).encode())
                     return
                 if _password_taken(access, password) \
-                        or _is_master_password(password):
+                        or _is_master_password(password, quiet=True):
+                    # Audit run-8: this verdict is a password-
+                    # collision oracle (it confirms even the MASTER
+                    # password), and the route's per-IP ledger fell
+                    # to source rotation — so taken-verdicts are
+                    # also budgeted per invite code across ALL
+                    # sources (a flat key in open mode), and every
+                    # refusal is audit-logged; the stealth was part
+                    # of the original bug.
+                    if not _rl_ok("redeemprobe", h if code else "open", 10, 900):
+                        self._set_json_headers(429)
+                        self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
+                        return
+                    _audit("Auth", f"Invite signup refused, password already in use: {label}")
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
                     return
                 if invite is not None:
-                    invite["used_by"] = label  # claim, lock held
-                    _save_settings()           # persist before the hash
+                    # Re-verify + claim under _SETTINGS_LOCK (run-8):
+                    # the find above read the live invites list
+                    # unlocked, so a revoke landing in the window
+                    # could be claimed against a detached dict.
+                    with _SETTINGS_LOCK:
+                        _live = None
+                        for _inv in (_SETTINGS.get("invites") or []):
+                            if _inv.get("h") == h and not _inv.get("used_by") \
+                                    and _inv.get("expires", 0) > time.time():
+                                _live = _inv
+                                break
+                        if _live is None:
+                            self._set_json_headers(400)
+                            self.wfile.write(json.dumps({"error": "invite code is invalid, used or expired"}).encode())
+                            return
+                        invite = _live
+                        invite["used_by"] = label  # claim, locks held
+                        _save_settings()           # persist before the hash
                 try:
                     access[label] = _hash_password(password)
                     _save_access(access)
                     # The invite page itself shows the terms notice at
                     # signup, so the first-login notice (F26) is already
                     # satisfied.
-                    _seen = list(_SETTINGS.get("terms_seen") or [])
-                    if label not in _seen:
-                        _seen.append(label)
-                        _SETTINGS["terms_seen"] = _seen
-                        _save_settings()
-                    if role in ("moderator", "viewer"):
-                        roles = dict(_SETTINGS.get("roles") or {})
-                        roles[label] = role
-                        _SETTINGS["roles"] = roles
-                        _save_settings()
+                    with _SETTINGS_LOCK:
+                        _seen = list(_SETTINGS.get("terms_seen") or [])
+                        if label not in _seen:
+                            _seen.append(label)
+                            _SETTINGS["terms_seen"] = _seen
+                            _save_settings()
+                        if role in ("moderator", "viewer"):
+                            roles = dict(_SETTINGS.get("roles") or {})
+                            roles[label] = role
+                            _SETTINGS["roles"] = roles
+                            _save_settings()
                 except Exception:
                     if invite is not None:
-                        invite["used_by"] = None  # roll the claim back
-                        _save_settings()
+                        with _SETTINGS_LOCK:
+                            invite["used_by"] = None  # roll the claim back
+                            _save_settings()
                     raise
             _audit("Users", f"Signed up via invite: {label} ({role})",
                    ip=_client_ip(self.headers, self.client_address[0]))
@@ -7941,10 +8172,11 @@ class Handler(BaseHTTPRequestHandler):
                 # terms notice once — invite signups already saw it on
                 # the invite page and are marked seen at signup — and
                 # record the showing in the audit trail.
-                _seen = list(_SETTINGS.get("terms_seen") or [])
-                _seen.append(label)
-                _SETTINGS["terms_seen"] = _seen
-                _save_settings()
+                with _SETTINGS_LOCK:
+                    _seen = list(_SETTINGS.get("terms_seen") or [])
+                    _seen.append(label)
+                    _SETTINGS["terms_seen"] = _seen
+                    _save_settings()
                 _audit("Users", f"Terms notice shown: {label}")
                 terms_notice = True
             self.wfile.write(json.dumps({"ok": True, "admin": is_admin, "label": label,
@@ -8253,21 +8485,39 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(404)
                         self.wfile.write(json.dumps({"error": "friend not found"}).encode())
                         return
-                    caps = dict(_SETTINGS.get("user_caps") or {})
-                    if data.get("cap") is None:
-                        caps.pop(stored, None)
-                    else:
-                        try:
-                            _c = int(data.get("cap"))
-                        except Exception:
-                            _c = -1
-                        if not 0 <= _c <= 100000:
-                            self._set_json_headers(400)
-                            self.wfile.write(json.dumps({"error": "cap must be 0-100000"}).encode())
-                            return
-                        caps[stored] = _c
-                    _SETTINGS["user_caps"] = caps
-                    _save_settings()
+                    if _kind == "moderator" and (_SETTINGS.get("roles") or {}).get(stored) == "moderator":
+                        # Audit run-8: the peer guards covered
+                        # suspend/role/reset/clear but missed cap —
+                        # a moderator could raise their OWN owner-set
+                        # cap (5 → 100000 proven) or a peer's.
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "moderators cannot change another moderator's cap"}).encode())
+                        return
+                    # Audit run-8: copy -> assign -> save runs
+                    # under _SETTINGS_LOCK (wave 8 locked only the
+                    # save, so two writers could still lose each
+                    # other's update), and a failed save answers 500
+                    # instead of ok:true (run-7 #14, completed here).
+                    with _SETTINGS_LOCK:
+                        caps = dict(_SETTINGS.get("user_caps") or {})
+                        if data.get("cap") is None:
+                            caps.pop(stored, None)
+                        else:
+                            try:
+                                _c = int(data.get("cap"))
+                            except Exception:
+                                _c = -1
+                            if not 0 <= _c <= 100000:
+                                self._set_json_headers(400)
+                                self.wfile.write(json.dumps({"error": "cap must be 0-100000"}).encode())
+                                return
+                            caps[stored] = _c
+                        _SETTINGS["user_caps"] = caps
+                        _sv = _save_settings()
+                    if not _sv:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "cap could not be saved to disk"}).encode())
+                        return
                     _audit("Users", f"Daily cap set: {stored} → {caps.get(stored, 'default')}{_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
@@ -8282,12 +8532,17 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(403)
                         self.wfile.write(json.dumps({"error": "moderators cannot suspend other moderators"}).encode())
                         return
-                    susp = [x for x in (_SETTINGS.get("suspended") or [])
-                            if x != stored]
-                    if data.get("on"):
-                        susp.append(stored)
-                    _SETTINGS["suspended"] = susp
-                    _save_settings()
+                    with _SETTINGS_LOCK:
+                        susp = [x for x in (_SETTINGS.get("suspended") or [])
+                                if x != stored]
+                        if data.get("on"):
+                            susp.append(stored)
+                        _SETTINGS["suspended"] = susp
+                        _sv = _save_settings()
+                    if not _sv:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "suspension could not be saved to disk"}).encode())
+                        return
                     _audit("Users", f"{stored} {'suspended' if data.get('on') else 'restored'}{_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
@@ -8311,13 +8566,18 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(403)
                         self.wfile.write(json.dumps({"error": "moderators cannot grant or change moderator roles"}).encode())
                         return
-                    roles = dict(_SETTINGS.get("roles") or {})
-                    if role == "friend":
-                        roles.pop(stored, None)
-                    else:
-                        roles[stored] = role
-                    _SETTINGS["roles"] = roles
-                    _save_settings()
+                    with _SETTINGS_LOCK:
+                        roles = dict(_SETTINGS.get("roles") or {})
+                        if role == "friend":
+                            roles.pop(stored, None)
+                        else:
+                            roles[stored] = role
+                        _SETTINGS["roles"] = roles
+                        _sv = _save_settings()
+                    if not _sv:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "role could not be saved to disk"}).encode())
+                        return
                     _audit("Users", f"Role set: {stored} → {role}{_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
@@ -8342,11 +8602,13 @@ class Handler(BaseHTTPRequestHandler):
                     existed = vp.exists()
                     if existed:
                         vp.unlink()
-                    vm = dict(_SETTINGS.get("vault_meta") or {})
-                    if stored in vm:
-                        del vm[stored]
-                        _SETTINGS["vault_meta"] = vm
-                        _save_settings()
+                    with _SETTINGS_LOCK:
+                        vm = dict(_SETTINGS.get("vault_meta") or {})
+                        if stored in vm:
+                            del vm[stored]
+                            _SETTINGS["vault_meta"] = vm
+                            if not _save_settings():
+                                _audit("System", f"vault_meta cleanup could not be saved for {stored}")
                     # Live sessions hold a decrypted copy of the
                     # vault that _effective_keys consumes (audit
                     # run-5): drop it too, or the cleared keys keep
@@ -8445,19 +8707,22 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "new password must be at least 6 characters"}).encode())
                         return
-                    if _kind == "moderator" and not _rl_ok("pwprobe", (_client_ip(self.headers, self.client_address[0]) or "") + ":" + _clabel, 10, 900):
+                    if _kind == "moderator" and not _rl_ok("pwprobe", _clabel, 10, 900):
                         # Audit run-7: the taken-check below is a
                         # password-collision oracle (a hit hands over a
                         # working friend credential). The unproven
                         # caller is the moderator — admins prove the
-                        # master password for these actions already —
-                        # so moderator probes are capped per IP.
+                        # master password for these actions already.
+                        # Run-8: the bucket is keyed on the moderator's
+                        # account label ALONE — keying it per source IP
+                        # as well handed a fresh 10 probes to every
+                        # rotated source address.
                         self._set_json_headers(429)
                         self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                         return
                     access = _load_access()
                     if _password_taken(access, new_pw, skip_label=stored) \
-                            or _is_master_password(new_pw):
+                            or _is_master_password(new_pw, quiet=True):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
                         return
@@ -8504,11 +8769,13 @@ class Handler(BaseHTTPRequestHandler):
                                         _p.unlink()
                                 except Exception:
                                     pass
-                            vm = dict(_SETTINGS.get("vault_meta") or {})
-                            if stored in vm:
-                                del vm[stored]
-                                _SETTINGS["vault_meta"] = vm
-                                _save_settings()
+                            with _SETTINGS_LOCK:
+                                vm = dict(_SETTINGS.get("vault_meta") or {})
+                                if stored in vm:
+                                    del vm[stored]
+                                    _SETTINGS["vault_meta"] = vm
+                                    if not _save_settings():
+                                        _audit("System", f"vault_meta cleanup could not be saved for {stored}")
                             for tok in [t for t, s in SESSIONS.items()
                                         if isinstance(s, dict) and s.get("label") == stored]:
                                 del SESSIONS[tok]
@@ -8549,7 +8816,14 @@ class Handler(BaseHTTPRequestHandler):
                                         "expires": time.time() + days * 86400,
                                         "used_by": None})
                         _SETTINGS["invites"] = invites
-                        _save_settings()
+                        _sv = _save_settings()
+                    if not _sv:
+                        # Audit run-8 (#14): never hand out a code
+                        # whose save did not land — it would be dead
+                        # at restart while the admin believes it works.
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "invite could not be saved — no code was created"}).encode())
+                        return
                     _audit("Users", f"Invite created: {code[:2]}••• ({role}, {days}d){_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({
@@ -8558,15 +8832,24 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if action == "invite_revoke":
                     gid = (data.get("id") or "").strip()
-                    invites = _SETTINGS.get("invites") or []
-                    keep = [i for i in invites
-                            if not (len(gid) >= 6 and i["h"].startswith(gid))]
-                    if len(keep) == len(invites):
-                        self._set_json_headers(404)
-                        self.wfile.write(json.dumps({"error": "invite not found"}).encode())
+                    # Audit run-8: this RMW ran unlocked — a revoke
+                    # racing a create overwrote the create's list and
+                    # the freshly issued code was dead on disk while
+                    # both callers held 200/ok:true.
+                    with _SETTINGS_LOCK:
+                        invites = _SETTINGS.get("invites") or []
+                        keep = [i for i in invites
+                                if not (len(gid) >= 6 and i["h"].startswith(gid))]
+                        if len(keep) == len(invites):
+                            self._set_json_headers(404)
+                            self.wfile.write(json.dumps({"error": "invite not found"}).encode())
+                            return
+                        _SETTINGS["invites"] = keep
+                        _sv = _save_settings()
+                    if not _sv:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "revocation could not be saved to disk"}).encode())
                         return
-                    _SETTINGS["invites"] = keep
-                    _save_settings()
                     _audit("Users", f"Invite revoked{_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
@@ -8604,6 +8887,13 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "use sign out for your own session"}).encode())
                         return
+                    if _kind == "moderator" and (_SETTINGS.get("roles") or {}).get(SESSIONS[hit].get("label")) == "moderator":
+                        # Audit run-8: admin sessions were guarded,
+                        # peer moderators were not — one moderator
+                        # could sign another out at will.
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "moderators cannot revoke another moderator's session"}).encode())
+                        return
                     if SESSIONS[hit].get("admin") and _kind != "admin":
                         # Audit run-6: sessions_revoke_all already
                         # spares the owner; the single revoke forgot
@@ -8621,10 +8911,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if action == "sessions_revoke_all":
                     my_tok = self._get_session()
+                    _roles8 = (_SETTINGS.get("roles") or {}) if _kind == "moderator" else {}
                     n = 0
                     for tok in [t for t, s in SESSIONS.items()
                                 if isinstance(s, dict)
-                                and not s.get("admin") and t != my_tok]:
+                                and not s.get("admin") and t != my_tok
+                                and _roles8.get(s.get("label")) != "moderator"]:
                         _drop_chat_unlock(SESSIONS[tok].get("chat_unlock"))
                         del SESSIONS[tok]
                         n += 1
@@ -8637,6 +8929,14 @@ class Handler(BaseHTTPRequestHandler):
                     if not stored:
                         self._set_json_headers(404)
                         self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    if _kind == "moderator" and (_SETTINGS.get("roles") or {}).get(stored) == "moderator":
+                        # Audit run-8: same missed peer guard as
+                        # friend_set_cap — a moderator could erase
+                        # their own (or a peer's) usage rows and
+                        # refund the daily cap.
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "moderators cannot reset another moderator's usage"}).encode())
                         return
                     today = datetime.date.today().isoformat()
                     n = 0
@@ -8762,12 +9062,17 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "restore preview expired — preview again"}).encode())
                         return
                     clean = ent[1]
-                    _SETTINGS["backup_snapshot"] = {
-                        "ts": datetime.datetime.now().isoformat(),
-                        "config": {k: _SETTINGS.get(k)
-                                   for k in sorted(_RESTORE_ALLOWED)}}
-                    _SETTINGS.update(clean)
-                    _save_settings()
+                    with _SETTINGS_LOCK:
+                        _SETTINGS["backup_snapshot"] = {
+                            "ts": datetime.datetime.now().isoformat(),
+                            "config": {k: _SETTINGS.get(k)
+                                       for k in sorted(_RESTORE_ALLOWED)}}
+                        _SETTINGS.update(clean)
+                        _sv = _save_settings()
+                    if not _sv:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "restored settings could not be saved to disk"}).encode())
+                        return
                     _audit("System", "Settings restored from backup: "
                            + ", ".join(sorted(clean.keys())))
                     _fire_webhook("settings_restored",
@@ -8791,7 +9096,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if action == "audit_clear":
                     try:
-                        AUDIT_PATH.write_text("")
+                        with _AUDIT_LOCK:
+                            AUDIT_PATH.write_text("")
                     except Exception:
                         self._set_json_headers(500)
                         self.wfile.write(json.dumps({"error": "could not clear the audit log"}).encode())
@@ -8882,7 +9188,8 @@ class Handler(BaseHTTPRequestHandler):
                                 V1KEY_PATH.unlink()
                         except Exception:
                             pass
-                        _V1KEYS["keys"] = []
+                        with _V1KEYS_LOCK:
+                            _V1KEYS["keys"] = []
                         _VIEW_GRANTS.clear()
                         # Pending 2FA completions die with the reset
                         # too (audit run-5): a token minted before it
@@ -8892,12 +9199,18 @@ class Handler(BaseHTTPRequestHandler):
                         for tok in [t for t, s in SESSIONS.items()
                                     if isinstance(s, dict) and not s.get("admin")]:
                             del SESSIONS[tok]
-                        _SETTINGS.clear()
-                        _SETTINGS.update(json.loads(json.dumps(_SETTINGS_DEFAULTS)))
-                        _save_settings()
+                        with _SETTINGS_LOCK:
+                            _SETTINGS.clear()
+                            _SETTINGS.update(json.loads(json.dumps(_SETTINGS_DEFAULTS)))
+                            _save_settings()
                         _PROVIDER_HEALTH.clear()
                     try:
-                        AUDIT_PATH.write_text("")
+                        # Audit run-8: truncates take _AUDIT_LOCK —
+                        # an unlocked clear racing an in-flight
+                        # _audit trim-replace resurrected the cleared
+                        # rows (proven 5/5 pre-fix).
+                        with _AUDIT_LOCK:
+                            AUDIT_PATH.write_text("")
                     except Exception:
                         pass
                     # Usage history too — and the telemetry mirror:
@@ -8911,10 +9224,10 @@ class Handler(BaseHTTPRequestHandler):
                         with _TELEMETRY_LOCK:
                             if TELEMETRY_ENC_PATH.exists():
                                 TELEMETRY_ENC_PATH.unlink()
+                            _TELEMETRY["dirty"] = False
+                            _TELEMETRY["saved"] = ""
                     except Exception:
                         pass
-                    _TELEMETRY["dirty"] = False
-                    _TELEMETRY["saved"] = ""
                     _audit("System", "Factory reset: friends, passes, settings and sessions cleared")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
@@ -8954,12 +9267,12 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
-                if _mod_add and not _rl_ok("pwprobe", (_client_ip(self.headers, self.client_address[0]) or "") + ":" + _clabel, 10, 900):
+                if _mod_add and not _rl_ok("pwprobe", _clabel, 10, 900):
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                     return
                 if _password_taken(access, password) \
-                        or _is_master_password(password):
+                        or _is_master_password(password, quiet=True):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
                     return
@@ -8987,16 +9300,20 @@ class Handler(BaseHTTPRequestHandler):
                 _nrole = (data.get("role") or "friend").strip()
                 if _nrole in ("moderator", "viewer") \
                         and not (_mod_add and _nrole == "moderator"):
-                    roles = dict(_SETTINGS.get("roles") or {})
-                    roles[label] = _nrole
-                    _SETTINGS["roles"] = roles
-                    _save_settings()
+                    with _SETTINGS_LOCK:
+                        roles = dict(_SETTINGS.get("roles") or {})
+                        roles[label] = _nrole
+                        _SETTINGS["roles"] = roles
+                        if not _save_settings():
+                            _audit("System", f"role assignment could not be saved for {label}")
                 if isinstance(data.get("cap"), (int, float)) \
                         and 0 <= int(data["cap"]) <= 100000:
-                    caps = dict(_SETTINGS.get("user_caps") or {})
-                    caps[label] = int(data["cap"])
-                    _SETTINGS["user_caps"] = caps
-                    _save_settings()
+                    with _SETTINGS_LOCK:
+                        caps = dict(_SETTINGS.get("user_caps") or {})
+                        caps[label] = int(data["cap"])
+                        _SETTINGS["user_caps"] = caps
+                        if not _save_settings():
+                            _audit("System", f"cap assignment could not be saved for {label}")
                 _audit("Users", f"Friend added: {label}{_actor}")
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
@@ -9052,32 +9369,33 @@ class Handler(BaseHTTPRequestHandler):
                             # re-created label must not inherit the previous
                             # holder's cap, suspension, OAuth email link or
                             # terms-seen flag.
-                            _caps = dict(_SETTINGS.get("user_caps") or {})
-                            _susp = [x for x in (_SETTINGS.get("suspended") or [])
-                                     if x != label]
-                            _links = [e for e in (_SETTINGS.get("oauth_links") or [])
-                                      if not (isinstance(e, dict)
-                                              and e.get("label") == label)]
-                            _seen = [x for x in (_SETTINGS.get("terms_seen") or [])
-                                     if x != label]
-                            if (_caps.pop(label, None) is not None
-                                    or _susp != (_SETTINGS.get("suspended") or [])
-                                    or _links != (_SETTINGS.get("oauth_links") or [])
-                                    or _seen != (_SETTINGS.get("terms_seen") or [])):
-                                _SETTINGS["user_caps"] = _caps
-                                _SETTINGS["suspended"] = _susp
-                                _SETTINGS["oauth_links"] = _links
-                                _SETTINGS["terms_seen"] = _seen
-                                _save_settings()
-                            # Drop their console role + vault metadata too
-                            _roles = dict(_SETTINGS.get("roles") or {})
-                            _vm = dict(_SETTINGS.get("vault_meta") or {})
-                            if label in _roles or label in _vm:
-                                _roles.pop(label, None)
-                                _vm.pop(label, None)
-                                _SETTINGS["roles"] = _roles
-                                _SETTINGS["vault_meta"] = _vm
-                                _save_settings()
+                            with _SETTINGS_LOCK:
+                                _caps = dict(_SETTINGS.get("user_caps") or {})
+                                _susp = [x for x in (_SETTINGS.get("suspended") or [])
+                                         if x != label]
+                                _links = [e for e in (_SETTINGS.get("oauth_links") or [])
+                                          if not (isinstance(e, dict)
+                                                  and e.get("label") == label)]
+                                _seen = [x for x in (_SETTINGS.get("terms_seen") or [])
+                                         if x != label]
+                                if (_caps.pop(label, None) is not None
+                                        or _susp != (_SETTINGS.get("suspended") or [])
+                                        or _links != (_SETTINGS.get("oauth_links") or [])
+                                        or _seen != (_SETTINGS.get("terms_seen") or [])):
+                                    _SETTINGS["user_caps"] = _caps
+                                    _SETTINGS["suspended"] = _susp
+                                    _SETTINGS["oauth_links"] = _links
+                                    _SETTINGS["terms_seen"] = _seen
+                                    _save_settings()
+                                # Drop their console role + vault metadata too
+                                _roles = dict(_SETTINGS.get("roles") or {})
+                                _vm = dict(_SETTINGS.get("vault_meta") or {})
+                                if label in _roles or label in _vm:
+                                    _roles.pop(label, None)
+                                    _vm.pop(label, None)
+                                    _SETTINGS["roles"] = _roles
+                                    _SETTINGS["vault_meta"] = _vm
+                                    _save_settings()
                             # Delete their personal key vault too
                             try:
                                 vp = _userkey_path(label)
@@ -9156,12 +9474,18 @@ class Handler(BaseHTTPRequestHandler):
                 # is left byte-identical, never overwritten.
                 _intg_note = ""
                 try:
-                    _ipath = _intg_path("_owner")
-                    if _ipath.exists():
-                        _ivault = decrypt_keys(_ipath, cur)
-                        if isinstance(_ivault, dict):
-                            encrypt_keys(_ivault, new, _ipath)
-                            os.chmod(_ipath, 0o600)
+                    # Audit run-8: the carry-over takes _INTG_LOCK —
+                    # without it, a concurrent integrations save
+                    # landing mid-rotation re-encrypted the vault
+                    # under the OLD password after rotation reported
+                    # success, stranding every owner connection.
+                    with _INTG_LOCK:
+                        _ipath = _intg_path("_owner")
+                        if _ipath.exists():
+                            _ivault = decrypt_keys(_ipath, cur)
+                            if isinstance(_ivault, dict):
+                                encrypt_keys(_ivault, new, _ipath)
+                                os.chmod(_ipath, 0o600)
                 except Exception:
                     _intg_note = "; integrations vault could not be carried over and was left unchanged"
                 # Admin saved chats: re-wrap their DEK under the NEW
@@ -9216,7 +9540,8 @@ class Handler(BaseHTTPRequestHandler):
                         V1KEY_PATH.unlink()
                 except Exception:
                     pass
-                _V1KEYS["keys"] = []
+                with _V1KEYS_LOCK:
+                    _V1KEYS["keys"] = []
                 self._set_json_headers()
                 _audit("System", "Master password changed")
                 self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out" + _chats_note + _intg_note}).encode())

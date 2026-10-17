@@ -603,6 +603,92 @@ class ValidatorUnitTests(unittest.TestCase):
             server._save_v1keys = saved_fn
             server.RESTORE_KEY = saved_rk
 
+    # -- run-8: inflight counting rules -------------------------------
+    def test_inflight_counting_rules(self):
+        server._INFLIGHT.clear()
+        try:
+            base = server._inflight_add("alice")
+            att = server._inflight_add("alice", "groq", attempt=True)
+            server._inflight_add("bob")
+            # Logical counts skip per-attempt entries (they belong to
+            # a request already counted by its base reservation) and
+            # can exclude the caller's own reservation — wave 8
+            # counted it, so cap=1 refused the first request.
+            self.assertEqual(server._inflight_n(user="alice"), 1)
+            self.assertEqual(server._inflight_n(user="alice",
+                                                 exclude=base), 0)
+            self.assertEqual(server._inflight_n(), 2)
+            # Provider-filtered counts include attempts.
+            self.assertEqual(server._inflight_n(provider="groq"), 1)
+            self.assertEqual(server._inflight_n(provider="groq",
+                                                exclude=att), 0)
+            # Expired entries are pruned, not counted forever.
+            base["ts"] -= 1000
+            self.assertEqual(server._inflight_n(user="alice"), 0)
+            self.assertNotIn(base, server._INFLIGHT)
+        finally:
+            server._INFLIGHT.clear()
+
+    # -- run-8: _ts_or never raises on malformed stored state ---------
+    def test_ts_or_never_raises(self):
+        self.assertEqual(server._ts_or("3600"), 3600)
+        self.assertEqual(server._ts_or("not-a-number"), 0)
+        self.assertEqual(server._ts_or("not-a-number", 3600), 3600)
+        self.assertEqual(server._ts_or(None), 0)
+
+    # -- run-8: a failed settings mirror fails the save ---------------
+    def test_save_settings_mirror_failure_is_honest(self):
+        import tempfile
+        from pathlib import Path as _P
+        saved = (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+                 server.RESTORE_KEY)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                plain = _P(td) / "settings.json"
+                encp = _P(td) / "settings.enc"
+                server.SETTINGS_PATH = plain
+                server.SETTINGS_ENC_PATH = encp
+                server.RESTORE_KEY = "unit-restore-8"
+                self.assertTrue(server._save_settings())
+                self.assertTrue(plain.exists())
+                self.assertTrue(encp.exists())
+                # The mirror becomes unwritable (a directory): the
+                # save must FAIL now — wave 8 swallowed the mirror
+                # error, returned True, and the next boot silently
+                # reverted to the stale mirror.
+                encp.unlink()
+                encp.mkdir()
+                self.assertFalse(server._save_settings())
+        finally:
+            (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+             server.RESTORE_KEY) = saved
+
+    # -- run-8: a deleted v1 key stays deleted across a reload --------
+    def test_v1key_delete_survives_reload(self):
+        import tempfile
+        from pathlib import Path as _P
+        saved = (list(server._V1KEYS["keys"]), server.V1KEY_PATH,
+                 server.RESTORE_KEY)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                server.V1KEY_PATH = _P(td) / "v1key.enc"
+                server.RESTORE_KEY = "unit-restore-8"
+                server._V1KEYS["keys"] = []
+                entry = server._create_v1key("unit")
+                self.assertIsNotNone(entry)
+                self.assertIsNotNone(server._v1_match(entry["key"]))
+                with server._V1KEYS_LOCK:
+                    server._V1KEYS["keys"] = []
+                    self.assertTrue(server._save_v1keys())
+                self.assertIsNone(server._v1_match(entry["key"]))
+                server._V1KEYS["keys"] = [{"id": "poison"}]
+                server._load_v1key()
+                self.assertEqual(server._V1KEYS["keys"], [])
+        finally:
+            (server._V1KEYS["keys"], server.V1KEY_PATH,
+             server.RESTORE_KEY) = saved[0], saved[1], saved[2]
+            server._V1KEYS_TOUCH["at"] = 0.0
+
 
 class AuditFixHarness(unittest.TestCase):
     """ Boots a fixture server (same pattern as test_hardening). """
@@ -1811,6 +1897,190 @@ class AuditFixHarness(unittest.TestCase):
     # -- run-6: password proofs share one failure budget --------------
     # Named to sort last in this class: tripping the fixture server's
     # master-proof budget must not starve any later master-gated call.
+    @classmethod
+    def _form(cls, path, fields, ck=None):
+        conn = http.client.HTTPConnection("127.0.0.1", cls.port, timeout=30)
+        hdrs = {"Content-Type": "application/x-www-form-urlencoded"}
+        if ck:
+            hdrs["Cookie"] = ck
+        conn.request("POST", path,
+                     body=urllib.parse.urlencode(fields), headers=hdrs)
+        resp = conn.getresponse()
+        payload = resp.read()
+        conn.close()
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            parsed = {"_raw": payload.decode(errors="replace")[:300]}
+        return resp.status, parsed
+
+    # -- run-8: /setup replacement requires the current master -------
+    def test_38_setup_requires_current_master(self):
+        _, _, admin = self._login(MASTER)
+        # No current_master at all: refused, vault untouched.
+        status, body = self._form("/setup", {
+            "password": "attacker-new-38", "confirm": "attacker-new-38",
+            "k_groq": "sk-attacker"}, admin)
+        self.assertEqual(status, 401, body)
+        # Wrong current master: refused.
+        status, body = self._form("/setup", {
+            "password": "attacker-new-38", "confirm": "attacker-new-38",
+            "current_master": "not-the-master-38",
+            "k_groq": "sk-attacker"}, admin)
+        self.assertEqual(status, 401, body)
+        # The real master still signs in (vault unchanged).
+        status, _, _ = self._login(MASTER)
+        self.assertEqual(status, 200)
+        # A proven replacement works and the new password takes over.
+        status, body = self._form("/setup", {
+            "password": MASTER_B, "confirm": MASTER_B,
+            "current_master": MASTER,
+            "k_groq": "sk-rotated-38"}, admin)
+        self.assertEqual(status, 302, body)
+        status, _, _ = self._login(MASTER)
+        self.assertEqual(status, 401)
+        _, _, admin_b = self._login(MASTER_B)
+        self.assertTrue(admin_b)
+        # Rotate back for the rest of the class.
+        status, body = self._form("/setup", {
+            "password": MASTER, "confirm": MASTER,
+            "current_master": MASTER_B,
+            "k_groq": "sk-shared-fake"}, admin_b)
+        self.assertEqual(status, 302, body)
+        status, _, _ = self._login(MASTER)
+        self.assertEqual(status, 200)
+
+    # -- run-8: cap=1 admits the first request of the day -------------
+    def test_39_daily_cap_one_admits_first_request(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": "capone39",
+                      "password": "capone-pw-39", "master_pw": MASTER}, admin)
+        status, body, _ = self._access(
+            {"action": "friend_set_cap", "label": "capone39",
+             "cap": 1, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        _, _, friend = self._login("capone-pw-39")
+        # Admission is the assertion: wave 8 counted the request's
+        # own reservation against it, so cap=1 refused the very
+        # first chat with the cap's 429. Upstream fails on fixture
+        # keys — anything but that 429 proves admission.
+        status, body, _ = self._req("POST", "/api/chat",
+                                    {"provider": "groq", "model": "x",
+                                     "message": "hi"}, ck=friend)
+        self.assertNotEqual(status, 429, body)
+        self.assertNotIn("daily limit reached", json.dumps(body))
+
+    # -- run-8: moderator cap/usage/session peer guards ---------------
+    def test_40_moderator_cap_usage_session_guards(self):
+        _, _, admin = self._login(MASTER)
+        for label, pw in (("modone40", "modone-pw-40"),
+                          ("modtwo40", "modtwo-pw-40"),
+                          ("plain40", "plain-pw-40")):
+            self._access({"action": "add", "label": label,
+                          "password": pw, "master_pw": MASTER}, admin)
+        for label in ("modone40", "modtwo40"):
+            status, body, _ = self._access(
+                {"action": "friend_role_set", "label": label,
+                 "role": "moderator", "master_pw": MASTER}, admin)
+            self.assertEqual(status, 200, body)
+        _, _, mod = self._login("modone-pw-40")
+        _, _, mod2 = self._login("modtwo-pw-40")
+        # Self-escalation and peer edits refused; plain friend is fine.
+        status, body, _ = self._access(
+            {"action": "friend_set_cap", "label": "modone40",
+             "cap": 100000}, mod)
+        self.assertEqual(status, 403, body)
+        status, body, _ = self._access(
+            {"action": "friend_set_cap", "label": "modtwo40",
+             "cap": 100000}, mod)
+        self.assertEqual(status, 403, body)
+        status, body, _ = self._access(
+            {"action": "friend_set_cap", "label": "plain40",
+             "cap": 50}, mod)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "friend_usage_reset", "label": "modtwo40"}, mod)
+        self.assertEqual(status, 403, body)
+        # A peer moderator's session cannot be revoked either.
+        status, body, _ = self._access({"action": "list"}, admin)
+        peer = [s for s in body.get("sessions") or []
+                if s.get("label") == "modtwo40"]
+        self.assertTrue(peer, body)
+        status, body, _ = self._access(
+            {"action": "session_revoke", "sid": peer[0]["sid"]}, mod)
+        self.assertEqual(status, 403, body)
+        status, body, _ = self._access({"action": "list"}, mod2)
+        self.assertEqual(status, 200, body)
+
+    # -- run-8: redeem taken-verdicts are budgeted per invite code -----
+    def test_41_redeem_taken_oracle_budgeted_per_code(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "friend", "days": 1,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        code = body["code"]
+        # Taken-password verdicts from ROTATING source addresses:
+        # the per-IP route ledger never trips (each last XFF hop is
+        # fresh), but the per-code budget caps verdicts at 10.
+        for i in range(10):
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": f"probe41_{i}", "password": SHARED_PW,
+                 "code": code},
+                headers={"X-Forwarded-For": f"10.41.0.{i + 1}"})
+            self.assertEqual(status, 400, (i, body))
+            self.assertIn("already in use", json.dumps(body))
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "probe41_z", "password": SHARED_PW, "code": code},
+            headers={"X-Forwarded-For": "10.41.9.9"})
+        self.assertEqual(status, 429, body)
+        # Refusals never consumed the invite: a clean signup works.
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "real41", "password": "real41-unique-pw",
+             "code": code})
+        self.assertEqual(status, 200, body)
+
+    # -- run-8: /v1-access self-test spends are throttled --------------
+    def test_42_v1_access_test_throttled(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "thr42",
+                                     "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        codes = []
+        for _i in range(11):
+            status, body, _ = self._req("POST", "/api/v1-access/test",
+                                        {}, admin)
+            codes.append(status)
+        self.assertNotIn(429, codes[:10], codes)
+        self.assertEqual(codes[10], 429, codes)
+
+    # -- run-8: moderator probes no longer burn the master budget -----
+    def test_43_moderator_probes_spare_master_budget(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": "burntarget43",
+                      "password": "burn-pw-43", "master_pw": MASTER}, admin)
+        self._access({"action": "add", "label": "burnmod43",
+                      "password": "burnmod-pw-43",
+                      "master_pw": MASTER}, admin)
+        self._access({"action": "friend_role_set", "label": "burnmod43",
+                      "role": "moderator", "master_pw": MASTER}, admin)
+        _, _, mod = self._login("burnmod-pw-43")
+        for i in range(10):
+            status, body, _ = self._access(
+                {"action": "friend_reset_pw", "label": "burntarget43",
+                 "new_password": f"burn-cand-{i}-43"}, mod)
+            self.assertEqual(status, 200, (i, body))
+        # Pre-fix, every miss recorded a GLOBAL master-budget failure
+        # (the taken-check fell through to the recording proof), so
+        # the owner's correct master was refused right here.
+        status, body, _ = self._access(
+            {"action": "2fa_status", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+
     def test_zz_pw_proof_throttle(self):
         _, _, admin = self._login(MASTER)
         # Run-7: console 2FA guesses have their own budget — eleven

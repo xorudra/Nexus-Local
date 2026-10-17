@@ -150,17 +150,88 @@ function main() {
     // claimant could export the engine's stored provider keys. Claim
     // it ourselves with a generated password (kept in the 0600 .env)
     // as soon as the engine answers.
-    (function claimEngineAdmin(tries) {
+    // Audit run-8: the run-7 claim retried only TRANSPORT errors
+    // (30 x 1s), set no request timeouts, and stayed silent on
+    // every other failure — a slow first boot (>~30s, e.g. AV
+    // scanning on Windows) left the unauthenticated setup window
+    // open for the whole session, and an active loopback claimant
+    // could win the 1s poll race without leaving a trace. The
+    // claim now retries ANY failure until the engine is claimed
+    // or gone, verifies the claim is OURS via a login check, and
+    // shouts (and drops the unregistered credentials) when a
+    // foreign process won the race.
+    let engineExited = false;
+    engine.on("exit", () => { engineExited = true; });
+    const claimState = { tries: 0 };
+    const verifyClaim = (http) => {
+      let email = null, pw = null;
+      try {
+        const envTxt = fs.readFileSync(envFile, "utf8");
+        const em = envTxt.match(/^ENGINE_ADMIN_EMAIL=(.*)$/m);
+        const pm = envTxt.match(/^ENGINE_ADMIN_PASSWORD=(.*)$/m);
+        if (em) email = em[1].trim();
+        if (pm) pw = pm[1].trim();
+      } catch (e) {}
+      if (!pw) {
+        log("WARNING: the engine admin was already claimed but app/.env holds no ENGINE_ADMIN credentials — on a fresh install, another local process claimed it first.");
+        return;
+      }
+      const payload = JSON.stringify({ email, password: pw });
+      const post = http.request({
+        host: "127.0.0.1", port: 3001, path: "/api/auth/login",
+        method: "POST",
+        headers: { "Content-Type": "application/json",
+                   "Content-Length": Buffer.byteLength(payload) },
+      }, (r2) => {
+        r2.resume();
+        r2.on("end", () => {
+          if (r2.statusCode === 200) return; // ours — done
+          if (r2.statusCode !== 401 && r2.statusCode !== 403) return;
+          try {
+            const envTxt = fs.readFileSync(envFile, "utf8");
+            fs.writeFileSync(envFile,
+              envTxt.replace(/^ENGINE_ADMIN_(EMAIL|PASSWORD)=.*\n?/gm, ""));
+            try { fs.chmodSync(envFile, 0o600); } catch (e) {}
+          } catch (e) {}
+          log("WARNING: the engine admin is claimed by credentials that are NOT the ones from app/.env (now removed) — another local process won the first-run claim, and the engine's stored provider keys may be exposed to it.");
+        });
+      });
+      post.setTimeout(3000, () => post.destroy(new Error("timeout")));
+      post.on("error", () => {});
+      post.write(payload);
+      post.end();
+    };
+    const claimStep = () => {
+      if (engineExited) return;
+      claimState.tries += 1;
+      if (claimState.tries > 300) {
+        log("WARNING: engine admin still unclaimed after 300 attempts — its setup window may be open; check the engine.");
+        return;
+      }
       const http = require("http");
+      const retry = (why) => {
+        if (claimState.tries === 1 || claimState.tries % 30 === 0) {
+          log(`Engine claim pending (${why}), retrying...`);
+        }
+        setTimeout(claimStep, 1000);
+      };
       const req = http.get("http://127.0.0.1:3001/api/auth/status", (res) => {
         let body = "";
         res.on("data", (c) => { body += c; });
         res.on("end", () => {
           let st = null;
           try { st = JSON.parse(body); } catch (e) {}
-          if (!st || !st.needsSetup) return; // already claimed — done
+          if (!st || typeof st.needsSetup !== "boolean") {
+            return retry("bad status reply");
+          }
+          if (!st.needsSetup) return verifyClaim(http);
           let email = "owner@example.com", pw = null;
           try {
+            // Credentials land in .env: tighten a pre-existing
+            // loose file (the .env.example copy path used to stay
+            // 0644 with the admin password inside — run-8) BEFORE
+            // appending, and never duplicate the email line.
+            try { fs.chmodSync(envFile, 0o600); } catch (e) {}
             const envTxt = fs.readFileSync(envFile, "utf8");
             const em = envTxt.match(/^ENGINE_ADMIN_EMAIL=(.*)$/m);
             const pm = envTxt.match(/^ENGINE_ADMIN_PASSWORD=(.*)$/m);
@@ -168,10 +239,12 @@ function main() {
             if (pm) pw = pm[1].trim();
             if (!pw) {
               pw = require("crypto").randomBytes(24).toString("hex");
-              fs.appendFileSync(envFile,
-                `\nENGINE_ADMIN_EMAIL=${email}\nENGINE_ADMIN_PASSWORD=${pw}\n`);
+              let add = "";
+              if (!em) add += `\nENGINE_ADMIN_EMAIL=${email}`;
+              add += `\nENGINE_ADMIN_PASSWORD=${pw}\n`;
+              fs.appendFileSync(envFile, add);
             }
-          } catch (e) { return; }
+          } catch (e) { return retry("env write failed"); }
           const payload = JSON.stringify({ email, password: pw });
           const post = http.request({
             host: "127.0.0.1", port: 3001, path: "/api/auth/setup",
@@ -180,19 +253,24 @@ function main() {
                        "Content-Length": Buffer.byteLength(payload) },
           }, (r2) => {
             r2.resume();
-            if (r2.statusCode === 201) {
-              log("Engine admin claimed (credentials in app/.env)");
-            }
+            r2.on("end", () => {
+              if (r2.statusCode === 201) {
+                log("Engine admin claimed (credentials in app/.env)");
+              } else {
+                retry("setup answered " + r2.statusCode);
+              }
+            });
           });
-          post.on("error", () => {});
+          post.setTimeout(3000, () => post.destroy(new Error("timeout")));
+          post.on("error", () => retry("setup post failed"));
           post.write(payload);
           post.end();
         });
       });
-      req.on("error", () => {
-        if (tries > 0) setTimeout(() => claimEngineAdmin(tries - 1), 1000);
-      });
-    })(30);
+      req.setTimeout(3000, () => req.destroy(new Error("timeout")));
+      req.on("error", () => retry("engine not answering yet"));
+    };
+    setTimeout(claimStep, 500);
     // Don't detach — we need to kill it on shutdown
   } else {
     log("Engine dist not found, skipping engine");
