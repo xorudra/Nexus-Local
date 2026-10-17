@@ -4652,7 +4652,16 @@ class Wave13UnitTests(unittest.TestCase):
         self.assertIn("signed up, but the role could not be saved", src)
         # Launcher: export prefix everywhere, comment rule, early
         # handlers, tracked installs.
-        self.assertGreaterEqual(js.count("(?:export\\s+)?"), 4)
+        # Wave 18 (run-17 L17-1): the four .env WRITE-BACK regexes
+        # (claimStep x3 literals, removeEngineAdminCreds x1) now
+        # anchor the export prefix with horizontal whitespace —
+        # (?:export[ \t]+)? — so a match can only start at a true
+        # line start on CRLF files; the read-side parser keeps
+        # the \s form. The export-prefix-everywhere property is
+        # the SUM over both forms.
+        self.assertGreaterEqual(
+            js.count("(?:export\\s+)?")
+            + js.count("(?:export[ \\t]+)?"), 4)
         # Wave 14 (run-13 L13-2): the unquoted '#' rule is the
         # whitespace-aware match now, and the parser records the
         # alternate form for verify's one retry — the wave-13
