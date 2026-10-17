@@ -689,6 +689,104 @@ class ValidatorUnitTests(unittest.TestCase):
              server.RESTORE_KEY) = saved[0], saved[1], saved[2]
             server._V1KEYS_TOUCH["at"] = 0.0
 
+    # -- run-9 (S1): a partial newer save still advances the mirror --
+    # watermark, so a slower older save cannot overwrite the mirror
+    # that already landed (verifier proof, re-derived in-process).
+    def test_w10_settings_mirror_watermark_partial_save(self):
+        import tempfile
+        from pathlib import Path as _P
+        saved = (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+                 server.RESTORE_KEY, server.encrypt_keys,
+                 server._SETTINGS_GEN[0], server._SETTINGS_WRITTEN_GEN[0],
+                 server._SETTINGS.get("announcement"))
+        orig_encrypt = server.encrypt_keys
+        gate = threading.Event()
+
+        def gated(data, pw, path):
+            if isinstance(data, dict) \
+                    and data.get("announcement") == "OLD44":
+                gate.wait(10)
+            return orig_encrypt(data, pw, path)
+
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                plain = _P(td) / "settings.json"
+                encp = _P(td) / "settings.enc"
+                server.SETTINGS_PATH = plain
+                server.SETTINGS_ENC_PATH = encp
+                server.RESTORE_KEY = "unit-restore-10"
+                server.encrypt_keys = gated
+                gen0 = server._SETTINGS_GEN[0]
+                # Save A snapshots OLD and is held inside encrypt.
+                server._SETTINGS["announcement"] = "OLD44"
+                res_a = []
+                ta = threading.Thread(
+                    target=lambda: res_a.append(server._save_settings()))
+                ta.start()
+                deadline = time.time() + 10
+                while server._SETTINGS_GEN[0] == gen0 \
+                        and time.time() < deadline:
+                    time.sleep(0.02)
+                self.assertGreater(server._SETTINGS_GEN[0], gen0)
+                # Save B (this thread) snapshots NEW; its mirror
+                # replace lands but its PLAIN write faults (a
+                # directory sits at B's exact plain-tmp path).
+                server._SETTINGS["announcement"] = "NEW44"
+                blocker = _P("%s.%d.tmp" % (plain, threading.get_ident()))
+                blocker.mkdir()
+                try:
+                    self.assertFalse(server._save_settings())
+                finally:
+                    blocker.rmdir()
+                from key_security import decrypt_keys as _dec
+                self.assertEqual(_dec(encp, "unit-restore-10")
+                                 .get("announcement"), "NEW44")
+                # A finally lands: it must be recognised as stale
+                # and leave the NEWER mirror alone (pre-fix it
+                # overwrote the mirror with OLD and returned True).
+                gate.set()
+                ta.join(10)
+                self.assertEqual(res_a, [True])
+                self.assertEqual(_dec(encp, "unit-restore-10")
+                                 .get("announcement"), "NEW44")
+        finally:
+            gate.set()
+            (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+             server.RESTORE_KEY, server.encrypt_keys) = saved[:4]
+            server._SETTINGS_GEN[0] = saved[4]
+            server._SETTINGS_WRITTEN_GEN[0] = saved[5]
+            if saved[6] is None:
+                server._SETTINGS.pop("announcement", None)
+            else:
+                server._SETTINGS["announcement"] = saved[6]
+
+    # -- run-9 (L1-L5): launcher gates / verify shape ----------------
+    def test_w10_launcher_fixes_present_and_syntax_ok(self):
+        js = (REPO / "bin" / "nexuslocal.js").read_text()
+        # L4: npm gate needs the completeness marker npm ci writes,
+        # and the engine child's exit is logged, never silent.
+        self.assertIn('path.join(nodeModules, ".package-lock.json")', js)
+        self.assertIn("engine process exited", js)
+        # L5: the venv probe imports every pinned-requirements module.
+        self.assertIn("import cryptography, qrcode, PIL", js)
+        # L1: inconclusive verify outcomes end in a named WARNING.
+        self.assertIn("could not verify the engine admin claim", js)
+        # L2: verifyClaim falls back to the default email, and the
+        # claim path records the email for a pre-existing password.
+        self.assertIn('email = "owner@example.com"', js)
+        self.assertIn("ENGINE_ADMIN_EMAIL=${email}", js)
+        # L3: the cap warning names the last failure and the loop
+        # continues at a slow cadence instead of stopping forever.
+        self.assertIn("last failure:", js)
+        self.assertIn("5 * 60 * 1000", js)
+        node = shutil.which("node")
+        if node:
+            r = subprocess.run([node, "--check",
+                                str(REPO / "bin" / "nexuslocal.js")],
+                               capture_output=True)
+            self.assertEqual(r.returncode, 0,
+                             r.stderr.decode(errors="replace"))
+
 
 class AuditFixHarness(unittest.TestCase):
     """ Boots a fixture server (same pattern as test_hardening). """
@@ -2036,11 +2134,28 @@ class AuditFixHarness(unittest.TestCase):
             {"label": "probe41_z", "password": SHARED_PW, "code": code},
             headers={"X-Forwarded-For": "10.41.9.9"})
         self.assertEqual(status, 429, body)
-        # Refusals never consumed the invite: a clean signup works.
+        # Run-9 (S5): the budget is consumed BEFORE the verdict, so
+        # a FREE password on the exhausted code gets the same 429 —
+        # pre-fix it sailed through to account creation, which made
+        # the 429 itself the taken-verdict (the oracle this budget
+        # exists to close). The refusals still never consume the
+        # invite itself, and the legitimate flow works within
+        # budget on a fresh code.
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
             {"label": "real41", "password": "real41-unique-pw",
-             "code": code})
+             "code": code},
+            headers={"X-Forwarded-For": "10.41.9.10"})
+        self.assertEqual(status, 429, body)
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "friend", "days": 1,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "real41", "password": "real41-unique-pw",
+             "code": body["code"]},
+            headers={"X-Forwarded-For": "10.41.9.11"})
         self.assertEqual(status, 200, body)
 
     # -- run-8: /v1-access self-test spends are throttled --------------
@@ -2081,6 +2196,216 @@ class AuditFixHarness(unittest.TestCase):
             {"action": "2fa_status", "master_pw": MASTER}, admin)
         self.assertEqual(status, 200, body)
 
+    # ================= wave 10 (run-9 fixes) =================
+
+    # -- run-9 (S8): a proven /setup replacement rotates for real ---
+    def test_44_setup_rotation_clears_sessions(self):
+        _, _, admin = self._login(MASTER)
+        _, _, friend = self._login(FRIEND_PW)
+        status, body = self._form("/setup", {
+            "password": MASTER_B, "confirm": MASTER_B,
+            "current_master": MASTER,
+            "k_groq": "sk-rotated-44"}, admin)
+        self.assertEqual(status, 302, body)
+        # Every session minted under the old master is dead —
+        # pre-fix they all survived a proven replacement. (A dead
+        # session is refused by the console gate: 403 "admin only".)
+        status, body, _ = self._access({"action": "list"}, admin)
+        self.assertEqual(status, 403, body)
+        status, body, _ = self._access({"action": "list"}, friend)
+        self.assertEqual(status, 403, body)
+        # The old master is dead; the new one is live immediately
+        # (the in-memory vault is the newly written one).
+        status, _, _ = self._login(MASTER)
+        self.assertEqual(status, 401)
+        _, _, admin_b = self._login(MASTER_B)
+        self.assertTrue(admin_b)
+        # Rotate back for the rest of the class.
+        status, body = self._form("/setup", {
+            "password": MASTER, "confirm": MASTER,
+            "current_master": MASTER_B,
+            "k_groq": "sk-shared-fake"}, admin_b)
+        self.assertEqual(status, 302, body)
+        status, _, _ = self._login(MASTER)
+        self.assertEqual(status, 200)
+
+    # -- run-9 (S5): post-budget, free candidates get the same 429 --
+    def test_45_redeemprobe_budget_before_verdict(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "friend", "days": 1,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        code = body["code"]
+        # Ten taken-password verdicts exhaust the per-code budget.
+        for i in range(10):
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": f"probe45_{i}", "password": SHARED_PW,
+                 "code": code},
+                headers={"X-Forwarded-For": f"10.45.0.{i + 1}"})
+            self.assertEqual(status, 400, (i, body))
+            self.assertIn("already in use", json.dumps(body))
+        # The 11th attempt carries a FREE password: pre-fix it
+        # created the account (the refusal was the verdict); now it
+        # receives the identical generic 429 as a taken candidate.
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "sneak45", "password": "sneak45-unique-pw",
+             "code": code},
+            headers={"X-Forwarded-For": "10.45.0.99"})
+        self.assertEqual(status, 429, body)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "probe45_z", "password": SHARED_PW, "code": code},
+            headers={"X-Forwarded-For": "10.45.0.98"})
+        self.assertEqual(status, 429, body)
+        # No account was created by the refused free attempt.
+        status, _, _ = self._login("sneak45-unique-pw")
+        self.assertEqual(status, 401)
+        # The legitimate flow still works within budget: a fresh
+        # code + a free password signs up cleanly.
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "friend", "days": 1,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "legit45", "password": "legit45-unique-pw",
+             "code": body["code"]},
+            headers={"X-Forwarded-For": "10.45.0.97"})
+        self.assertEqual(status, 200, body)
+
+    # -- run-9 (S6): friend_key_add budget is keyed by the caller ---
+    def test_46_friend_key_add_budget_caller_keyed(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": "victim46",
+                      "password": "victim-pw-46", "master_pw": MASTER},
+                     admin)
+        self._access({"action": "add", "label": "mod46",
+                      "password": "mod-pw-46", "master_pw": MASTER},
+                     admin)
+        self._access({"action": "friend_role_set", "label": "mod46",
+                      "role": "moderator", "master_pw": MASTER}, admin)
+        _, _, mod = self._login("mod-pw-46")
+        # The moderator burns ten wrong guesses against the victim.
+        for i in range(10):
+            status, body, _ = self._access(
+                {"action": "friend_key_add", "label": "victim46",
+                 "provider": "groq", "key": "sk-guess-46",
+                 "friend_pw": f"wrong-guess-{i}-46"}, mod)
+            self.assertEqual(status, 401, (i, body))
+        # The moderator's OWN bucket is now exhausted (brute force
+        # against the attacker still throttles).
+        status, body, _ = self._access(
+            {"action": "friend_key_add", "label": "victim46",
+             "provider": "groq", "key": "sk-guess-46",
+             "friend_pw": "wrong-guess-z-46"}, mod)
+        self.assertEqual(status, 429, body)
+        # But the victim's budget was never touched: the OWNER can
+        # still add a key for the victim with the correct password
+        # (pre-fix this was a 429 — the bucket was keyed on the
+        # victim, so the attacker's guesses locked the victim out).
+        status, body, _ = self._access(
+            {"action": "friend_key_add", "label": "victim46",
+             "provider": "groq", "key": "sk-real-46",
+             "friend_pw": "victim-pw-46", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+
+    # -- run-9 (S7): no key adds to a peer moderator's vault --------
+    def test_47_friend_key_add_peer_guard(self):
+        _, _, admin = self._login(MASTER)
+        for label, pw in (("moda47", "moda-pw-47"),
+                          ("modb47", "modb-pw-47"),
+                          ("plain47", "plain-pw-47")):
+            self._access({"action": "add", "label": label,
+                          "password": pw, "master_pw": MASTER}, admin)
+        for label in ("moda47", "modb47"):
+            status, body, _ = self._access(
+                {"action": "friend_role_set", "label": label,
+                 "role": "moderator", "master_pw": MASTER}, admin)
+            self.assertEqual(status, 200, body)
+        _, _, moda = self._login("moda-pw-47")
+        # Peer moderator: refused even with the peer's CORRECT
+        # password (pre-fix the add went through).
+        status, body, _ = self._access(
+            {"action": "friend_key_add", "label": "modb47",
+             "provider": "groq", "key": "sk-peer-47",
+             "friend_pw": "modb-pw-47"}, moda)
+        self.assertEqual(status, 403, body)
+        # A plain friend is fine, and so is the moderator's OWN vault.
+        status, body, _ = self._access(
+            {"action": "friend_key_add", "label": "plain47",
+             "provider": "groq", "key": "sk-plain-47",
+             "friend_pw": "plain-pw-47"}, moda)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "friend_key_add", "label": "moda47",
+             "provider": "groq", "key": "sk-self-47",
+             "friend_pw": "moda-pw-47"}, moda)
+        self.assertEqual(status, 200, body)
+
+    # -- run-9 (S10): /v1 per-key in-flight ceiling of 4 ------------
+    def test_48_v1_per_key_inflight_ceiling(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "ceil48",
+                                     "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        key = body["key"]
+        held = []
+        try:
+            # Four requests trickle their bodies: each holds a base
+            # reservation for this key (taken before the body read).
+            for _i in range(4):
+                s = socket.create_connection(("127.0.0.1", self.port),
+                                             timeout=30)
+                s.sendall((
+                    "POST /v1/chat/completions HTTP/1.1\r\n"
+                    "Host: 127.0.0.1\r\n"
+                    "Content-Type: application/json\r\n"
+                    f"Authorization: Bearer {key}\r\n"
+                    "Content-Length: 200\r\n"
+                    "Connection: close\r\n\r\n"
+                    '{"messages": [{"role": "user", "content": "hi"}]'
+                    ).encode())
+                held.append(s)
+            time.sleep(1.0)
+            # The fifth request on the SAME key is refused at
+            # admission (pre-fix it proceeded and held a base too).
+            conn = http.client.HTTPConnection("127.0.0.1", self.port,
+                                              timeout=30)
+            conn.request("POST", "/v1/chat/completions",
+                         body=json.dumps(
+                             {"messages": [{"role": "user",
+                                            "content": "hi"}]}),
+                         headers={"Content-Type": "application/json",
+                                  "Authorization": f"Bearer {key}"})
+            resp = conn.getresponse()
+            payload = json.loads(resp.read())
+            conn.close()
+            self.assertEqual(resp.status, 429, payload)
+            self.assertIn("in flight", json.dumps(payload))
+        finally:
+            for s in held:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        # Once the held requests die, the key admits again (the
+        # refusal was the ceiling, not a ban): the request now
+        # reaches dispatch and fails on the fixture's dead lanes.
+        deadline = time.time() + 15
+        status = 429
+        while time.time() < deadline and status == 429:
+            status, body, _ = self._req(
+                "POST", "/v1/chat/completions",
+                {"messages": [{"role": "user", "content": "hi"}]},
+                headers={"Authorization": f"Bearer {key}"})
+            if status == 429:
+                time.sleep(0.5)
+        self.assertNotEqual(status, 429, body)
+
     def test_zz_pw_proof_throttle(self):
         _, _, admin = self._login(MASTER)
         # Run-7: console 2FA guesses have their own budget — eleven
@@ -2114,6 +2439,284 @@ class AuditFixHarness(unittest.TestCase):
         status, body, _ = self._access(
             {"action": "2fa_enable", "master_pw": MASTER}, admin)
         self.assertEqual(status, 401, body)
+
+
+class _FixtureServerBase(unittest.TestCase):
+    """Shared fixture-boot for the wave-10 harness classes: a
+    disposable copy of the app in a temp dir, booted as a subprocess
+    (the AuditFixHarness pattern). Subclasses set FIXTURE_FILES to
+    control which vault files exist at boot."""
+    proc = None
+    log = None
+    FIXTURE_FILES = ("keys", "access")
+    KEYS = {"groq": "sk-shared-fake"}
+
+    @classmethod
+    def _boot(cls, extra_env=None):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="nexus-test-w10-"))
+        skip = {"access.json", "keys.enc", "users.enc", "access.enc",
+                "provider_status.json"}
+        for name in os.listdir(APP):
+            if name in skip or name == "chats":
+                continue
+            if name.endswith((".py", ".json", ".html")):
+                shutil.copy(APP / name, cls.tmp / name)
+        access = {FRIEND: _hash_pw(FRIEND_PW),
+                  "solo": _hash_pw(UNIQUE_PW)}
+        if "keys" in cls.FIXTURE_FILES:
+            encrypt_keys(cls.KEYS, MASTER, cls.tmp / "keys.enc")
+        if "access" in cls.FIXTURE_FILES:
+            encrypt_keys(access, MASTER, cls.tmp / "users.enc")
+            encrypt_keys(access, RESTORE, cls.tmp / "access.enc")
+        (cls.tmp / "chats").mkdir(exist_ok=True)
+        cls.port = _free_port()
+        env = dict(os.environ)
+        env.update({
+            "HOST": "127.0.0.1", "PORT": str(cls.port),
+            "NEXUS_RELAY_PORT": str(_free_port()),
+            "NEXUS_RESTORE_KEY": RESTORE,
+            "NEXUS_SYNC_TOKEN": SYNC_TOKEN,
+            "PYTHONPATH": str(cls.tmp),
+            "no_proxy": "127.0.0.1,localhost",
+            "NO_PROXY": "127.0.0.1,localhost",
+        })
+        if extra_env:
+            env.update(extra_env)
+        cls.log = open(cls.tmp / "server.log", "ab")
+        cls.proc = subprocess.Popen(
+            [sys.executable, str(cls.tmp / "server.py")],
+            cwd=str(cls.tmp), env=env,
+            stdout=cls.log, stderr=subprocess.STDOUT)
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if cls.proc.poll() is not None:
+                raise RuntimeError("server exited early:\n"
+                                   + (cls.tmp / "server.log").read_text(
+                                       errors="replace")[-2000:])
+            try:
+                status, _, _ = cls._req("GET", "/api/friend_blob")
+                if status in (200, 403):
+                    return
+            except OSError:
+                pass
+            time.sleep(0.25)
+        raise RuntimeError("server did not come up in 30s")
+
+    @classmethod
+    def _stop(cls):
+        if cls.proc is not None:
+            cls.proc.terminate()
+            try:
+                cls.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                cls.proc.kill()
+                cls.proc.wait(timeout=10)
+            cls.proc = None
+        if cls.log is not None:
+            cls.log.close()
+            cls.log = None
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    @classmethod
+    def _req(cls, method, path, body=None, ck=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", cls.port,
+                                          timeout=30)
+        hdrs = dict(headers or {})
+        data = None
+        if body is not None:
+            data = json.dumps(body)
+            hdrs.setdefault("Content-Type", "application/json")
+        if ck:
+            hdrs["Cookie"] = ck
+        conn.request(method, path, body=data, headers=hdrs)
+        resp = conn.getresponse()
+        payload = resp.read()
+        set_cookie = resp.getheader("Set-Cookie") or ""
+        conn.close()
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            parsed = {"_raw": payload.decode(errors="replace")[:300]}
+        return (resp.status, parsed,
+                set_cookie.split(";")[0]
+                if set_cookie.startswith("session=") else None)
+
+    @classmethod
+    def _login(cls, password):
+        return cls._req("POST", "/api/login", {"password": password})
+
+    @classmethod
+    def _form(cls, path, fields, ck=None):
+        conn = http.client.HTTPConnection("127.0.0.1", cls.port,
+                                          timeout=30)
+        hdrs = {"Content-Type": "application/x-www-form-urlencoded"}
+        if ck:
+            hdrs["Cookie"] = ck
+        conn.request("POST", path,
+                     body=urllib.parse.urlencode(fields), headers=hdrs)
+        resp = conn.getresponse()
+        payload = resp.read()
+        conn.close()
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            parsed = {"_raw": payload.decode(errors="replace")[:300]}
+        return resp.status, parsed
+
+
+class Wave10SetupHarness(_FixtureServerBase):
+    """Boots with NO keys.enc: the first-run setup surface."""
+    FIXTURE_FILES = ()
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    # -- run-9 (S4): a held first-run request may not land as an ---
+    # unproven replacement once a real first setup has completed.
+    def test_01_setup_first_run_toctou_recheck(self):
+        victim_pw = "victim-master-44"
+        attacker_pw = "attacker-master-44"
+        body_a = urllib.parse.urlencode({
+            "password": attacker_pw, "confirm": attacker_pw,
+            "k_groq": "sk-attacker"}).encode()
+        sock = socket.create_connection(("127.0.0.1", self.port),
+                                        timeout=30)
+        try:
+            sock.sendall((
+                "POST /setup HTTP/1.1\r\n"
+                "Host: 127.0.0.1\r\n"
+                "Content-Type: application/x-www-form-urlencoded\r\n"
+                f"Content-Length: {len(body_a)}\r\n"
+                "Connection: close\r\n\r\n").encode() + body_a[:8])
+            time.sleep(0.5)
+            # The genuine first setup completes meanwhile — still
+            # proof-free, exactly as a first run should be.
+            status, _ = self._form("/setup", {
+                "password": victim_pw, "confirm": victim_pw,
+                "k_groq": "sk-victim"})
+            self.assertEqual(status, 302)
+            # The held request now finishes its body carrying NO
+            # current-master proof: refused like any unproven
+            # rotation (pre-fix it landed, 302, and replaced the
+            # vault under the attacker's password).
+            sock.sendall(body_a[8:])
+            resp = b""
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                resp += chunk
+            status_line = resp.split(b"\r\n", 1)[0].decode(
+                errors="replace")
+            self.assertIn("401", status_line, resp[:400])
+        finally:
+            sock.close()
+        # The victim's master is the live one; the attacker's is not.
+        status, _, _ = self._login(victim_pw)
+        self.assertEqual(status, 200)
+        status, _, _ = self._login(attacker_pw)
+        self.assertEqual(status, 401)
+
+
+class _StubRelayHandler(http.server.BaseHTTPRequestHandler):
+    """Loopback relay stub: every chat completion answers with a
+    tool call, so an agent loop keeps spending until something
+    stops it. Hits are counted per path."""
+    hits = []
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if length:
+            self.rfile.read(length)
+        type(self).hits.append(self.path)
+        body = json.dumps({
+            "choices": [{"message": {"content":
+                "```tool\n{\"name\": \"calculate\", \"args\": "
+                "{\"expression\": \"1+1\"}}\n```"}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        body = b'{"data": []}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+class Wave10AgentHarness(_FixtureServerBase):
+    """Agent mode against a stub gateway that always answers with a
+    tool call: without a provider-limit recheck the loop spends
+    round after round on a lane limited to 1. The lane is
+    freellmapi, whose gateway URL lives in the fixture keys.enc —
+    pointed at the stub (the integrated relay's own port stays a
+    free port the fixture binds for itself)."""
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        _StubRelayHandler.hits = []
+        cls.stub = http.server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), _StubRelayHandler)
+        cls.stub_port = cls.stub.server_address[1]
+        cls.stub_thread = threading.Thread(target=cls.stub.serve_forever,
+                                           daemon=True)
+        cls.stub_thread.start()
+        cls.KEYS = {"groq": "sk-shared-fake",
+                    "freellmapi": "sk-gateway-fixture",
+                    "freellmapi_url": f"http://127.0.0.1:{cls.stub_port}"}
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+        cls.stub.shutdown()
+        cls.stub.server_close()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    # -- run-9 (S13): the agent mid-loop recheck honours the -------
+    # provider limit (including its in-flight/completed accounting).
+    def test_01_agent_recheck_honours_provider_limit(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"provider_limits": {"freellmapi": 1},
+                       # Every other lane the attempt builder could
+                       # add is disabled, so the agent list is exactly
+                       # the one limited lane.
+                       "provider_disabled": ["groq", "pollinations",
+                                             "relay_pollinations"]}},
+            admin)
+        self.assertEqual(status, 200, body)
+        _StubRelayHandler.hits = []
+        status, body, _ = self._req(
+            "POST", "/api/chat",
+            {"provider": "freellmapi", "model": "openai",
+             "message": "agent limit test", "mode": "agent"}, ck=admin)
+        # Round 0 spends the lane's single allowance; the round-1
+        # recheck must stop the loop BEFORE a second spend (pre-fix
+        # it spent 3+ rows against a limit of 1 and answered 200).
+        self.assertEqual(status, 429, body)
+        spends = [h for h in _StubRelayHandler.hits
+                  if h.endswith("/chat/completions")]
+        self.assertEqual(len(spends), 1, _StubRelayHandler.hits)
 
 
 if __name__ == "__main__":

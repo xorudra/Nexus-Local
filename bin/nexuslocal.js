@@ -74,7 +74,14 @@ function main() {
   // Ensure engine dependencies
   const engineServer = path.join(APP_DIR, "engine", "server");
   const nodeModules = path.join(engineServer, "node_modules");
-  if (!fs.existsSync(path.join(nodeModules, "dotenv"))) {
+  // Audit run-9 (L4): the gate used to be a sole dotenv sentinel —
+  // a node_modules containing ONLY dotenv (an interrupted install)
+  // skipped npm ci and the engine then died on a missing module in
+  // total silence (stdio ignored). npm ci also writes
+  // node_modules/.package-lock.json, so require both: a partial
+  // tree now triggers the install.
+  if (!fs.existsSync(path.join(nodeModules, "dotenv"))
+      || !fs.existsSync(path.join(nodeModules, ".package-lock.json"))) {
     log("Installing engine dependencies (first run)...");
     console.log("Installing engine (first run)...");
     // Audit run-7: install EXACTLY the pinned tree from the shipped
@@ -99,7 +106,11 @@ function main() {
 
   // Python dependencies
   try {
-    execSync(`${python} -c "import cryptography"`, { stdio: "ignore", windowsHide: true, cwd: APP_DIR });
+    // Audit run-9 (L5): probe EVERY module the pinned requirements
+    // provide, not just cryptography — a venv with only cryptography
+    // passed the old probe, the pinned install never ran, and TOTP
+    // QR enrollment (qrcode/PIL) 500'd forever.
+    execSync(`${python} -c "import cryptography, qrcode, PIL"`, { stdio: "ignore", windowsHide: true, cwd: APP_DIR });
   } catch (e) {
     log("Installing Python dependencies (pinned)...");
     console.log("Installing Python components...");
@@ -161,8 +172,14 @@ function main() {
     // shouts (and drops the unregistered credentials) when a
     // foreign process won the race.
     let engineExited = false;
-    engine.on("exit", () => { engineExited = true; });
-    const claimState = { tries: 0 };
+    engine.on("exit", (code, signal) => {
+      engineExited = true;
+      // Audit run-9 (L4): a dead engine was silent (stdio ignored,
+      // exit unlogged) — the dashboard kept running with no gateway
+      // behind it. Name the exit in startup.log.
+      log(`WARNING: engine process exited (code ${code}, signal ${signal}) — the AI gateway is down; restart nexuslocal to bring it back.`);
+    });
+    const claimState = { tries: 0, lastWhy: "no attempt yet" };
     const verifyClaim = (http) => {
       let email = null, pw = null;
       try {
@@ -176,44 +193,79 @@ function main() {
         log("WARNING: the engine admin was already claimed but app/.env holds no ENGINE_ADMIN credentials — on a fresh install, another local process claimed it first.");
         return;
       }
-      const payload = JSON.stringify({ email, password: pw });
-      const post = http.request({
-        host: "127.0.0.1", port: 3001, path: "/api/auth/login",
-        method: "POST",
-        headers: { "Content-Type": "application/json",
-                   "Content-Length": Buffer.byteLength(payload) },
-      }, (r2) => {
-        r2.resume();
-        r2.on("end", () => {
-          if (r2.statusCode === 200) return; // ours — done
-          if (r2.statusCode !== 401 && r2.statusCode !== 403) return;
-          try {
-            const envTxt = fs.readFileSync(envFile, "utf8");
-            fs.writeFileSync(envFile,
-              envTxt.replace(/^ENGINE_ADMIN_(EMAIL|PASSWORD)=.*\n?/gm, ""));
-            try { fs.chmodSync(envFile, 0o600); } catch (e) {}
-          } catch (e) {}
-          log("WARNING: the engine admin is claimed by credentials that are NOT the ones from app/.env (now removed) — another local process won the first-run claim, and the engine's stored provider keys may be exposed to it.");
+      // Audit run-9 (L2): a password-only .env used to leave email
+      // null here — the claim had used the default owner@example.com
+      // but never recorded it, so this POSTed {"email":null}, the
+      // engine answered 400, and the outcome was swallowed below.
+      // Fall back to the same default the claim path uses, and say
+      // so loudly instead of verifying against a null identity.
+      if (!email) {
+        email = "owner@example.com";
+        log("WARNING: app/.env holds an ENGINE_ADMIN_PASSWORD but no ENGINE_ADMIN_EMAIL — verifying the claim against the default owner@example.com.");
+      }
+      // Audit run-9 (L1): the old verify made ONE login POST and
+      // silently swallowed every outcome other than 200/401/403 —
+      // including the REAL 429 case (the engine locks the email for
+      // 15 minutes after 5 failed logins, so a correct password can
+      // legitimately answer 429). Inconclusive outcomes now retry a
+      // bounded number of times and end in a WARNING naming the
+      // outcome — never silence, and credentials are only removed
+      // on a DEFINITIVE 401/403.
+      let attempts = 0;
+      const tryLogin = () => {
+        attempts += 1;
+        const payload = JSON.stringify({ email, password: pw });
+        const post = http.request({
+          host: "127.0.0.1", port: 3001, path: "/api/auth/login",
+          method: "POST",
+          headers: { "Content-Type": "application/json",
+                     "Content-Length": Buffer.byteLength(payload) },
+        }, (r2) => {
+          r2.resume();
+          r2.on("end", () => {
+            if (r2.statusCode === 200) return; // ours — done
+            if (r2.statusCode === 401 || r2.statusCode === 403) {
+              try {
+                const envTxt = fs.readFileSync(envFile, "utf8");
+                fs.writeFileSync(envFile,
+                  envTxt.replace(/^ENGINE_ADMIN_(EMAIL|PASSWORD)=.*\n?/gm, ""));
+                try { fs.chmodSync(envFile, 0o600); } catch (e) {}
+              } catch (e) {}
+              log("WARNING: the engine admin is claimed by credentials that are NOT the ones from app/.env (now removed) — another local process won the first-run claim, and the engine's stored provider keys may be exposed to it.");
+              return;
+            }
+            if (attempts < 5) { setTimeout(tryLogin, 3000); return; }
+            log(`WARNING: could not verify the engine admin claim — login answered ${r2.statusCode} on all ${attempts} attempts; whether the claim is ours is UNKNOWN (credentials kept). Check the engine and app/.env.`);
+          });
         });
-      });
-      post.setTimeout(3000, () => post.destroy(new Error("timeout")));
-      post.on("error", () => {});
-      post.write(payload);
-      post.end();
+        post.setTimeout(3000, () => post.destroy(new Error("timeout")));
+        post.on("error", () => {
+          if (attempts < 5) { setTimeout(tryLogin, 3000); return; }
+          log(`WARNING: could not verify the engine admin claim — the login request failed on all ${attempts} attempts; whether the claim is ours is UNKNOWN (credentials kept). Check the engine and app/.env.`);
+        });
+        post.write(payload);
+        post.end();
+      };
+      tryLogin();
     };
     const claimStep = () => {
       if (engineExited) return;
       claimState.tries += 1;
-      if (claimState.tries > 300) {
-        log("WARNING: engine admin still unclaimed after 300 attempts — its setup window may be open; check the engine.");
-        return;
+      if (claimState.tries === 301) {
+        // Audit run-9 (L3): the old cap stopped the loop FOREVER
+        // with one cause-less WARNING while the unauthenticated
+        // setup window stayed open. The warning now names the
+        // last failure cause, and the claim keeps retrying at a
+        // slow cadence (see retry) for the life of the process.
+        log(`WARNING: engine admin still unclaimed after 300 attempts (last failure: ${claimState.lastWhy}) — its setup window may be open; the claim keeps retrying every 5 minutes. Check the engine.`);
       }
       const http = require("http");
       const retry = (why) => {
+        claimState.lastWhy = why;
         if (claimState.tries === 1 || claimState.tries % 30 === 0) {
           log(`Engine claim pending (${why}), retrying...`);
         }
-        setTimeout(claimStep, 1000);
+        setTimeout(claimStep, claimState.tries > 300 ? 5 * 60 * 1000 : 1000);
       };
       const req = http.get("http://127.0.0.1:3001/api/auth/status", (res) => {
         let body = "";
@@ -243,6 +295,12 @@ function main() {
               if (!em) add += `\nENGINE_ADMIN_EMAIL=${email}`;
               add += `\nENGINE_ADMIN_PASSWORD=${pw}\n`;
               fs.appendFileSync(envFile, add);
+            } else if (!em) {
+              // Audit run-9 (L2): a pre-existing password with NO
+              // email line — record the email actually being used
+              // (the default above) so verifyClaim never has to
+              // guess it (it used to POST {"email":null}).
+              fs.appendFileSync(envFile, `\nENGINE_ADMIN_EMAIL=${email}\n`);
             }
           } catch (e) { return retry("env write failed"); }
           const payload = JSON.stringify({ email, password: pw });
