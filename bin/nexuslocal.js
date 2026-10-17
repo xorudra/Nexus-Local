@@ -88,7 +88,8 @@ function parseEngineAdminCreds(envTxt) {
     // through dotenv grammar), so a '#' inside it is data — while
     // `abc123 # comment` and `= # none yet` keep their run-12
     // behaviour.
-    if (v.startsWith('"') || v.startsWith("'")) {
+    const _quoted15 = v.startsWith('"') || v.startsWith("'");
+    if (_quoted15) {
       const q = v[0];
       let end = -1;
       for (let i = 1; i < v.length; i++) {
@@ -112,7 +113,13 @@ function parseEngineAdminCreds(envTxt) {
     if (v.length >= 2
         && ((v[0] === '"' && v[v.length - 1] === '"')
             || (v[0] === "'" && v[v.length - 1] === "'"))) {
+      const _dq15 = v[0] === '"';
       v = v.slice(1, -1);
+      // Wave 15 (run-14 launcher L14-1): dotenv 17 expands exactly
+      // \n and \r in DOUBLE-quoted values, in this order, with
+      // these regexes — \t, \\ and \" stay literal, and
+      // single-quoted values are never expanded.
+      if (_dq15) v = v.replace(/\\n/g, "\n").replace(/\\r/g, "\r");
     }
     if (!v) continue;  // empty = absent: fall through to a later line
     if (isEmail && out.email === undefined) out.email = v;
@@ -123,10 +130,19 @@ function parseEngineAdminCreds(envTxt) {
       // (symmetrically) the dotenv-truncated value when the
       // primary kept a '#' the engine may not hold.
       let alt = null;
-      if (raw && raw !== v) alt = raw;
-      else {
-        const h = v.indexOf("#");
-        if (h > 0) alt = v.slice(0, h).trim() || null;
+      // Wave 15 (run-14 launcher L14-2, leg (a) only): the
+      // alternate is built ONLY from unquoted lines, where the
+      // raw and truncated forms are both genuine alternate
+      // parses. For a quoted line the raw tail still carries the
+      // quotes and the comment text — a candidate that can never
+      // be the engine password — and the primary parse is
+      // authoritative, so no alternate is offered.
+      if (!_quoted15) {
+        if (raw && raw !== v) alt = raw;
+        else {
+          const h = v.indexOf("#");
+          if (h > 0) alt = v.slice(0, h).trim() || null;
+        }
       }
       if (alt && alt !== v) out.passwordAlt = alt;
     }
@@ -311,22 +327,57 @@ async function main() {
     // file", so the resolve probe certified a tree the engine dies
     // on every boot. Probe a real require in a throwaway child
     // process (a broken addon can never crash the launcher).
+    // Wave 15 (run-14 launcher gate cluster — the surviving
+    // run-13 gate item + L14-3 + L14-4, in verify-launcher14's
+    // rank-1 shape): (i) a recursive *.node presence pre-filter —
+    // a tree with NO native binding file fails the gate and is
+    // reinstalled WITHOUT executing anything from it; (ii) only
+    // when a binding file IS present, and only when no other
+    // signal already condemns the tree, a hardened child probe
+    // require()s AND instantiates the addon (better-sqlite3@12
+    // loads its binding lazily, so require alone certifies
+    // corrupt/wrong-arch trees), with killSignal SIGKILL so the
+    // timeout is a real bound (SIGTERM can be ignored), a
+    // scrubbed environment (no launcher secrets inherited) and
+    // the same 15s timeout; (iii) a corrupt/wrong-arch binding
+    // fails the instantiate and triggers the reinstall.
+    const _bsqBindingPresent = () => {
+      const stack = [path.join(nodeModules, "better-sqlite3")];
+      while (stack.length) {
+        const d = stack.pop();
+        let ents;
+        try { ents = fs.readdirSync(d, { withFileTypes: true }); }
+        catch (e) { return false; }
+        for (const ent of ents) {
+          if (ent.isDirectory()) stack.push(path.join(d, ent.name));
+          else if (ent.name.endsWith(".node")) return true;
+        }
+      }
+      return false;
+    };
     const _bsqLoadable = () => {
       if (_unloadable("better-sqlite3")) return false;
       try {
         const { spawnSync } = require("child_process");
         const r = spawnSync(process.execPath,
-          ["-e", "require('module').createRequire(process.argv[1])"
-                 + "('better-sqlite3')",
+          ["-e", "const DB = require('module').createRequire(process.argv[1])"
+                 + "('better-sqlite3'); const db = new DB(':memory:');"
+                 + " db.close();",
            path.join(engineServer, "package.json")],
-          { timeout: 15000, stdio: "ignore" });
+          { timeout: 15000, stdio: "ignore", killSignal: "SIGKILL",
+            env: { PATH: process.env.PATH || "" } });
         return !r.error && r.status === 0;
       } catch (e) { return false; }
     };
     if (process.platform !== "android"
-        && (_epkg.optionalDependencies || {})["better-sqlite3"]
-        && !_bsqLoadable()) {
-      _depsMissing = true;
+        && (_epkg.optionalDependencies || {})["better-sqlite3"]) {
+      if (!_bsqBindingPresent()) {
+        log("Engine dependency better-sqlite3 has no native binding (.node) file — treating engine dependencies as missing and reinstalling.");
+        _depsMissing = true;
+      } else if (!_depsMissing && !_bsqLoadable()) {
+        log("Engine dependency better-sqlite3 failed its load probe — treating engine dependencies as missing and reinstalling.");
+        _depsMissing = true;
+      }
     }
   } catch (e) {
     log(`WARNING: could not read the engine package.json (${e.message}) — treating engine dependencies as missing and reinstalling.`);

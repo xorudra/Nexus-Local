@@ -564,6 +564,53 @@ def _settings_outcome(sv, pred, rollback=None):
         time.sleep(0.02)
 
 
+def _clear_stranded_label(label):
+    """Wave 15 (run-14 settings): the ONE shared clean-slate clear
+    for account creation. A label that provably has NO account can
+    still carry per-user settings stranded by a faulted revoke
+    cleanup + restart (roles / user_caps / vault_meta dicts,
+    suspended / terms_seen lists, oauth_links label-keyed entries);
+    left in place they become the next account's effective state at
+    creation. Both creation paths (console add, invite redeem /
+    open signup) call this BEFORE the account exists and abort on a
+    non-ok outcome — no rollback is needed or wanted: the honest
+    end state after a faulted clear is no account at all. Returns
+    the _settings_outcome verdict ("ok" when there was nothing to
+    clear)."""
+    with _SETTINGS_LOCK:
+        _cl15 = False
+        for _k15 in ("roles", "user_caps", "vault_meta"):
+            _d15 = dict(_SETTINGS.get(_k15) or {})
+            if label in _d15:
+                _d15.pop(label, None)
+                _SETTINGS[_k15] = _d15
+                _cl15 = True
+        for _k15 in ("suspended", "terms_seen"):
+            _l15 = [x for x in (_SETTINGS.get(_k15) or [])
+                    if x != label]
+            if _l15 != (_SETTINGS.get(_k15) or []):
+                _SETTINGS[_k15] = _l15
+                _cl15 = True
+        _ol15 = [e for e in (_SETTINGS.get("oauth_links") or [])
+                 if not (isinstance(e, dict)
+                         and e.get("label") == label)]
+        if _ol15 != (_SETTINGS.get("oauth_links") or []):
+            _SETTINGS["oauth_links"] = _ol15
+            _cl15 = True
+    if not _cl15:
+        return "ok"
+    return _settings_outcome(
+        _save_settings(),
+        lambda s: label not in (s.get("roles") or {})
+        and label not in (s.get("user_caps") or {})
+        and label not in (s.get("vault_meta") or {})
+        and label not in (s.get("suspended") or [])
+        and label not in (s.get("terms_seen") or [])
+        and not any(
+            isinstance(e, dict) and e.get("label") == label
+            for e in (s.get("oauth_links") or [])))
+
+
 def _boot_restore_settings():
     """Load settings at startup: encrypted mirror first (it is the
     synced source of truth), then the local working copy."""
@@ -635,22 +682,33 @@ def _governance():
                 dict(_SETTINGS.get("provider_limits") or {}))
 
 
-def _provider_blocked(provider, exclude=None):
+def _provider_blocked(provider, exclude=None, also=None):
     """Admin provider governance for the non-chat surfaces (media,
     transcription): True when the provider is disabled in settings or
     today's provider_limits allowance for it is used up. Mirrors text
     chat's _lane_ok exactly — same disabled set, same limits table,
     same usage accounting — so a provider the admin stopped for chat
-    cannot keep spending through media or voice."""
+    cannot keep spending through media or voice. `also` names a
+    second lane whose spends this provider's limit must ALSO judge
+    (the TTS funding lane: rows metered under the picked lane are
+    paid for by the funding lane's key)."""
     _dis13, _lims13 = _governance()
-    if provider in _dis13:
+    if provider in _dis13 or (also and also in _dis13):
         return True
     _l = _lims13.get(provider)
     if _l:
         try:
-            _done14 = _today_counts(fresh=True)["providers"].get(
-                provider, 0)
-            if exclude is not None:
+            _names15 = {provider} if not also else {provider, also}
+            _inflight_n(provider=provider)  # prune expired first
+            with _INFLIGHT_LOCK:
+                # Wave 15 (run-14 caps CAPS14-3/4): completed + rank
+                # are ONE snapshot inside this hold, and completed
+                # comes from the in-memory provider counter — the
+                # wave-14 shape read a full usage scan BEFORE the
+                # hold, so a peer completing in the gap was counted
+                # zero times.
+                _done15 = sum(_provider_counts_today().get(n, 0)
+                              for n in _names15)
                 # Wave 14 (run-13 caps): a born-tagged caller (the
                 # media surfaces) is judged with the spend-leg form:
                 # its RANK among the provider's live reservations
@@ -659,26 +717,36 @@ def _provider_blocked(provider, exclude=None):
                 # completed + rank passes the limit. Two concurrent
                 # spends at the last slot therefore admit exactly
                 # one — the earlier reservation — whichever check
-                # runs first. The old >= form counted the PEER in
-                # full (exclude=self removed only its own) and
-                # refused BOTH (0 admitted).
-                _inflight_n(provider=provider)  # prune expired first
-                with _INFLIGHT_LOCK:
-                    _rank14 = 0
-                    _found14 = False
-                    for _e14 in _INFLIGHT:
-                        if _e14["provider"] == provider:
-                            _rank14 += 1
-                            if _e14 is exclude:
-                                _found14 = True
-                                break
-                if _found14:
-                    return _done14 + _rank14 > int(_l)
+                # runs first.
+                _rank15 = 0
+                _found15 = False
+                for _e15 in _INFLIGHT:
+                    if _e15["provider"] in _names15:
+                        _rank15 += 1
+                        if _e15 is exclude:
+                            _found15 = True
+                            break
+                    elif exclude is not None \
+                            and _e15["provider"] is None:
+                        # Wave 15 (run-14 caps CAPS14-1): an
+                        # untagged base reservation OLDER than the
+                        # caller (list order is birth order and the
+                        # loop stops at the caller) may be a media
+                        # spend whose body is still arriving — count
+                        # it as a rank slot, so it cannot be
+                        # invisible to this check and then rank 1st
+                        # itself once it tags.
+                        _rank15 += 1
+            if exclude is not None and _found15:
+                return _done15 + _rank15 > int(_l)
+            if exclude is not None:
                 # The caller's reservation is not tagged with this
-                # provider (a funding-lane side check): the old form.
-                return _done14 + _inflight_n(
-                    provider=provider, exclude=exclude) >= int(_l)
-            return _done14 + _inflight_n(
+                # provider (a funding-lane side check): the
+                # full-count form over the judged name set.
+                return _done15 + sum(
+                    _inflight_n(provider=n, exclude=exclude)
+                    for n in _names15) >= int(_l)
+            return _done15 + _inflight_n(
                 provider=provider, exclude=exclude) >= int(_l)
         except Exception:
             return False
@@ -1372,6 +1440,17 @@ def _audit_count_today(prefix, cat=None):
 # keeps caps/limits cheap without drifting far from the truth.
 _TODAY_CACHE = {"ts": 0.0, "providers": {}, "users": {}, "v1": 0}
 
+# Wave 15 (run-14 caps CAPS14-4): today's per-provider spend counts
+# as an IN-MEMORY counter — the same numbers
+# _today_counts(fresh=True)["providers"] returns from a full
+# usage.jsonl scan, but maintained incrementally by
+# _append_usage_locked on the single writer path and seeded by one
+# scan per day. Reading completed spend inside _INFLIGHT_LOCK (the
+# reserve primitive, _provider_blocked) is then a dict lookup; the
+# wave-14 callable form ran the whole scan inside that global lock
+# and stalled every surface's adds/drops behind it.
+_PROVIDER_COUNTS = {"date": None, "providers": {}}
+
 
 def _today_counts(fresh=False):
     now = time.time()
@@ -1405,6 +1484,74 @@ def _today_counts(fresh=False):
         pass
     _TODAY_CACHE.update({"ts": now, "providers": providers, "users": users, "v1": v1n})
     return _TODAY_CACHE
+
+
+def _provider_counts_today():
+    """Today's per-provider counts from the in-memory counter
+    (CAPS14-4): seeded by ONE scan on first use / date rollover,
+    incremented by _append_usage_locked per append, rebuilt by the
+    trim/purge rewrites — exactly the provider map a fresh
+    _today_counts scan returns, with no file I/O on the read path."""
+    today = datetime.date.today().isoformat()
+    if _PROVIDER_COUNTS["date"] != today:
+        counts = _today_counts(fresh=True)["providers"]
+        with _USAGE_LOCK:
+            if _PROVIDER_COUNTS["date"] != today:
+                _PROVIDER_COUNTS["date"] = today
+                _PROVIDER_COUNTS["providers"] = dict(counts)
+    return _PROVIDER_COUNTS["providers"]
+
+
+def _provider_counts_note(entry):
+    """Increment the counter for one appended row (the
+    _today_counts counting predicate: no "type", provider a
+    non-empty string, row date = the counter's day). Caller holds
+    _USAGE_LOCK (the _append_usage_locked writer path)."""
+    try:
+        if not isinstance(entry, dict) or entry.get("type"):
+            return
+        p = entry.get("provider")
+        if not isinstance(p, str) or not p:
+            return
+        d = str(entry.get("ts", ""))[:10]
+        if _PROVIDER_COUNTS["date"] != d:
+            _PROVIDER_COUNTS["date"] = d
+            _PROVIDER_COUNTS["providers"] = {}
+        _PROVIDER_COUNTS["providers"][p] = \
+            _PROVIDER_COUNTS["providers"].get(p, 0) + 1
+    except Exception:
+        pass
+
+
+def _provider_counts_resync(lines):
+    """Rebuild the counter from usage-log lines — the trim and
+    purge rewrites are the only places the log loses rows, so the
+    counter is rebuilt from exactly the lines that survive them.
+    Caller holds _USAGE_LOCK."""
+    today = datetime.date.today().isoformat()
+    counts = {}
+    for ln in lines:
+        try:
+            e = json.loads(ln)
+        except Exception:
+            continue
+        if not isinstance(e, dict) or e.get("type"):
+            continue
+        if str(e.get("ts", ""))[:10] != today:
+            continue
+        p = e.get("provider")
+        if isinstance(p, str) and p:
+            counts[p] = counts.get(p, 0) + 1
+    _PROVIDER_COUNTS["date"] = today
+    _PROVIDER_COUNTS["providers"] = counts
+
+
+# Boot seed (CAPS14-4): the one scan happens here, at import, so the
+# locked read paths above never scan under _INFLIGHT_LOCK.
+try:
+    _provider_counts_today()
+except Exception:
+    pass
 
 
 def _today_total_requests(fresh=False):
@@ -1542,6 +1689,34 @@ def _inflight_n(user=None, provider=None, exclude=None):
             continue
         n += 1
     return n
+
+
+def _inflight_rank(res, user=None):
+    """Wave 15 (run-14 caps CAPS14-6): the caller's RANK among the
+    live base reservations of one cap scope (1-based, reservation
+    order; attempt entries skipped, matching _inflight_n's rules
+    for base scopes), keyed by user for the per-user cap or
+    unfiltered for the instance-global cap. Judged as
+    completed + rank > cap, exactly one of a concurrent pair at
+    the last slot is admitted — the wave-14 rank form the provider
+    limits already had, which the per-user/global predicates
+    missed (their exclude-self + count-peers form refused BOTH).
+    A caller whose reservation already expired is ranked as the
+    scope's newest entry."""
+    now = time.time()
+    with _INFLIGHT_LOCK:
+        for e in [x for x in _INFLIGHT if now - x["ts"] > 900]:
+            _inflight_drop_locked(e)
+        rank = 0
+        for e in _INFLIGHT:
+            if e.get("att"):
+                continue
+            if user is not None and e["user"] != user:
+                continue
+            rank += 1
+            if e is res:
+                return rank
+        return rank + 1
 
 
 def _instance_cap_reached():
@@ -3168,6 +3343,7 @@ def _append_usage_locked(entry):
     try:
         with open(USAGE_PATH, "a") as f:
             f.write(json.dumps(entry) + "\n")
+        _provider_counts_note(entry)  # CAPS14-4: single writer path
         _TELEMETRY["dirty"] = True
         if os.path.getsize(USAGE_PATH) > _USAGE_MAX_BYTES:
             with open(USAGE_PATH) as f:
@@ -3177,6 +3353,7 @@ def _append_usage_locked(entry):
             lines = [ln for ln in lines[-_USAGE_KEEP_LINES:]
                      if _fresh_line(ln, _cut)]
             _rewrite_lines(USAGE_PATH, lines)
+            _provider_counts_resync(lines)
     except Exception:
         pass
 
@@ -3219,6 +3396,7 @@ def _purge_label_history_locked(label):
                     continue
                 keep.append(line)
             _rewrite_lines(USAGE_PATH, keep)
+            _provider_counts_resync(keep)
     except Exception:
         pass
     try:
@@ -3915,8 +4093,7 @@ def _v1_chat(messages, model, temperature=None):
         if _lim:
             _vres = _inflight_reserve_capped(
                 "v1", lane,
-                lambda: _today_counts(fresh=True)["providers"].get(
-                    lane, 0),
+                lambda: _provider_counts_today().get(lane, 0),
                 _lim)
             if _vres is None:
                 continue
@@ -4475,8 +4652,8 @@ class Handler(BaseHTTPRequestHandler):
         if _instance_cap_reached() or (
                 int(_SETTINGS.get("global_cap") or 0)
                 and _today_total_requests(fresh=True)
-                + _inflight_n(exclude=self._cap_res)
-                >= int(_SETTINGS.get("global_cap") or 0)):
+                + _inflight_rank(self._cap_res)
+                > int(_SETTINGS.get("global_cap") or 0)):
             if time.time() - _V1_CAP_AUDIT[0] >= 600:
                 _V1_CAP_AUDIT[0] = time.time()
                 _audit("System", "/v1 stopped: instance daily cap hit "
@@ -4705,7 +4882,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         _gcap_t = int(_SETTINGS.get("global_cap") or 0)
         if _gcap_t and _today_total_requests(fresh=True) \
-                + _inflight_n(exclude=self._cap_res) >= _gcap_t:
+                + _inflight_rank(self._cap_res) > _gcap_t:
             self._set_json_headers(200)
             self.wfile.write(json.dumps({"ok": False, "error": "instance daily limit reached"}).encode())
             return
@@ -6847,14 +7024,14 @@ class Handler(BaseHTTPRequestHandler):
             if not _tinfo.get("admin") and _label_t:
                 _cap = (_SETTINGS.get("user_caps") or {}).get(
                     _label_t, _SETTINGS.get("daily_cap", 200))
-                if _cap and _today_counts(fresh=True)["users"].get(_label_t, 0) + _inflight_n(user=_label_t, exclude=self._cap_res) >= int(_cap):
+                if _cap and _today_counts(fresh=True)["users"].get(_label_t, 0) + _inflight_rank(self._cap_res, user=_label_t) > int(_cap):
                     _audit("Users", f"Daily cap hit: {_label_t} ({_cap}/day)")
                     _alert("cap_hit", "cap", {"label": _label_t, "cap": int(_cap)})
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
                     return
                 _gcap = int(_SETTINGS.get("global_cap") or 0)
-                if _gcap and _today_total_requests(fresh=True) + _inflight_n(exclude=self._cap_res) >= _gcap:
+                if _gcap and _today_total_requests(fresh=True) + _inflight_rank(self._cap_res) > _gcap:
                     _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
                     _alert("cap_hit", "cap", {"label": _label_t, "cap": _gcap, "scope": "instance"})
                     self._set_json_headers(429)
@@ -6971,14 +7148,14 @@ class Handler(BaseHTTPRequestHandler):
             if not _sinfo.get("admin") and _chat_label:
                 _cap = (_SETTINGS.get("user_caps") or {}).get(
                     _chat_label, _SETTINGS.get("daily_cap", 200))
-                if _cap and _today_counts(fresh=True)["users"].get(_chat_label, 0) + _inflight_n(user=_chat_label, exclude=self._cap_res) >= int(_cap):
+                if _cap and _today_counts(fresh=True)["users"].get(_chat_label, 0) + _inflight_rank(self._cap_res, user=_chat_label) > int(_cap):
                     _audit("Users", f"Daily cap hit: {_chat_label} ({_cap}/day)")
                     _alert("cap_hit", "cap", {"label": _chat_label, "cap": int(_cap)})
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
                     return
                 _gcap = int(_SETTINGS.get("global_cap") or 0)
-                if _gcap and _today_total_requests(fresh=True) + _inflight_n(exclude=self._cap_res) >= _gcap:
+                if _gcap and _today_total_requests(fresh=True) + _inflight_rank(self._cap_res) > _gcap:
                     _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
                     _alert("cap_hit", "cap", {"label": _chat_label, "cap": _gcap, "scope": "instance"})
                     self._set_json_headers(429)
@@ -7297,10 +7474,17 @@ class Handler(BaseHTTPRequestHandler):
                         _sub_p = provider if provider in (
                             "pollinations", "relay_pollinations") \
                             else "pollinations"
-                        if _may_substitute:
-                            # Wave 12 (C2): tag BEFORE the check.
-                            self._cap_res["provider"] = _sub_p
+                        # Wave 15 (run-14 caps CAPS14-2): check
+                        # BEFORE re-tagging. Wave 12 tagged first,
+                        # so the caller joined the substitute's
+                        # rank queue with its earlier birth order
+                        # and leapfrogged a later-born reservation
+                        # that provider had already admitted.
+                        # Checked while not tagged _sub_p, the
+                        # caller takes the full-count form; only a
+                        # passing check earns the tag.
                         if _may_substitute and not _pblocked and not _provider_blocked(_sub_p, exclude=self._cap_res):
+                            self._cap_res["provider"] = _sub_p
                             _img = _pollinations(model if provider in ("pollinations", "relay_pollinations") else "flux")
                             if _img and provider not in ("pollinations", "relay_pollinations"):
                                 _used_p, _used_m = "pollinations", "flux"
@@ -7382,7 +7566,16 @@ class Handler(BaseHTTPRequestHandler):
                 # Which key pays is unchanged.
                 self._cap_res["provider"] = _prov  # wave 12 (C2): tag BEFORE the governance check (born-tagged, the transcribe pattern)
                 if _provider_blocked(_prov, exclude=self._cap_res) or _provider_blocked(
-                        _prov if (_ekeys or {}).get(_prov) else "groq", exclude=self._cap_res):
+                        _prov if (_ekeys or {}).get(_prov) else "groq",
+                        exclude=self._cap_res,
+                        # Wave 15 (run-14 caps CAPS14-5): when the
+                        # groq key funds a relay_groq pick, groq's
+                        # limit is judged on the SUM over both
+                        # names — the spends are tagged and
+                        # metered relay_groq, so the groq-named
+                        # terms alone read zero forever.
+                        also=None if (_ekeys or {}).get(_prov)
+                        or _prov == "groq" else _prov):
                     # Wave 11 (F3): govern the lane that PAYS — when
                     # _prov holds no key of its own, _gk above fell
                     # back to the groq key, so the groq lane's own
@@ -8201,8 +8394,7 @@ class Handler(BaseHTTPRequestHandler):
                     return _inflight_add(_chat_label, p, attempt=True)
                 return _inflight_reserve_capped(
                     _chat_label, p,
-                    lambda: _today_counts(
-                        fresh=True)["providers"].get(p, 0), _l)
+                    lambda: _provider_counts_today().get(p, 0), _l)
 
             _kept = [(p, m) for (p, m) in _attempts if _lane_ok(p)]
             if not _kept:
@@ -8629,6 +8821,22 @@ class Handler(BaseHTTPRequestHandler):
                 if label in access:
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "that username is taken"}).encode())
+                    return
+                # Wave 15 (run-14 settings): EVERY creation path
+                # starts from the same clean slate. The label
+                # provably has no account here, so any per-user
+                # settings it carries are stranded — clear them
+                # BEFORE the invite claim is persisted and before
+                # _save_access; on a non-ok outcome the signup
+                # aborts with the invite UNCONSUMED and no account
+                # created. The terms_seen append and role set
+                # below then apply the signup's own state fresh.
+                _clr15 = _clear_stranded_label(label)
+                if _clr15 != "ok":
+                    self._set_json_headers(
+                        409 if _clr15 == "conflict" else 500)
+                    self.wfile.write(json.dumps(
+                        {"error": "signup could not be saved — try again"}).encode())
                     return
                 role = _SETTINGS.get("signup_role", "friend")
                 invite = None
@@ -10352,60 +10560,29 @@ class Handler(BaseHTTPRequestHandler):
                             self._set_json_headers(400)
                             self.wfile.write(json.dumps({"error": "that password is already in use by another friend — pick a different one"}).encode())
                             return
+                    # Wave 15 (run-14 settings): the shared
+                    # clean-slate clear runs BEFORE the account
+                    # exists — inside _ACCESS_LOCK, right after
+                    # the in-lock duplicate re-check above (so the
+                    # label provably has no account and every
+                    # entry for it is stranded). Wave 14 ran it
+                    # after _save_access with no rollback: a
+                    # faulted clear left a LIVE account whose
+                    # persisted settings resurrected it as
+                    # suspended/moderator at restart. On a non-ok
+                    # outcome the add aborts and NO account is
+                    # created; the explicit role/cap application
+                    # below then lands fresh, as before.
+                    _clr15 = _clear_stranded_label(label)
+                    if _clr15 != "ok":
+                        self._set_json_headers(
+                            409 if _clr15 == "conflict" else 500)
+                        self.wfile.write(json.dumps(
+                            {"error": "friend not added — leftover settings for this name could not be cleared; try again"}).encode())
+                        return
                     _fresh[label] = _new_hash
                     _save_access(_fresh, None if _mod_add else master_pw)
                     access = _fresh
-                # Wave 14 (run-12 revoke-cleanup residual): the new
-                # account starts from a CLEAN per-user slate. Revoke's
-                # settings cleanup lives only in memory until a save
-                # persists it; a restart in that window resurrects
-                # the stranded entries, and a same-label re-created
-                # friend used to INHERIT them. Clearing the label's
-                # entries here — the same set revoke's cleanup clears
-                # (roles, user_caps, vault_meta, suspended,
-                # terms_seen, oauth_links) — closes inheritance for
-                # every stranding path; the role/cap this add itself
-                # explicitly passes are applied fresh below.
-                with _SETTINGS_LOCK:
-                    _cl14 = False
-                    for _k14 in ("roles", "user_caps", "vault_meta"):
-                        _d14 = dict(_SETTINGS.get(_k14) or {})
-                        if label in _d14:
-                            _d14.pop(label, None)
-                            _SETTINGS[_k14] = _d14
-                            _cl14 = True
-                    for _k14 in ("suspended", "terms_seen"):
-                        _l14 = [x for x in
-                                (_SETTINGS.get(_k14) or [])
-                                if x != label]
-                        if _l14 != (_SETTINGS.get(_k14) or []):
-                            _SETTINGS[_k14] = _l14
-                            _cl14 = True
-                    _ol14 = [e for e in
-                             (_SETTINGS.get("oauth_links") or [])
-                             if not (isinstance(e, dict)
-                                     and e.get("label") == label)]
-                    if _ol14 != (_SETTINGS.get("oauth_links") or []):
-                        _SETTINGS["oauth_links"] = _ol14
-                        _cl14 = True
-                if _cl14:
-                    _coc14 = _settings_outcome(
-                        _save_settings(),
-                        lambda s: label not in (s.get("roles") or {})
-                        and label not in (s.get("user_caps") or {})
-                        and label not in (s.get("vault_meta") or {})
-                        and label not in (s.get("suspended") or [])
-                        and label not in (s.get("terms_seen") or [])
-                        and not any(
-                            isinstance(e, dict)
-                            and e.get("label") == label
-                            for e in (s.get("oauth_links") or [])))
-                    if _coc14 != "ok":
-                        self._set_json_headers(
-                            409 if _coc14 == "conflict" else 500)
-                        self.wfile.write(json.dumps(
-                            {"error": "friend added, but leftover settings from a previous account with this name could not be cleared — clear them from the console"}).encode())
-                        return
                 # Optional role + cap straight from the add-user dialog.
                 _nrole = (data.get("role") or "friend").strip()
                 if _nrole in ("moderator", "viewer") \

@@ -326,6 +326,11 @@ class ValidatorUnitTests(unittest.TestCase):
         # so the limits here are positive.)
         srv._today_counts = lambda fresh=False: {
             "providers": {lane: 5 for lane, _m in srv._V1_LANES}}
+        # Wave 15 (CAPS14-4): the /v1 reserve's completed term reads
+        # the in-memory provider counter — stub it as the oracle too.
+        real_pcounts = srv._provider_counts_today
+        srv._provider_counts_today = lambda: {
+            lane: 5 for lane, _m in srv._V1_LANES}
         try:
             srv._SETTINGS["provider_limits"] = {
                 lane: 3 for lane, _m in srv._V1_LANES}
@@ -345,6 +350,7 @@ class ValidatorUnitTests(unittest.TestCase):
             srv._v1_relay_call, srv._append_usage = real_relay, real_append
             srv._SETTINGS["provider_limits"] = real_limits
             srv._today_counts = real_counts
+            srv._provider_counts_today = real_pcounts
 
     # -- run-6: credential strip list covers Cookie + account id -----
     def test_strip_cred_headers_covers_cookie_and_account(self):
@@ -3608,7 +3614,8 @@ class Wave12UnitTests(unittest.TestCase):
         orig_settings = dict(server._SETTINGS)
         saved = (server._v1_route, server._v1_relay_call,
                  server._today_counts, server._append_usage,
-                 server._provider_down, server.Handler.keys)
+                 server._provider_down, server.Handler.keys,
+                 server._provider_counts_today)
         hits = []
         try:
             server._INFLIGHT.clear()
@@ -3618,6 +3625,9 @@ class Wave12UnitTests(unittest.TestCase):
             server._provider_down = lambda lane: False
             server._today_counts = lambda fresh=False: {
                 "providers": {}, "users": {}, "total": 0}
+            # Wave 15 (CAPS14-4): the reserve's completed term reads
+            # the in-memory counter — keep it at zero for the burst.
+            server._provider_counts_today = lambda: {}
 
             def fake_call(lane, path, payload):
                 hits.append(lane)
@@ -3648,7 +3658,8 @@ class Wave12UnitTests(unittest.TestCase):
         finally:
             (server._v1_route, server._v1_relay_call,
              server._today_counts, server._append_usage,
-             server._provider_down, server.Handler.keys) = saved
+             server._provider_down, server.Handler.keys,
+             server._provider_counts_today) = saved
             server._SETTINGS.clear()
             server._SETTINGS.update(orig_settings)
             server._INFLIGHT.clear()
@@ -5069,13 +5080,15 @@ class Wave14UnitTests(unittest.TestCase):
     # -- Fix 1: a born-tagged pair at limit 1 admits exactly one ---
     def test_w14_media_pair_admits_exactly_one(self):
         orig_settings = dict(server._SETTINGS)
-        saved_counts = server._today_counts
+        # Wave 15 (CAPS14-4): _provider_blocked's completed term now
+        # comes from the in-memory provider counter, so the oracle
+        # stubbed here is _provider_counts_today, not _today_counts.
+        saved_counts = server._provider_counts_today
         saved_inflight = list(server._INFLIGHT)
         try:
             server._SETTINGS["provider_limits"] = {"prov14": 1}
             server._SETTINGS["provider_disabled"] = []
-            server._today_counts = lambda fresh=False: {
-                "providers": {}, "users": {}, "total": 0}
+            server._provider_counts_today = lambda: {}
             server._INFLIGHT.clear()
             r1 = server._inflight_add("u14", "prov14")
             r2 = server._inflight_add("u14", "prov14")
@@ -5090,17 +5103,15 @@ class Wave14UnitTests(unittest.TestCase):
             r = server._inflight_add("u14", "prov14")
             self.assertFalse(
                 server._provider_blocked("prov14", exclude=r))
-            server._today_counts = lambda fresh=False: {
-                "providers": {"prov14": 1}, "users": {}, "total": 0}
+            server._provider_counts_today = lambda: {"prov14": 1}
             self.assertTrue(
                 server._provider_blocked("prov14", exclude=r))
             # The untagged pre-check form is unchanged: one
             # in-flight spend at limit 1 blocks a fresh caller.
-            server._today_counts = lambda fresh=False: {
-                "providers": {}, "users": {}, "total": 0}
+            server._provider_counts_today = lambda: {}
             self.assertTrue(server._provider_blocked("prov14"))
         finally:
-            server._today_counts = saved_counts
+            server._provider_counts_today = saved_counts
             server._INFLIGHT.clear()
             server._INFLIGHT.extend(saved_inflight)
             server._SETTINGS.clear()
@@ -5135,10 +5146,14 @@ class Wave14UnitTests(unittest.TestCase):
                 "u14", "prov14", 0, 1))
             server._INFLIGHT.clear()
             # Both callsites pass the callable form now.
+            # Wave 15 (CAPS14-4): the callable reads the in-memory
+            # provider counter — a full usage scan never runs
+            # inside the reserve lock again.
             src = (REPO / "app" / "server.py").read_text()
             self.assertNotIn("_completed = _today_counts(", src)
+            self.assertNotIn("lambda: _today_counts(", src)
             self.assertEqual(
-                src.count("lambda: _today_counts("), 2)
+                src.count("lambda: _provider_counts_today()"), 2)
         finally:
             server._INFLIGHT.clear()
             server._INFLIGHT.extend(saved_inflight)
@@ -5525,6 +5540,667 @@ class Wave14FaultHarness(_FixtureServerBase):
         settings = body.get("settings") or {}
         self.assertNotIn("inh14", settings.get("roles") or {})
         self.assertNotIn("inh14", settings.get("user_caps") or {})
+
+
+
+class Wave15UnitTests(unittest.TestCase):
+    """Wave 15 (run-14 fixes): untagged-trickler rank visibility,
+    substitution check-before-retag, _provider_blocked's single
+    in-lock snapshot, the in-memory provider counter, the TTS
+    funding-lane sum, and rank-form user/global caps."""
+
+    def _env(self):
+        orig = dict(server._SETTINGS)
+        saved_inflight = list(server._INFLIGHT)
+        saved_counts = server._provider_counts_today
+        server._INFLIGHT.clear()
+        return orig, saved_inflight, saved_counts
+
+    def _restore(self, orig, saved_inflight, saved_counts):
+        server._provider_counts_today = saved_counts
+        server._INFLIGHT.clear()
+        server._INFLIGHT.extend(saved_inflight)
+        server._SETTINGS.clear()
+        server._SETTINGS.update(orig)
+
+    # -- CAPS14-1: an untagged trickler occupies a rank slot ------
+    def test_w15_trickler_untagged_counts_as_rank(self):
+        orig, saved_i, saved_c = self._env()
+        try:
+            server._SETTINGS["provider_limits"] = {"prov15": 1}
+            server._SETTINGS["provider_disabled"] = []
+            server._provider_counts_today = lambda: {}
+            # Handler order: the trickler's base reservation is
+            # born UNTAGGED; the peer tags and checks first.
+            trick = server._inflight_add("u15")
+            peer = server._inflight_add("u15", "prov15")
+            # Pre-fix the untagged trickler was invisible to the
+            # peer's rank check (peer admitted) and then ranked
+            # 1st itself after tagging: 2 admitted at limit 1.
+            self.assertTrue(
+                server._provider_blocked("prov15", exclude=peer))
+            # The trickler tags (its body finally arrived) and is
+            # admitted: exactly one spend total.
+            trick["provider"] = "prov15"
+            self.assertFalse(
+                server._provider_blocked("prov15", exclude=trick))
+        finally:
+            self._restore(orig, saved_i, saved_c)
+
+    # -- CAPS14-2: substitution is checked BEFORE the re-tag ------
+    def test_w15_substitution_check_before_retag(self):
+        orig, saved_i, saved_c = self._env()
+        try:
+            server._SETTINGS["provider_limits"] = {"pollinations": 1}
+            server._SETTINGS["provider_disabled"] = []
+            server._provider_counts_today = lambda: {}
+            q1 = server._inflight_add("u15", "google")
+            q2 = server._inflight_add("u15", "pollinations")
+            # q2 (born under the substitute) is admitted...
+            self.assertFalse(
+                server._provider_blocked("pollinations", exclude=q2))
+            # ...and q1, checked while still tagged with its birth
+            # provider (the post-fix handler order), takes the
+            # full-count form and is refused. Pre-fix the handler
+            # re-tagged q1 FIRST, so it ranked 1st in the
+            # substitute's queue and was admitted too.
+            self.assertTrue(
+                server._provider_blocked("pollinations", exclude=q1))
+            # Source: in the substitution block the check now runs
+            # before the re-tag assignment.
+            src = (REPO / "app" / "server.py").read_text()
+            seg = src[src.index("_sub_p = provider if provider in ("):]
+            seg = seg[:seg.index("_pollinations(model")]
+            self.assertLess(
+                seg.index("_provider_blocked(_sub_p, exclude=self._cap_res)"),
+                seg.index('self._cap_res["provider"] = _sub_p'))
+        finally:
+            self._restore(orig, saved_i, saved_c)
+
+    # -- CAPS14-3: completed is read INSIDE the rank lock ---------
+    def test_w15_provider_blocked_completed_inside_lock(self):
+        orig, saved_i, saved_c = self._env()
+        try:
+            server._SETTINGS["provider_limits"] = {"groq": 1}
+            server._SETTINGS["provider_disabled"] = []
+            seen = {}
+
+            def spy():
+                seen["locked"] = server._INFLIGHT_LOCK.locked()
+                return {}
+            server._provider_counts_today = spy
+            res = server._inflight_add("u15", "groq")
+            # Pre-fix the completed term was a full scan read
+            # BEFORE the lock hold (locked() False at read time).
+            self.assertFalse(
+                server._provider_blocked("groq", exclude=res))
+            self.assertTrue(seen.get("locked"))
+        finally:
+            self._restore(orig, saved_i, saved_c)
+
+    # -- CAPS14-4: the counter IS the scan, with no scan on read --
+    def test_w15_counter_matches_scan(self):
+        import datetime as _dt
+        saved_path = server.USAGE_PATH
+        saved_cache_ts = server._TODAY_CACHE["ts"]
+        tmp = Path(tempfile.mkdtemp(prefix="nexus-test-w15-counter-"))
+        try:
+            server.USAGE_PATH = tmp / "usage.jsonl"
+            server._PROVIDER_COUNTS["date"] = None
+            server._PROVIDER_COUNTS["providers"] = {}
+            today = _dt.datetime.now().isoformat()
+            server._append_usage({"ts": today, "provider": "provA",
+                                  "user": "u15"})
+            server._append_usage({"ts": today, "provider": "provA",
+                                  "user": "u15"})
+            server._append_usage({"ts": today, "provider": "provB",
+                                  "user": "u15"})
+            server._append_usage({"ts": "2020-01-01T00:00:00",
+                                  "provider": "provOld", "user": "u15"})
+            server._append_usage({"ts": today, "type": "audit",
+                                  "provider": "provTyped"})
+            want = server._today_counts(fresh=True)["providers"]
+            self.assertEqual(want, {"provA": 2, "provB": 1})
+            self.assertEqual(server._provider_counts_today(), want)
+            # The read path needs no file at all: with the log
+            # "gone", the counter still answers (a scan would
+            # return {}). Pre-fix the callsites' callable scanned
+            # the file on every reserve, inside _INFLIGHT_LOCK.
+            server.USAGE_PATH = tmp / "missing.jsonl"
+            self.assertEqual(server._provider_counts_today(), want)
+            # The reserve primitive over the counter callable
+            # refuses a second spend at limit 2 with 2 completed.
+            res = server._inflight_reserve_capped(
+                "u15", "provA",
+                lambda: server._provider_counts_today().get(
+                    "provA", 0), 2)
+            self.assertIsNone(res)
+            # Source: neither callsite scans any more.
+            src = (REPO / "app" / "server.py").read_text()
+            self.assertNotIn("lambda: _today_counts(", src)
+            self.assertEqual(
+                src.count("lambda: _provider_counts_today()"), 2)
+        finally:
+            server.USAGE_PATH = saved_path
+            server._TODAY_CACHE["ts"] = saved_cache_ts
+            server._PROVIDER_COUNTS["date"] = None
+            server._PROVIDER_COUNTS["providers"] = {}
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- CAPS14-5: the TTS funding lane is judged on the sum ------
+    def test_w15_tts_funding_lane_sum(self):
+        orig, saved_i, saved_c = self._env()
+        try:
+            server._SETTINGS["provider_limits"] = {"groq": 1}
+            server._SETTINGS["provider_disabled"] = []
+            # Five prior TTS spends, metered as the handler meters
+            # them: under the PICKED lane's name.
+            server._provider_counts_today = lambda: {"relay_groq": 5}
+            res = server._inflight_add("u15", "relay_groq")
+            # The wave-14 groq-named check reads zero forever...
+            self.assertFalse(
+                server._provider_blocked("groq", exclude=res))
+            # ...the sum form (what the TTS branch now passes via
+            # also=) binds the lane that actually pays.
+            self.assertTrue(server._provider_blocked(
+                "groq", exclude=res, also="relay_groq"))
+            # The disabled term still binds through the sum form.
+            server._SETTINGS["provider_disabled"] = ["groq"]
+            self.assertTrue(server._provider_blocked(
+                "groq", exclude=res, also="relay_groq"))
+            # Source: the TTS dual check passes the funding sum.
+            src = (REPO / "app" / "server.py").read_text()
+            self.assertIn('or _prov == "groq" else _prov):', src)
+        finally:
+            self._restore(orig, saved_i, saved_c)
+
+    # -- CAPS14-6: rank form for the per-user / global scopes -----
+    def test_w15_user_global_rank_pair(self):
+        orig, saved_i, saved_c = self._env()
+        try:
+            a = server._inflight_add("u15")
+            b = server._inflight_add("u15")
+            other = server._inflight_add("someoneelse")
+            # Per-user scope at cap 1, completed 0: a is admitted
+            # (0 + rank 1 > 1 is False), b is refused. The old
+            # exclude-self + count-peers form refused BOTH.
+            self.assertEqual(server._inflight_rank(a, user="u15"), 1)
+            self.assertEqual(server._inflight_rank(b, user="u15"), 2)
+            self.assertFalse(0 + server._inflight_rank(a, user="u15") > 1)
+            self.assertTrue(0 + server._inflight_rank(b, user="u15") > 1)
+            # Global scope ranks across users, in birth order.
+            self.assertEqual(server._inflight_rank(a), 1)
+            self.assertEqual(server._inflight_rank(other), 3)
+            # Attempt entries belong to a base request and never
+            # take a base-scope rank slot.
+            server._inflight_add("u15", "prov15", attempt=True)
+            self.assertEqual(server._inflight_rank(b, user="u15"), 2)
+            # Source: all six predicates use the rank form now.
+            src = (REPO / "app" / "server.py").read_text()
+            self.assertGreaterEqual(
+                src.count("_inflight_rank(self._cap_res"), 6)
+            self.assertNotIn(
+                "_inflight_n(user=_chat_label, exclude=self._cap_res)"
+                " >= int(_cap)", src)
+            self.assertNotIn(
+                "_inflight_n(user=_label_t, exclude=self._cap_res)"
+                " >= int(_cap)", src)
+        finally:
+            self._restore(orig, saved_i, saved_c)
+
+
+class Wave15FaultHarness(_FixtureServerBase):
+    """Run-14 settings fixes over the wave-14 fault shape: BOTH
+    creation paths (invite redeem / open signup, and console add)
+    start from the shared clean slate, and a faulted clear on the
+    add path creates NO account."""
+
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+        sp = cls.tmp / "server.py"
+        txt = sp.read_text()
+        anchor = "def _save_settings():\n"
+        assert txt.count(anchor) == 1
+        sp.write_text(txt.replace(
+            anchor,
+            anchor + "    if (Path(__file__).parent / "
+                     "\"SAVE_FAULT\").exists():\n"
+                     "        return False\n", 1))
+        _respawn_fixture(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def _fault(self, on):
+        flag = self.tmp / "SAVE_FAULT"
+        if on:
+            flag.write_text("x")
+        else:
+            flag.unlink(missing_ok=True)
+
+    def _settings_read(self, admin):
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"global_cap": 0}}, admin)
+        self.assertEqual(status, 200, body)
+        return body.get("settings") or {}
+
+    def _strand(self, admin, label, role=None, cap=None, suspend=False):
+        """Create + revoke `label` under a settings-save fault so
+        its per-user entries strand in the persisted settings,
+        then restart so they are the live state too."""
+        payload = {"action": "add", "label": label,
+                   "password": f"{label}-pw-1", "master_pw": MASTER}
+        if role:
+            payload["role"] = role
+        if cap is not None:
+            payload["cap"] = cap
+        status, body, _ = self._access(payload, admin)
+        self.assertEqual(status, 200, body)
+        if suspend:
+            status, body, _ = self._access(
+                {"action": "friend_set_suspended", "label": label,
+                 "on": True, "master_pw": MASTER}, admin)
+            self.assertEqual(status, 200, body)
+        self._fault(True)
+        try:
+            status, body, _ = self._access(
+                {"action": "revoke", "label": label,
+                 "master_pw": MASTER}, admin)
+            self.assertEqual(status, 500, body)
+        finally:
+            self._fault(False)
+        _respawn_fixture(self.__class__)
+        _, _, admin2 = self._login(MASTER)
+        self.assertTrue(admin2)
+        return admin2
+
+    # -- Item 7: redeem / signup clears the stranded slate --------
+    def test_w15_redeem_starts_clean(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        admin = self._strand(admin, "ghost15", role="moderator",
+                             cap=777)
+        settings = self._settings_read(admin)
+        self.assertEqual(
+            (settings.get("roles") or {}).get("ghost15"),
+            "moderator")
+        self.assertEqual(
+            (settings.get("user_caps") or {}).get("ghost15"), 777)
+        # A FRIEND-role invite redeemed under the stranded label:
+        # pre-fix the new account logged in as moderator with the
+        # stranded cap; the clear must run before the claim.
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "friend",
+             "days": 1, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        code = body["code"]
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "ghost15", "password": "ghost15-new-pw",
+             "code": code})
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._login("ghost15-new-pw")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body.get("role"), "friend", body)
+        settings = self._settings_read(admin)
+        self.assertNotIn("ghost15", settings.get("roles") or {})
+        self.assertNotIn("ghost15", settings.get("user_caps") or {})
+        # Suspension leg: a stranded suspension must not brick the
+        # new account (pre-fix: redeem 200, login 403 suspended).
+        admin = self._strand(admin, "brick15", suspend=True)
+        settings = self._settings_read(admin)
+        self.assertIn("brick15", settings.get("suspended") or [])
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "friend",
+             "days": 1, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "brick15", "password": "brick15-new-pw",
+             "code": body["code"]})
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._login("brick15-new-pw")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body.get("role"), "friend", body)
+        # Control: a legitimate MODERATOR invite still grants the
+        # role — the invite's own role set runs AFTER the clear.
+        status, body, _ = self._access(
+            {"action": "invite_create", "role": "moderator",
+             "days": 1, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"label": "mod15", "password": "mod15-new-pw",
+             "code": body["code"]})
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._login("mod15-new-pw")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body.get("role"), "moderator", body)
+
+    # -- Item 8: a faulted add-side clear creates NO account ------
+    def test_w15_add_fault_creates_no_account(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        admin = self._strand(admin, "wraith15", role="moderator",
+                             cap=9)
+        settings = self._settings_read(admin)
+        self.assertEqual(
+            (settings.get("roles") or {}).get("wraith15"),
+            "moderator")
+        # Fault the clear's save: wave 14 answered "friend added,
+        # but..." and left a LIVE account whose persisted settings
+        # resurrected it as moderator at restart. The honest end
+        # state now is NO account.
+        self._fault(True)
+        try:
+            status, body, _ = self._access(
+                {"action": "add", "label": "wraith15",
+                 "password": "wraith15-new-pw",
+                 "master_pw": MASTER}, admin)
+            self.assertEqual(status, 500, body)
+            self.assertIn("friend not added",
+                          body.get("error", ""), body)
+        finally:
+            self._fault(False)
+        status, _, _ = self._login("wraith15-new-pw")
+        self.assertEqual(status, 401)
+        # Still no account after a restart, and a retry succeeds
+        # clean once storage recovers.
+        _respawn_fixture(self.__class__)
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, _, _ = self._login("wraith15-new-pw")
+        self.assertEqual(status, 401)
+        status, body, _ = self._access(
+            {"action": "add", "label": "wraith15",
+             "password": "wraith15-new-pw", "master_pw": MASTER},
+            admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._login("wraith15-new-pw")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body.get("role"), "friend", body)
+        settings = self._settings_read(admin)
+        self.assertNotIn("wraith15", settings.get("roles") or {})
+        self.assertNotIn("wraith15", settings.get("user_caps") or {})
+
+
+class Wave15LauncherTests(unittest.TestCase):
+    """Wave 15 launcher fixes: dotenv \\n/\\r expansion (L14-1),
+    no passwordAlt for quoted lines (L14-2 leg a), and the gate
+    cluster (surviving run-13 gate item + L14-3 + L14-4) tested
+    against REAL tree shapes — a lazy-loading better-sqlite3 tree
+    that require()s fine with no .node file, and a garbage-.node
+    tree — not just require-throwing stubs."""
+
+    def _h(self):
+        return Wave12LauncherTests()
+
+    def _parse(self, env_text):
+        return Wave14LauncherTests()._parse(env_text)
+
+    @staticmethod
+    def _codes(s):
+        return [ord(c) for c in s]
+
+    # -- L14-1: double-quoted \\n / \\r expand exactly like dotenv -
+    def test_w15_parse_dq_escape_expansion(self):
+        out = self._parse('ENGINE_ADMIN_PASSWORD="a\\nb"\n')
+        self.assertEqual(out["pw"], self._codes("a\nb"))
+        out = self._parse('ENGINE_ADMIN_PASSWORD="a\\rb"\n')
+        self.assertEqual(out["pw"], self._codes("a\rb"))
+        out = self._parse('ENGINE_ADMIN_PASSWORD="x\\ny\\rz"\n')
+        self.assertEqual(out["pw"], self._codes("x\ny\rz"))
+        # The \\\\n edge: dotenv's regex matches the SECOND
+        # backslash — a + backslash + LF + b.
+        out = self._parse('ENGINE_ADMIN_PASSWORD="a\\\\nb"\n')
+        self.assertEqual(out["pw"], self._codes("a\\\nb"))
+        # \\t, \\\\ and \\" stay literal in double quotes...
+        out = self._parse('ENGINE_ADMIN_PASSWORD="a\\tb"\n')
+        self.assertEqual(out["pw"], self._codes('a\\tb'))
+        # ...and single-quoted values are never expanded.
+        out = self._parse("ENGINE_ADMIN_PASSWORD='a\\nb'\n")
+        self.assertEqual(out["pw"], self._codes('a\\nb'))
+
+    # -- L14-2 (a): quoted lines get NO passwordAlt ----------------
+    def test_w15_parse_quoted_line_no_alt(self):
+        # Pre-fix the alt was the raw tail '"p@ss" # comment' — a
+        # candidate that can never succeed, submitted verbatim on
+        # every verify cycle.
+        out = self._parse('ENGINE_ADMIN_PASSWORD="p@ss" # comment\n')
+        self.assertEqual(out["pw"], self._codes("p@ss"))
+        self.assertIsNone(out["alt"])
+        out = self._parse('ENGINE_ADMIN_PASSWORD="p@ss #1"\n')
+        self.assertEqual(out["pw"], self._codes("p@ss #1"))
+        self.assertIsNone(out["alt"])
+        # Unquoted shapes keep their genuine alternates.
+        out = self._parse("ENGINE_ADMIN_PASSWORD=p@ss#w0rd!\n")
+        self.assertEqual(out["alt"], self._codes("p@ss"))
+        out = self._parse("ENGINE_ADMIN_PASSWORD=abc123 # comment\n")
+        self.assertEqual(out["alt"],
+                         self._codes("abc123 # comment"))
+
+    # -- L14-1 E2E: verify keeps dotenv-escaped credentials -------
+    def test_w15_verify_dq_escaped_newline_kept(self):
+        h = self._h()
+        h.ENGINE_PW = "a\nb"  # the engine holds a real newline
+        tmp = h._fixture(
+            f"ENGINE_ADMIN_EMAIL={h.ENGINE_EMAIL}\n"
+            'ENGINE_ADMIN_PASSWORD="a\\nb"\n')
+        # The fixture stub embeds the expected password in a JS
+        # string literal; make the source carry the \n ESCAPE so
+        # the stub really holds a<LF>b at runtime.
+        dist = tmp / "app" / "engine" / "server" / "dist" / "index.js"
+        stub = dist.read_text()
+        assert "a\nb" in stub
+        dist.write_text(stub.replace("a\nb", "a\\nb"))
+        proc = h._boot(tmp)
+        try:
+            h._wait_for(proc, tmp,
+                        lambda: len(h._logins(tmp)) >= 1,
+                        what="verify login")
+            time.sleep(1)
+            # Pre-fix: ONE login POST with the literal backslash
+            # form, 401, both credential lines DELETED behind a
+            # false foreign-claim alarm.
+            self.assertEqual(h._logins(tmp)[0]["password"], "a\nb")
+            env_after = (tmp / "app" / ".env").read_text(
+                encoding="utf-8")
+            self.assertIn("ENGINE_ADMIN_PASSWORD", env_after)
+            self.assertIn("ENGINE_ADMIN_EMAIL", env_after)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Gate cluster fixtures -------------------------------------
+    def _gate_fixture(self, bsq_index, binding=None):
+        """A healthy stub tree whose better-sqlite3 (an optional
+        dependency) has the given entry point and, optionally, a
+        build/Release/better_sqlite3.node with the given content."""
+        h = self._h()
+        tmp = h._fixture(
+            f"ENGINE_ADMIN_EMAIL={h.ENGINE_EMAIL}\n"
+            f"ENGINE_ADMIN_PASSWORD={h.ENGINE_PW}\n")
+        srv = tmp / "app" / "engine" / "server"
+        pkg = json.loads((srv / "package.json").read_text())
+        pkg["optionalDependencies"] = {"better-sqlite3": "^12.0.0"}
+        (srv / "package.json").write_text(json.dumps(pkg))
+        bsq = srv / "node_modules" / "better-sqlite3"
+        bsq.mkdir()
+        (bsq / "package.json").write_text(
+            json.dumps({"name": "better-sqlite3",
+                        "main": "index.js"}))
+        (bsq / "index.js").write_text(bsq_index)
+        if binding is not None:
+            rel = bsq / "build" / "Release"
+            rel.mkdir(parents=True)
+            (rel / "better_sqlite3.node").write_text(binding)
+        return tmp
+
+    def _boot15(self, tmp, extra_env=None):
+        """Boot inside a network namespace, with the logged
+        pre-check that 127.0.0.1:3001 refuses inside it (the live
+        FreeLLMAPI gateway on the host is never contacted)."""
+        node = shutil.which("node")
+        if not node or not shutil.which("unshare"):
+            self.skipTest("node/unshare not available")
+        pre = subprocess.run(
+            ["unshare", "-n", "bash", "-c",
+             "ip link set lo up 2>/dev/null; "
+             "curl -s -m 2 http://127.0.0.1:3001/ >/dev/null 2>&1; "
+             "echo curl_exit=$?"],
+            capture_output=True, text=True, timeout=30)
+        (tmp / "netns_precheck.log").write_text(pre.stdout)
+        self.assertIn("curl_exit=7", pre.stdout,
+                      "namespace pre-check: 3001 must refuse inside")
+        env = dict(os.environ)
+        env.update({
+            "LOGIN_FILE": str(tmp / "logins.jsonl"),
+            "ENGINE_PID": str(tmp / "engine.pid"),
+            "DASH_PID": str(tmp / "dash.pid"),
+            "no_proxy": "127.0.0.1,localhost",
+            "NO_PROXY": "127.0.0.1,localhost",
+        })
+        if extra_env:
+            env.update(extra_env)
+        cmd = ["unshare", "-n", "bash", "-c",
+               "ip link set lo up 2>/dev/null; exec "
+               f"{node} {tmp / 'bin' / 'nexuslocal.js'}"]
+        return subprocess.Popen(
+            cmd, cwd=str(tmp), env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _wait_install(self, h, proc, tmp, timeout=60):
+        h._wait_for(
+            proc, tmp,
+            lambda: (tmp / "startup.log").exists()
+            and "Installing engine dependencies"
+            in (tmp / "startup.log").read_text(errors="replace"),
+            timeout=timeout,
+            what="npm gate declaring dependencies missing")
+
+    _BSQ_MAGIC = (
+        "const fs=require('fs');const path=require('path');"
+        "class DB{constructor(){"
+        "const b=fs.readFileSync(path.join(__dirname,'build',"
+        "'Release','better_sqlite3.node'),'utf8');"
+        "if(!b.startsWith('GOODBIN'))"
+        "throw new Error('ERR_DLOPEN_FAILED');}"
+        "close(){}}"
+        "module.exports=DB;\n")
+
+    # -- Gate (i): a lazy tree with NO .node fails WITHOUT running -
+    def test_w15_gate_lazy_tree_no_binding_installs_unexecuted(self):
+        if sys.platform == "android":
+            self.skipTest("Android keeps the exemption")
+        h = self._h()
+        # require() succeeds (better-sqlite3@12 loads lazily) and
+        # the entry WRITES A MARKER if anything ever executes it.
+        tmp = self._gate_fixture(
+            "require('fs').writeFileSync(process.env.GATE_MARKER,"
+            "'executed');\nmodule.exports = class {};\n")
+        proc = self._boot15(
+            tmp, {"GATE_MARKER": str(tmp / "probe_marker.txt")})
+        try:
+            self._wait_install(h, proc, tmp)
+            # The gate failed on PRESENCE alone: the tree was never
+            # executed (pre-fix the require-probe ran it, passed
+            # it, and no install ever happened).
+            self.assertFalse((tmp / "probe_marker.txt").exists())
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertIn("better-sqlite3", log)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Gate (ii): a garbage .node fails the instantiate probe ---
+    def test_w15_gate_garbage_binding_installs(self):
+        if sys.platform == "android":
+            self.skipTest("Android keeps the exemption")
+        h = self._h()
+        tmp = self._gate_fixture(self._BSQ_MAGIC, binding="GARBAGE")
+        proc = self._boot15(tmp)
+        try:
+            # Presence is fooled by the garbage file; only the
+            # require+instantiate probe catches it (the wave-14
+            # require-only probe certified this tree).
+            self._wait_install(h, proc, tmp)
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertIn("better-sqlite3", log)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Gate (ii): a good binding passes, probe env is scrubbed --
+    def test_w15_gate_good_binding_passes_env_scrubbed(self):
+        if sys.platform == "android":
+            self.skipTest("Android keeps the exemption")
+        h = self._h()
+        tmp = self._gate_fixture(
+            "require('fs').writeFileSync(require('path').join("
+            "__dirname,'sentinel.txt'),"
+            "String(process.env.GATE_SENTINEL));\n"
+            + self._BSQ_MAGIC,
+            binding="GOODBIN-fixture")
+        proc = self._boot15(tmp, {
+            "GATE_SENTINEL": "sentinel15-secret"})
+        try:
+            h._wait_for(proc, tmp,
+                        lambda: len(h._logins(tmp)) >= 1,
+                        timeout=60, what="engine verify login")
+            time.sleep(1)
+            # The gate passed: no reinstall was triggered.
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertNotIn("Installing engine dependencies", log)
+            # The probe DID execute the entry (a binding is
+            # present), but with a scrubbed environment: the
+            # launcher's sentinel never reached it.
+            marker = (tmp / "app" / "engine" / "server"
+                      / "node_modules" / "better-sqlite3"
+                      / "sentinel.txt").read_text()
+            self.assertEqual(marker, "undefined")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Gate (iii)/L14-4: a SIGTERM-ignoring probe is bounded ----
+    def test_w15_gate_sigterm_ignoring_probe_bounded(self):
+        if sys.platform == "android":
+            self.skipTest("Android keeps the exemption")
+        h = self._h()
+        tmp = self._gate_fixture(
+            "process.on('SIGTERM',()=>{});"
+            "setInterval(()=>{},1000);\n" + self._BSQ_MAGIC,
+            binding="GOODBIN-fixture")
+        proc = self._boot15(tmp)
+        try:
+            # The probe child keeps a handle and ignores SIGTERM:
+            # with the default killSignal spawnSync waited forever
+            # (pre-fix this boot never progressed). SIGKILL makes
+            # the 15s timeout a real bound — the gate verdict and
+            # the install line arrive well inside the wait.
+            self._wait_install(h, proc, tmp, timeout=60)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 
 if __name__ == "__main__":
