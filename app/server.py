@@ -236,17 +236,31 @@ _RESTORE_ALLOWED = {
 _RESTORE_NONCES = {}
 
 
+_SETTINGS_LOCK = threading.RLock()
+
+
 def _save_settings():
-    try:
-        SETTINGS_PATH.write_text(json.dumps(_SETTINGS, indent=2))
-        os.chmod(SETTINGS_PATH, 0o600)
-    except Exception:
-        pass
-    if RESTORE_KEY:
+    """Persist settings atomically and report success (audit run-7):
+    the old direct write_text tore under concurrent writers (a torn
+    file at boot was silently dropped) and swallowed every failure
+    behind ok:true responses. Returns True only when the working
+    copy actually landed."""
+    with _SETTINGS_LOCK:
+        ok = True
         try:
-            encrypt_keys(_SETTINGS, RESTORE_KEY, SETTINGS_ENC_PATH)
+            tmp = "%s.%d.tmp" % (SETTINGS_PATH, threading.get_ident())
+            with open(tmp, "w") as f:
+                f.write(json.dumps(_SETTINGS, indent=2))
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, SETTINGS_PATH)
         except Exception:
-            pass
+            ok = False
+        if RESTORE_KEY:
+            try:
+                encrypt_keys(_SETTINGS, RESTORE_KEY, SETTINGS_ENC_PATH)
+            except Exception:
+                pass
+        return ok
 
 
 def _boot_restore_settings():
@@ -572,9 +586,10 @@ class _LoopbackRedirect(HTTPRedirectHandler):
             return None
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new is not None:
-            old_host = (urllib.parse.urlparse(req.full_url).hostname
-                        or "").lower()
-            if host != old_host:
+            # Origin = scheme + host + port (audit run-7): the
+            # host-only test forwarded credentials cross-PORT to a
+            # different loopback service.
+            if _origin_of(newurl) != _origin_of(req.full_url):
                 _strip_cred_headers(new)
         return new
 
@@ -816,7 +831,18 @@ def _ua_short(ua):
 AUDIT_PATH = Path(__file__).parent / "audit.jsonl"
 
 
+_AUDIT_LOCK = threading.RLock()
+
+
 def _audit(category, event, ip=None):
+    # Audit run-7: appends and the >512 KB trim are serialized, and
+    # the trim rewrites via a unique temp name — the unlocked
+    # fixed-.tmp trim lost and spliced rows under concurrency.
+    with _AUDIT_LOCK:
+        _audit_locked(category, event, ip)
+
+
+def _audit_locked(category, event, ip=None):
     try:
         row = {
             "ts": datetime.datetime.now().isoformat(),
@@ -836,10 +862,7 @@ def _audit(category, event, ip=None):
             _cut = (datetime.datetime.now()
                     - datetime.timedelta(days=int(_SETTINGS.get("retention_days") or 30))).isoformat()
             lines = [ln for ln in lines[-1000:] if _fresh_line(ln, _cut)]
-            tmp = str(AUDIT_PATH) + ".tmp"
-            with open(tmp, "w") as f:
-                f.writelines(lines)
-            os.replace(tmp, AUDIT_PATH)
+            _rewrite_lines(AUDIT_PATH, lines)
     except Exception:
         pass
 
@@ -875,6 +898,7 @@ def _read_audit(limit=200):
 # line caps; holds no prompts beyond what usage rows already carry.
 TELEMETRY_ENC_PATH = Path(__file__).parent / "telemetry.enc"
 _TELEMETRY = {"dirty": False, "saved": "", "last_flush": 0.0}
+_TELEMETRY_LOCK = threading.RLock()
 _TELEMETRY_BRANCH_URL = ("https://raw.githubusercontent.com/xorudra/"
                          "Nexus-Local/nexus-telemetry/telemetry.enc")
 _TELEMETRY_USAGE_LINES = 3000
@@ -895,6 +919,15 @@ def _tail_text(path, max_lines):
 def _flush_telemetry():
     if not RESTORE_KEY:
         return False
+    # Audit run-7: the flush is serialized against purges and
+    # factory resets — an unlocked flush racing a purge wrote the
+    # pre-purge tails into the mirror and cleared the dirty flag,
+    # stranding the purged rows in the mirror for good.
+    with _TELEMETRY_LOCK:
+        return _flush_telemetry_locked()
+
+
+def _flush_telemetry_locked():
     try:
         payload = {"v": 1,
                    "saved": datetime.datetime.now().isoformat(),
@@ -985,7 +1018,7 @@ def _audit_count_today(prefix, cat=None):
 # Today's usage counts (providers + users), cached briefly: the file
 # is bounded (20k lines) and chat is rate-limited, so a 20 s cache
 # keeps caps/limits cheap without drifting far from the truth.
-_TODAY_CACHE = {"ts": 0.0, "providers": {}, "users": {}}
+_TODAY_CACHE = {"ts": 0.0, "providers": {}, "users": {}, "v1": 0}
 
 
 def _today_counts(fresh=False):
@@ -993,6 +1026,7 @@ def _today_counts(fresh=False):
     if not fresh and now - _TODAY_CACHE["ts"] < 20:
         return _TODAY_CACHE
     providers, users = {}, {}
+    v1n = 0
     today = datetime.date.today().isoformat()
     try:
         if os.path.exists(USAGE_PATH):
@@ -1009,21 +1043,29 @@ def _today_counts(fresh=False):
                     p = e.get("provider")
                     if isinstance(p, str) and p:
                         providers[p] = providers.get(p, 0) + 1
+                    if e.get("via") == "v1" and not (
+                            isinstance(p, str) and p.startswith("v1:")):
+                        v1n += 1
                     u = e.get("user")
                     if isinstance(u, str) and u:
                         users[u] = users.get(u, 0) + 1
     except Exception:
         pass
-    _TODAY_CACHE.update({"ts": now, "providers": providers, "users": users})
+    _TODAY_CACHE.update({"ts": now, "providers": providers, "users": users, "v1": v1n})
     return _TODAY_CACHE
 
 
 def _today_total_requests(fresh=False):
     """Today's counted requests across both surfaces: dashboard chat
-    (counted per user) plus /v1 API rows (which carry no user — they
-    are counted under their 'v1:<lane>' provider names)."""
+    (counted per user) plus /v1 API rows (which carry no user and
+    are tagged via="v1"; legacy rows used 'v1:<lane>' providers)."""
     c = _today_counts(fresh)
     total = sum(c["users"].values())
+    # Audit run-7: current /v1 writers tag rows via="v1" with the
+    # bare lane as provider; the old sum matched only the legacy
+    # "v1:<lane>" names, so /v1 spend counted as ZERO here and the
+    # global cap never bound the /v1 surface at all.
+    total += c.get("v1", 0)
     total += sum(v for k, v in c["providers"].items()
                  if k.startswith("v1:"))
     return total
@@ -1636,6 +1678,12 @@ def _read_capped_bytes(resp, cap=_INTG_READ_CAP):
 def _intg_http(url, method="GET", headers=None, data=None, timeout=20):
     """One provider API call. Returns (status, parsed_json_or_text).
     Never raises for HTTP errors — the body is the diagnostic."""
+    if isinstance(data, dict):
+        # JSON callers pass dicts (functional fix, audit run-7): a
+        # dict body died inside urllib before a byte was sent, which
+        # silently broke the Claude OAuth exchange/refresh and the
+        # Gemini project lookup. Serialize here, once.
+        data = json.dumps(data).encode()
     req = Request(url, data=data, headers=headers or {}, method=method)
     try:
         # Pinned opener for remote hosts: redirects re-validated,
@@ -2421,6 +2469,10 @@ import hmac as _hmac, struct as _struct, base64 as _base64
 _PENDING_2FA = {}  # tmp_token -> {ts, keys}
 _2FA_ATTEMPTS = {}  # tmp_token -> [timestamps] (rate limit code guesses)
 _2FA_FAILS_GLOBAL = []  # failed TOTP guesses across ALL pending tokens:
+_2FA_FAILS_CONSOLE = []  # same idea for the console 2FA actions
+# (audit run-7): its OWN list, so an attacker spamming the login
+# budget cannot also lock the owner out of disabling 2FA with a
+# correct code after proving the master password.
 # the per-token cap alone let the budget grow with every fresh login
 # (audit run-5); ten failures in ten minutes account-wide is the cap.
 
@@ -2590,7 +2642,9 @@ def _append_usage_locked(entry):
 
 
 def _purge_label_history(label):
-    with _USAGE_LOCK:
+    # Lock order is always USAGE -> TELEMETRY (the flush takes
+    # TELEMETRY alone), so this cannot deadlock.
+    with _USAGE_LOCK, _TELEMETRY_LOCK:
         return _purge_label_history_locked(label)
 
 
@@ -3171,7 +3225,12 @@ def _create_v1key(name):
              "created": int(time.time()), "last_used": None,
              "disabled": False}
     _V1KEYS["keys"].append(entry)
-    _save_v1keys()
+    if not _save_v1keys():
+        # Audit run-7: a key that could not be persisted must not be
+        # handed out — it would die at the next restart while the
+        # caller believes it works (and a "deleted" key came back).
+        _V1KEYS["keys"].remove(entry)
+        return None
     return entry
 
 
@@ -3968,7 +4027,10 @@ class Handler(BaseHTTPRequestHandler):
             entry["last_used"] = None
         else:
             entry["disabled"] = (action == "disable")
-        _save_v1keys()
+        if not _save_v1keys():
+            self._set_json_headers(500)
+            self._send_body(json.dumps({"error": "key change could not be saved — it will not survive a restart"}).encode())
+            return
         verb = {"disable": "disabled", "enable": "enabled",
                 "delete": "deleted", "rotate": "rotated"}[action]
         _audit("Vault", f"/v1 service key {verb}: {entry['name']}")
@@ -5224,7 +5286,7 @@ class Handler(BaseHTTPRequestHandler):
                                 pp["_ms_sum"] = cur
                                 pp["_ms_n"] = pp.get("_ms_n", 0) + 1
                                 pp["avg_ms"] = round(cur / pp["_ms_n"])
-                            u = e.get("user") or ("API /v1" if str(p).startswith("v1:") else None)
+                            u = e.get("user") or ("API /v1" if e.get("via") == "v1" or str(p).startswith("v1:") else None)
                             if u:
                                 per_user[u] = per_user.get(u, 0) + 1
                             if e.get("ms"):
@@ -5964,6 +6026,7 @@ class Handler(BaseHTTPRequestHandler):
             # cap and the instance global cap bind transcription too,
             # and a successful transcription records a usage row.
             _label_t = _tinfo.get("label", "")
+            self._cap_res = _inflight_add(_label_t, "groq")
             if not _tinfo.get("admin") and _label_t:
                 _cap = (_SETTINGS.get("user_caps") or {}).get(
                     _label_t, _SETTINGS.get("daily_cap", 200))
@@ -6012,7 +6075,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(413)
                 self.wfile.write(json.dumps({"error": "audio too large"}).encode())
                 return
-            self._cap_res = _inflight_add(_label_t, "groq")
             _ext = {"audio/webm": "webm", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/wav": "wav", "audio/mpeg": "mp3"}.get(_mime, "webm")
             _mdl = data.get("model") or "whisper-large-v3-turbo"
             if "whisper" not in str(_mdl):
@@ -6070,6 +6132,10 @@ class Handler(BaseHTTPRequestHandler):
             _ekeys = self._effective_keys()
             _sinfo = self._session_info() or {}
             _chat_label = _sinfo.get("label", "")
+            # Reserve BEFORE the cap checks and the body read (audit
+            # run-7): reserving after the parse let concurrent
+            # requests with slow bodies all pass admission.
+            self._cap_res = _inflight_add(_chat_label)
             # Daily cap (admin console policy): friends only, counted
             # from today's usage entries. Cap 0 = no cap.
             if not _sinfo.get("admin") and _chat_label:
@@ -6096,7 +6162,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "invalid JSON"}).encode())
                 return
-            self._cap_res = _inflight_add(_chat_label)
             provider = data.get("provider")
             model = data.get("model")
             message = data.get("message")
@@ -7211,7 +7276,13 @@ class Handler(BaseHTTPRequestHandler):
                 if p in _dis:
                     return False
                 _l = _lims.get(p)
-                return not (_l and _pcounts.get(p, 0) >= int(_l))
+                if not _l:
+                    return True
+                # Audit run-7: FRESH counts plus the in-flight term —
+                # a cached snapshot with no reservation term let every
+                # concurrent chat pass a nearly-spent provider limit.
+                return (_today_counts(fresh=True)["providers"].get(p, 0)
+                        + _inflight_n(provider=p)) < int(_l)
 
             _kept = [(p, m) for (p, m) in _attempts if _lane_ok(p)]
             if not _kept:
@@ -7382,7 +7453,9 @@ class Handler(BaseHTTPRequestHandler):
                     _ok = False
                     _reply = ""
                     for (_cp, _cm) in _agent_list[:3]:
+                        _ares = _inflight_add(_chat_label, _cp)
                         _res = _attempt(_cp, _cm, 60, _msgs)
+                        _inflight_drop(_ares)
                         if _res[0]:
                             _ok = True
                             _ap2, _am2 = _cp, _cm
@@ -7421,7 +7494,9 @@ class Handler(BaseHTTPRequestHandler):
                     _msgs.append({"role": "user", "content": f"Tool result ({_tname}):\n{str(_tres)[:7000]}\n\nContinue: use another tool if needed, else give the final answer."})
                 if _final is None:
                     _msgs.append({"role": "user", "content": "Give your final answer now, without any tool block."})
+                    _ares = _inflight_add(_chat_label, _ap2)
                     _res = _attempt(_ap2, _am2, 60, _msgs)
+                    _inflight_drop(_ares)
                     _final = _res[1] if _res[0] else "I couldn't complete that. Try again."
                 if _used_tools:
                     _final = (_final or "") + "\n\n---\n\U0001f527 Tools used: " + ", ".join(_used_tools)
@@ -7441,8 +7516,10 @@ class Handler(BaseHTTPRequestHandler):
                 _hf = _attempts[0][0] if _i > 0 else (
                     _prev_by_id if _prev_by_id and _prev_by_id != _ap else None)
                 _ta = time.time()
+                _ares = _inflight_add(_chat_label, _ap)
                 _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30,
                                        msgs=_msgs_for(_ap, _hf))
+                _inflight_drop(_ares)
                 _trace.append({"p": _ap, "m": _am, "ok": bool(_ok),
                                "ms": int((time.time() - _ta) * 1000),
                                **({} if _ok else {"e": str(_rest[1])[:160]})})
@@ -7475,6 +7552,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/refresh":
             if not self._require_admin():
+                return
+            if not self._ip_gate():
+                # Audit run-7: every other console surface honors
+                # the IP allowlist; this one skipped it (and had no
+                # throttle at all).
+                return
+            if not _rl_ok("refresh", _client_ip(self.headers, self.client_address[0]), 30, 900):
+                self._set_json_headers(429)
+                self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                 return
             # Live connectivity check: quick models ping for each configured provider
             import concurrent.futures
@@ -8248,6 +8334,10 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(404)
                         self.wfile.write(json.dumps({"error": "friend not found"}).encode())
                         return
+                    if _kind == "moderator" and (_SETTINGS.get("roles") or {}).get(stored) == "moderator":
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "moderators cannot clear another moderator's vault"}).encode())
+                        return
                     vp = _userkey_path(stored)
                     existed = vp.exists()
                     if existed:
@@ -8314,6 +8404,15 @@ class Handler(BaseHTTPRequestHandler):
                             self._set_json_headers(500)
                             self.wfile.write(json.dumps({"error": "stored keys could not be decrypted — nothing was changed"}).encode())
                             return
+                        if provider not in vault and len(
+                                [k for k in vault
+                                 if not k.startswith("_")]) >= _USERKEY_COUNT_CAP:
+                            # Audit run-7: this console path never
+                            # checked the entry cap the My Keys path
+                            # enforces.
+                            self._set_json_headers(400)
+                            self.wfile.write(json.dumps({"error": "too many keys in one vault"}).encode())
+                            return
                         vault[provider] = key
                         _save_userkeys(stored, vault, friend_pw)
                     # Refresh live sessions' cached vault copies
@@ -8335,9 +8434,26 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(404)
                         self.wfile.write(json.dumps({"error": "friend not found"}).encode())
                         return
+                    if _kind == "moderator" and (_SETTINGS.get("roles") or {}).get(stored) == "moderator":
+                        # Audit run-7: the run-6 peer guards covered
+                        # suspend/demote/session-revoke but missed this
+                        # one — a peer password reset is a takeover.
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "moderators cannot reset another moderator's password"}).encode())
+                        return
                     if len(new_pw) < 6:
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "new password must be at least 6 characters"}).encode())
+                        return
+                    if _kind == "moderator" and not _rl_ok("pwprobe", (_client_ip(self.headers, self.client_address[0]) or "") + ":" + _clabel, 10, 900):
+                        # Audit run-7: the taken-check below is a
+                        # password-collision oracle (a hit hands over a
+                        # working friend credential). The unproven
+                        # caller is the moderator — admins prove the
+                        # master password for these actions already —
+                        # so moderator probes are capped per IP.
+                        self._set_json_headers(429)
+                        self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                         return
                     access = _load_access()
                     if _password_taken(access, new_pw, skip_label=stored) \
@@ -8417,22 +8533,23 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "expiry must be 1, 7 or 30 days"}).encode())
                         return
-                    invites = [i for i in (_SETTINGS.get("invites") or [])
-                               if not i.get("used_by")
-                               and i.get("expires", 0) > time.time()]
-                    if len(invites) >= 10:
-                        self._set_json_headers(400)
-                        self.wfile.write(json.dumps({"error": "too many active invites (max 10) — revoke one first"}).encode())
-                        return
-                    _alpha = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-                    code = "".join(secrets.choice(_alpha) for _ in range(6))
-                    h = hashlib.sha256(code.encode()).hexdigest()
-                    invites.append({"h": h, "role": role,
-                                    "created": time.time(),
-                                    "expires": time.time() + days * 86400,
-                                    "used_by": None})
-                    _SETTINGS["invites"] = invites
-                    _save_settings()
+                    with _SETTINGS_LOCK:
+                        invites = [i for i in (_SETTINGS.get("invites") or [])
+                                   if not i.get("used_by")
+                                   and i.get("expires", 0) > time.time()]
+                        if len(invites) >= 10:
+                            self._set_json_headers(400)
+                            self.wfile.write(json.dumps({"error": "too many active invites (max 10) — revoke one first"}).encode())
+                            return
+                        _alpha = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+                        code = "".join(secrets.choice(_alpha) for _ in range(6))
+                        h = hashlib.sha256(code.encode()).hexdigest()
+                        invites.append({"h": h, "role": role,
+                                        "created": time.time(),
+                                        "expires": time.time() + days * 86400,
+                                        "used_by": None})
+                        _SETTINGS["invites"] = invites
+                        _save_settings()
                     _audit("Users", f"Invite created: {code[:2]}••• ({role}, {days}d){_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({
@@ -8524,23 +8641,27 @@ class Handler(BaseHTTPRequestHandler):
                     today = datetime.date.today().isoformat()
                     n = 0
                     try:
-                        if os.path.exists(USAGE_PATH):
-                            with open(USAGE_PATH) as f:
-                                lines = f.readlines()
-                            keep = []
-                            for line in lines:
-                                try:
-                                    e = json.loads(line)
-                                except Exception:
+                        # Read + filter + rewrite ALL under the lock
+                        # (audit run-7): the snapshot used to be read
+                        # outside it, so the rewrite silently erased
+                        # rows appended while the scan was running.
+                        with _USAGE_LOCK:
+                            if os.path.exists(USAGE_PATH):
+                                with open(USAGE_PATH) as f:
+                                    lines2 = f.readlines()
+                                keep = []
+                                for line in lines2:
+                                    try:
+                                        e = json.loads(line)
+                                    except Exception:
+                                        keep.append(line)
+                                        continue
+                                    if isinstance(e, dict) \
+                                            and e.get("user") == stored \
+                                            and str(e.get("ts", ""))[:10] == today:
+                                        n += 1
+                                        continue
                                     keep.append(line)
-                                    continue
-                                if isinstance(e, dict) \
-                                        and e.get("user") == stored \
-                                        and str(e.get("ts", ""))[:10] == today:
-                                    n += 1
-                                    continue
-                                keep.append(line)
-                            with _USAGE_LOCK:
                                 _rewrite_lines(USAGE_PATH, keep)
                     except Exception:
                         pass
@@ -8580,8 +8701,13 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": err}).encode())
                         return
-                    _SETTINGS.update(clean)
-                    _save_settings()
+                    with _SETTINGS_LOCK:
+                        _SETTINGS.update(clean)
+                        _saved = _save_settings()
+                    if not _saved:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "settings could not be saved to disk"}).encode())
+                        return
                     _audit("System", "Settings changed: " + ", ".join(sorted(clean.keys())))
                     if "maintenance" in clean:
                         _fire_webhook("maintenance",
@@ -8667,7 +8793,9 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         AUDIT_PATH.write_text("")
                     except Exception:
-                        pass
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "could not clear the audit log"}).encode())
+                        return
                     _audit("System", "Audit log cleared")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
@@ -8780,8 +8908,9 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                     try:
-                        if TELEMETRY_ENC_PATH.exists():
-                            TELEMETRY_ENC_PATH.unlink()
+                        with _TELEMETRY_LOCK:
+                            if TELEMETRY_ENC_PATH.exists():
+                                TELEMETRY_ENC_PATH.unlink()
                     except Exception:
                         pass
                     _TELEMETRY["dirty"] = False
@@ -8825,6 +8954,10 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
+                if _mod_add and not _rl_ok("pwprobe", (_client_ip(self.headers, self.client_address[0]) or "") + ":" + _clabel, 10, 900):
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
+                    return
                 if _password_taken(access, password) \
                         or _is_master_password(password):
                     self._set_json_headers(400)
@@ -8875,6 +9008,14 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "master password required"}).encode())
                     return
+                # Verify the master password FIRST (audit run-7):
+                # checked only inside the label-found branch, it let
+                # a ghost label plus a WRONG password return ok:true
+                # and forge a "Friend revoked" audit row.
+                if _master_proof(master_pw) is None:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                    return
                 access = _load_access()
                 # Match stored label case-insensitively (labels keep original case)
                 stored_label = None
@@ -8882,13 +9023,12 @@ class Handler(BaseHTTPRequestHandler):
                     if k.lower() == label.lower():
                         stored_label = k
                         break
+                if stored_label is None:
+                    self._set_json_headers(404)
+                    self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                    return
                 if stored_label is not None:
                     label = stored_label
-                    # Verify master password by decrypting keys.enc
-                    if _master_proof(master_pw) is None:
-                        self._set_json_headers(401)
-                        self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
-                        return
                     with _ACCESS_LOCK:
                         # Reload inside the lock: deleting from a stale
                         # snapshot would resurrect accounts created or
@@ -8987,19 +9127,23 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "new password must be different"}).encode())
                     return
-                if _password_taken(_load_access(), new):
-                    # The reverse collision: password-only login tries
-                    # the master branch first, so a master equal to a
-                    # friend's password would shadow that friend.
-                    self._set_json_headers(400)
-                    self.wfile.write(json.dumps({"error": "that password is already in use by a friend — pick a different master password"}).encode())
-                    return
                 with _KEYS_LOCK:
                     key_path = Path(__file__).parent / "keys.enc"
                     kd = _master_proof(cur)
                     if kd is None:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
+                        return
+                    if _password_taken(_load_access(), new):
+                        # The reverse collision: password-only login
+                        # tries the master branch first, so a master
+                        # equal to a friend's password would shadow
+                        # that friend. Checked AFTER the proof (audit
+                        # run-7): before it, an admin session that did
+                        # not know the current password got the verdict
+                        # for free, unlimited and unaudited.
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "that password is already in use by a friend — pick a different master password"}).encode())
                         return
                     encrypt_keys(kd, new, key_path)
                 with _ACCESS_LOCK:
@@ -9143,8 +9287,16 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "no pending 2FA setup"}).encode())
                         return
+                    _now7 = time.time()
+                    _2FA_FAILS_CONSOLE[:] = [t for t in _2FA_FAILS_CONSOLE
+                                            if _now7 - t < 600]
+                    if len(_2FA_FAILS_CONSOLE) >= 10:
+                        self._set_json_headers(429)
+                        self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
+                        return
                     _step = _totp_match_step(pending, code) if code else None
                     if _step is None or _step <= _TOTP_LAST_STEP["v"]:
+                        _2FA_FAILS_CONSOLE.append(_now7)
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong code — check your authenticator app"}).encode())
                         return
@@ -9175,8 +9327,16 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
                     secret = keys.get("_totp_secret", "")
+                    _now7 = time.time()
+                    _2FA_FAILS_CONSOLE[:] = [t for t in _2FA_FAILS_CONSOLE
+                                            if _now7 - t < 600]
+                    if len(_2FA_FAILS_CONSOLE) >= 10:
+                        self._set_json_headers(429)
+                        self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
+                        return
                     _step = _totp_match_step(secret, code) if secret else None
                     if secret and (_step is None or _step <= _TOTP_LAST_STEP["v"]):
+                        _2FA_FAILS_CONSOLE.append(_now7)
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                         return
@@ -9405,7 +9565,13 @@ class Handler(BaseHTTPRequestHandler):
                         cid = f"{now}-{secrets.token_hex(3)}"
                         chats.append({"id": cid, "title": title, "ts": now,
                                       "updated": now, "messages": msgs})
-                    chats = sorted(chats, key=lambda c: -c.get("updated", 0))[:50]
+                    chats = sorted(chats, key=lambda c: -c.get("updated", 0))
+                    # Audit run-7: the 50-chat eviction was silent.
+                    # It is now disclosed in the save response (the
+                    # byte cap below refuses loudly; the count cap
+                    # at least speaks).
+                    _evicted = [c.get("id") for c in chats[50:]]
+                    chats = chats[:50]
                     store["chats"] = chats
                     if len(json.dumps(store)) > _CHATS_STORE_CAP:
                         self._set_json_headers(413)
@@ -9418,7 +9584,8 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "could not save chat"}).encode())
                         return
                 self._set_json_headers()
-                self.wfile.write(json.dumps({"ok": True, "id": cid}).encode())
+                self.wfile.write(json.dumps({"ok": True, "id": cid,
+                    **({"evicted": _evicted} if _evicted else {})}).encode())
                 return
             if action == "delete":
                 cid = str(data.get("id") or "")

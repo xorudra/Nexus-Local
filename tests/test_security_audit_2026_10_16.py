@@ -448,6 +448,161 @@ class ValidatorUnitTests(unittest.TestCase):
         finally:
             server._PW_FAILS.pop((kind, key), None)
 
+    # -- run-7: /v1 rows count toward the instance total -------------
+    def test_v1_rows_count_toward_total(self):
+        import datetime
+        import tempfile
+        from pathlib import Path as _P
+        saved_path = server.USAGE_PATH
+        saved_ts = server._TODAY_CACHE["ts"]
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                p = _P(td) / "usage.jsonl"
+                today = datetime.date.today().isoformat()
+                rows = [
+                    {"ts": today, "provider": "groq", "user": "u1"},
+                    {"ts": today, "provider": "groq", "user": "u1"},
+                    {"ts": today, "provider": "freellmapi", "via": "v1"},
+                    {"ts": today, "provider": "freellmapi", "via": "v1"},
+                    {"ts": today, "provider": "freellmapi", "via": "v1"},
+                    {"ts": today, "provider": "v1:groq"},
+                ]
+                p.write_text("".join(json.dumps(r) + "\n" for r in rows))
+                server.USAGE_PATH = p
+                self.assertEqual(
+                    server._today_total_requests(fresh=True), 6)
+        finally:
+            server.USAGE_PATH = saved_path
+            server._TODAY_CACHE["ts"] = saved_ts
+
+    # -- run-7 functional: _intg_http serializes dict bodies ---------
+    def test_intg_http_serializes_dict_body(self):
+        import http.server
+        import threading as _th
+        seen = {}
+
+        class _H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0))
+                seen["body"] = self.rfile.read(n)
+                out = json.dumps({"echo": True}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, *a):
+                pass
+
+        httpd = http.server.HTTPServer(("127.0.0.1", 0), _H)
+        port = httpd.server_address[1]
+        _th.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            st, payload = server._intg_http(
+                f"http://127.0.0.1:{port}/token", "POST",
+                {"Content-Type": "application/json"},
+                {"grant_type": "authorization_code", "code": "abc"})
+            self.assertEqual(st, 200)
+            self.assertEqual(payload, {"echo": True})
+            self.assertEqual(json.loads(seen["body"])["code"], "abc")
+        finally:
+            httpd.shutdown()
+
+    # -- run-7: loopback redirects strip on ORIGIN change ------------
+    def test_loopback_redirect_strips_cross_port(self):
+        import http.server
+        import threading as _th
+        import urllib.request
+        seen = {}
+        holder = {}
+
+        def _mk():
+            class _H(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    if self.path == "/jump":
+                        self.send_response(302)
+                        self.send_header(
+                            "Location",
+                            f"http://127.0.0.1:{holder['b']}/land")
+                        self.end_headers()
+                    elif self.path == "/self":
+                        self.send_response(302)
+                        self.send_header("Location", "/land")
+                        self.end_headers()
+                    else:
+                        seen[self.server.server_address[1]] = {
+                            k.lower(): v for k, v in self.headers.items()}
+                        out = b"ok"
+                        self.send_response(200)
+                        self.send_header("Content-Length", str(len(out)))
+                        self.end_headers()
+                        self.wfile.write(out)
+
+                def log_message(self, *a):
+                    pass
+            return _H
+
+        a = http.server.HTTPServer(("127.0.0.1", 0), _mk())
+        b = http.server.HTTPServer(("127.0.0.1", 0), _mk())
+        holder["a"] = a.server_address[1]
+        holder["b"] = b.server_address[1]
+        for srv in (a, b):
+            _th.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{holder['a']}/jump",
+                headers={"Authorization": "Bearer TOK7",
+                         "X-Relay-Token": "RT7"})
+            with server._open_loopback(req, 5) as r:
+                r.read()
+            landed = seen[holder["b"]]
+            self.assertNotIn("authorization", landed)
+            self.assertNotIn("x-relay-token", landed)
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{holder['a']}/self",
+                headers={"Authorization": "Bearer TOK7"})
+            with server._open_loopback(req, 5) as r:
+                r.read()
+            self.assertEqual(seen[holder["a"]].get("authorization"),
+                             "Bearer TOK7")
+        finally:
+            a.shutdown()
+            b.shutdown()
+
+    # -- run-7: _save_settings is atomic and honest ------------------
+    def test_save_settings_atomic_and_honest(self):
+        import tempfile
+        from pathlib import Path as _P
+        saved = (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                p = _P(td) / "settings.json"
+                server.SETTINGS_PATH = p
+                server.SETTINGS_ENC_PATH = _P(td) / "settings.enc"
+                self.assertTrue(server._save_settings())
+                json.loads(p.read_text())
+                self.assertEqual(oct(p.stat().st_mode & 0o777), "0o600")
+                server.SETTINGS_PATH = _P(td)  # a directory: cannot land
+                self.assertFalse(server._save_settings())
+        finally:
+            server.SETTINGS_PATH, server.SETTINGS_ENC_PATH = saved
+
+    # -- run-7: a v1 key that cannot persist is never handed out -----
+    def test_create_v1key_rolls_back_on_save_failure(self):
+        saved_keys = list(server._V1KEYS["keys"])
+        saved_fn = server._save_v1keys
+        saved_rk = server.RESTORE_KEY
+        try:
+            server.RESTORE_KEY = "unit-test"
+            server._save_v1keys = lambda: False
+            self.assertIsNone(server._create_v1key("doomed"))
+            self.assertEqual(server._V1KEYS["keys"], saved_keys)
+        finally:
+            server._V1KEYS["keys"] = saved_keys
+            server._save_v1keys = saved_fn
+            server.RESTORE_KEY = saved_rk
+
 
 class AuditFixHarness(unittest.TestCase):
     """ Boots a fixture server (same pattern as test_hardening). """
@@ -1539,11 +1694,141 @@ class AuditFixHarness(unittest.TestCase):
              "new_master_pw": MASTER}, admin_b)
         self.assertEqual(status, 200, body)
 
+    # -- run-7: moderator password probes are capped -----------------
+    def test_33_moderator_pwprobe_bucket(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": "probetarget",
+                      "password": "target-pw-33", "master_pw": MASTER}, admin)
+        self._access({"action": "add", "label": "probebystander",
+                      "password": "bystand-pw-33", "master_pw": MASTER}, admin)
+        self._access({"action": "add", "label": "probemod",
+                      "password": "mod-pw-33", "master_pw": MASTER}, admin)
+        status, body, _ = self._access(
+            {"action": "friend_role_set", "label": "probemod",
+             "role": "moderator", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        _, _, mod = self._login("mod-pw-33")
+        # Oracle hit: the bystander's password reads "already in use".
+        status, body, _ = self._access(
+            {"action": "friend_reset_pw", "label": "probetarget",
+             "new_password": "bystand-pw-33"}, mod)
+        self.assertEqual(status, 400, body)
+        # Misses land (and reset) — until the probe budget runs out.
+        for i in range(9):
+            status, body, _ = self._access(
+                {"action": "friend_reset_pw", "label": "probetarget",
+                 "new_password": f"cand-{i}-pw-33"}, mod)
+            self.assertEqual(status, 200, (i, body))
+        status, body, _ = self._access(
+            {"action": "friend_reset_pw", "label": "probetarget",
+             "new_password": "cand-99-pw-33"}, mod)
+        self.assertEqual(status, 429, body)
+
+    # -- run-7: moderators cannot reset or clear a peer moderator ----
+    def test_34_moderator_peer_reset_and_clear_guarded(self):
+        _, _, admin = self._login(MASTER)
+        for label, pw in (("modone34", "modone-pw-34"),
+                          ("modtwo34", "modtwo-pw-34"),
+                          ("plain34", "plain-pw-34")):
+            self._access({"action": "add", "label": label,
+                          "password": pw, "master_pw": MASTER}, admin)
+        for label in ("modone34", "modtwo34"):
+            status, body, _ = self._access(
+                {"action": "friend_role_set", "label": label,
+                 "role": "moderator", "master_pw": MASTER}, admin)
+            self.assertEqual(status, 200, body)
+        _, _, mod = self._login("modone-pw-34")
+        status, body, _ = self._access(
+            {"action": "friend_reset_pw", "label": "modtwo34",
+             "new_password": "seized-pw-34"}, mod)
+        self.assertEqual(status, 403, body)
+        status, body, _ = self._access(
+            {"action": "friend_vault_clear", "label": "modtwo34"}, mod)
+        self.assertEqual(status, 403, body)
+        # Control: a plain friend is still fair game for a moderator.
+        status, body, _ = self._access(
+            {"action": "friend_reset_pw", "label": "plain34",
+             "new_password": "plain-new-34"}, mod)
+        self.assertEqual(status, 200, body)
+
+    # -- run-7: revoke proves the master before the label lookup -----
+    def test_35_revoke_ghost_wrong_master_refused(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "revoke", "label": "ghost35",
+             "master_pw": "wrong-pw-35"}, admin)
+        self.assertEqual(status, 401, body)
+        self._access({"action": "add", "label": "real35",
+                      "password": "real-pw-35", "master_pw": MASTER}, admin)
+        status, body, _ = self._access(
+            {"action": "revoke", "label": "real35",
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "revoke", "label": "real35",
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 404, body)
+
+    # -- run-7: console key-add honors the vault entry cap -----------
+    def test_36_friend_key_add_respects_cap(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": "capfriend36",
+                      "password": "cap-pw-36", "master_pw": MASTER}, admin)
+        _, _, friend = self._login("cap-pw-36")
+        keys = {f"k{i:03d}": "v" for i in range(200)}
+        status, body, _ = self._req(
+            "POST", "/api/mykeys",
+            {"action": "save", "password": "cap-pw-36", "keys": keys},
+            ck=friend)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "friend_key_add", "label": "capfriend36",
+             "provider": "onemore", "key": "x",
+             "friend_pw": "cap-pw-36", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 400, body)
+
+    # -- run-7: chat eviction at 50 is disclosed ----------------------
+    def test_37_chats_eviction_disclosed(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": "chatfriend37",
+                      "password": "chat-pw-37", "master_pw": MASTER}, admin)
+        _, _, friend = self._login("chat-pw-37")
+        last = None
+        for i in range(51):
+            status, body, _ = self._req(
+                "POST", "/api/chats",
+                {"action": "save",
+                 "messages": [{"r": "user", "t": f"chat {i}"}]},
+                ck=friend)
+            self.assertEqual(status, 200, body)
+            last = body
+        self.assertIn("evicted", last)
+        self.assertTrue(last["evicted"])
+        status, body, _ = self._req("POST", "/api/chats",
+                                    {"action": "list"}, ck=friend)
+        self.assertEqual(len(body["chats"]), 50)
+
     # -- run-6: password proofs share one failure budget --------------
     # Named to sort last in this class: tripping the fixture server's
     # master-proof budget must not starve any later master-gated call.
     def test_zz_pw_proof_throttle(self):
         _, _, admin = self._login(MASTER)
+        # Run-7: console 2FA guesses have their own budget — eleven
+        # wrong confirms against a PENDING secret (never activated,
+        # so no cleanup is owed) must end in a 429, not endless 401s.
+        status, body, _ = self._access(
+            {"action": "2fa_enable", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        secret = body["secret"]
+        wrong = "000000" if _totp(secret) != "000000" else "111111"
+        seen = []
+        for i in range(11):
+            status, body, _ = self._access(
+                {"action": "2fa_confirm", "master_pw": MASTER,
+                 "code": wrong}, admin)
+            seen.append(status)
+        self.assertEqual(seen[:10], [401] * 10, seen)
+        self.assertEqual(seen[10], 429, seen)
         for i in range(10):
             status, body, _ = self._access(
                 {"action": "2fa_status", "master_pw": f"wrong-{i}"},

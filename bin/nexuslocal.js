@@ -77,8 +77,16 @@ function main() {
   if (!fs.existsSync(path.join(nodeModules, "dotenv"))) {
     log("Installing engine dependencies (first run)...");
     console.log("Installing engine (first run)...");
+    // Audit run-7: install EXACTLY the pinned tree from the shipped
+    // package-lock.json (npm ci verifies integrity hashes). The old
+    // bare `npm install` resolved hundreds of unpinned packages on
+    // first run — a supply-chain hole into processes that hold keys.
+    const _lock = path.join(engineServer, "package-lock.json");
+    const _npmCmd = fs.existsSync(_lock)
+      ? "npm ci --no-audit --no-fund"
+      : "npm install --no-audit --no-fund";
     try {
-      execSync("npm install --no-audit --no-fund", {
+      execSync(_npmCmd, {
         cwd: engineServer,
         stdio: "inherit",
         windowsHide: false,
@@ -93,9 +101,12 @@ function main() {
   try {
     execSync(`${python} -c "import cryptography"`, { stdio: "ignore", windowsHide: true, cwd: APP_DIR });
   } catch (e) {
-    log("Installing Python cryptography...");
+    log("Installing Python dependencies (pinned)...");
     console.log("Installing Python components...");
-    execSync(`${python} -m pip install cryptography --quiet`, { stdio: "inherit", cwd: APP_DIR });
+    // Audit run-7: install the repo's pinned requirements.txt —
+    // a bare `pip install cryptography` took whatever PyPI served
+    // that day (and never installed qrcode/pillow at all).
+    execSync(`${python} -m pip install -r "${path.join(APP_DIR, "requirements.txt")}" --quiet`, { stdio: "inherit", cwd: APP_DIR });
   }
 
   // Setup .env if missing
@@ -106,7 +117,9 @@ function main() {
       let content = fs.readFileSync(example, "utf8");
       const key = require("crypto").randomBytes(32).toString("hex");
       content = content.replace("PASTE_64_CHAR_HEX_HERE", key);
-      fs.writeFileSync(envFile, content);
+      // The .env carries the generated ENCRYPTION_KEY: owner-only
+      // (audit run-7 — it used to land with default 0644).
+      fs.writeFileSync(envFile, content, { mode: 0o600 });
       log("Generated .env with encryption key");
     }
   }
@@ -131,6 +144,55 @@ function main() {
       stdio: "ignore",
       windowsHide: true,
     });
+    // Audit run-7: the engine's first-run design lets any loopback
+    // caller claim its admin with NO setup code, and this launcher
+    // never creates a user — so the claim window never closed and a
+    // claimant could export the engine's stored provider keys. Claim
+    // it ourselves with a generated password (kept in the 0600 .env)
+    // as soon as the engine answers.
+    (function claimEngineAdmin(tries) {
+      const http = require("http");
+      const req = http.get("http://127.0.0.1:3001/api/auth/status", (res) => {
+        let body = "";
+        res.on("data", (c) => { body += c; });
+        res.on("end", () => {
+          let st = null;
+          try { st = JSON.parse(body); } catch (e) {}
+          if (!st || !st.needsSetup) return; // already claimed — done
+          let email = "owner@example.com", pw = null;
+          try {
+            const envTxt = fs.readFileSync(envFile, "utf8");
+            const em = envTxt.match(/^ENGINE_ADMIN_EMAIL=(.*)$/m);
+            const pm = envTxt.match(/^ENGINE_ADMIN_PASSWORD=(.*)$/m);
+            if (em) email = em[1].trim();
+            if (pm) pw = pm[1].trim();
+            if (!pw) {
+              pw = require("crypto").randomBytes(24).toString("hex");
+              fs.appendFileSync(envFile,
+                `\nENGINE_ADMIN_EMAIL=${email}\nENGINE_ADMIN_PASSWORD=${pw}\n`);
+            }
+          } catch (e) { return; }
+          const payload = JSON.stringify({ email, password: pw });
+          const post = http.request({
+            host: "127.0.0.1", port: 3001, path: "/api/auth/setup",
+            method: "POST",
+            headers: { "Content-Type": "application/json",
+                       "Content-Length": Buffer.byteLength(payload) },
+          }, (r2) => {
+            r2.resume();
+            if (r2.statusCode === 201) {
+              log("Engine admin claimed (credentials in app/.env)");
+            }
+          });
+          post.on("error", () => {});
+          post.write(payload);
+          post.end();
+        });
+      });
+      req.on("error", () => {
+        if (tries > 0) setTimeout(() => claimEngineAdmin(tries - 1), 1000);
+      });
+    })(30);
     // Don't detach — we need to kill it on shutdown
   } else {
     log("Engine dist not found, skipping engine");
