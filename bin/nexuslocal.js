@@ -62,17 +62,52 @@ function parseEngineAdminCreds(envTxt) {
     const isEmail = m[1] === "ENGINE_ADMIN_EMAIL";
     if (isEmail) out.hasEmail = true; else out.hasPassword = true;
     let v = m[2].trim();
+    // The value with NO comment handling at all (quote-strip only):
+    // the alternate form verifyClaim retries with before it may
+    // declare a foreign claim (wave 14, run-13 launcher L13-2).
+    let raw = v;
+    if (raw.length >= 2
+        && ((raw[0] === '"' && raw[raw.length - 1] === '"')
+            || (raw[0] === "'" && raw[raw.length - 1] === "'"))) {
+      raw = raw.slice(1, -1);
+    }
     // Wave 13 (run-12 launcher): dotenv's inline-comment rule —
     // an unquoted value truncates at the first '#' (even with no
     // preceding space, so `= # none yet` is EMPTY, i.e. absent);
     // a quoted value ends at its closing quote and the rest is a
     // comment. The existing quote-strip below then applies.
+    // Wave 14 (run-13 launcher): (L13-1) the closing-quote scan is
+    // escape-aware — a quote preceded by an ODD number of
+    // backslashes is data, not the terminator, exactly as dotenv
+    // treats it; the old indexOf truncated `"a\"b#c"` to `a\` and
+    // verify then DELETED valid credentials. (L13-2) the unquoted
+    // branch treats '#' as a comment starter only at value start
+    // or when preceded by whitespace (/^#/ or /\s+#/): this
+    // record's authoritative value is the engine password itself
+    // (an arbitrary API-set / pre-seeded string that never passed
+    // through dotenv grammar), so a '#' inside it is data — while
+    // `abc123 # comment` and `= # none yet` keep their run-12
+    // behaviour.
     if (v.startsWith('"') || v.startsWith("'")) {
-      const q = v[0], end = v.indexOf(q, 1);
-      if (end > 0) v = v.slice(0, end + 1);
+      const q = v[0];
+      let end = -1;
+      for (let i = 1; i < v.length; i++) {
+        if (v[i] !== q) continue;
+        let bs = 0;
+        for (let j = i - 1; j >= 0 && v[j] === "\\"; j--) bs++;
+        if (bs % 2 === 0) { end = i; break; }
+      }
+      if (end > 0) {
+        // Truncate only when what follows the closing quote is
+        // empty or a comment; otherwise the quotes are data
+        // throughout (dotenv: `"abc""def"` -> `abc""def`) and the
+        // whole-value quote-strip below applies instead.
+        const rest = v.slice(end + 1);
+        if (/^\s*(#.*)?$/.test(rest)) v = v.slice(0, end + 1);
+      }
     } else {
-      const h = v.indexOf("#");
-      if (h >= 0) v = v.slice(0, h).trim();
+      const hm = v.match(/\s+#|^#/);
+      if (hm) v = v.slice(0, hm.index).trim();
     }
     if (v.length >= 2
         && ((v[0] === '"' && v[v.length - 1] === '"')
@@ -81,7 +116,20 @@ function parseEngineAdminCreds(envTxt) {
     }
     if (!v) continue;  // empty = absent: fall through to a later line
     if (isEmail && out.email === undefined) out.email = v;
-    if (!isEmail && out.password === undefined) out.password = v;
+    if (!isEmail && out.password === undefined) {
+      out.password = v;
+      // The alternate form for verifyClaim's one retry: the raw
+      // value when comment handling shortened the primary, else
+      // (symmetrically) the dotenv-truncated value when the
+      // primary kept a '#' the engine may not hold.
+      let alt = null;
+      if (raw && raw !== v) alt = raw;
+      else {
+        const h = v.indexOf("#");
+        if (h > 0) alt = v.slice(0, h).trim() || null;
+      }
+      if (alt && alt !== v) out.passwordAlt = alt;
+    }
   }
   return out;
 }
@@ -132,11 +180,22 @@ function shutdown(code) {
   shuttingDown = true;  // F15: the engine exit this causes is ours
   _shutdownCode = code || 0;
   log("Shutting down...");
-  _killTree(installChild, "SIGTERM");
+  // Wave 14 (run-13 launcher L13-3): capture the install child (and
+  // its process group) NOW. The direct child's own close handler
+  // nulls the global installChild as soon as the shell dies on the
+  // group SIGTERM — well before the 1500ms escalation — so an
+  // escalation that re-read the global had no target and a
+  // TERM-ignoring install grandchild survived launcher exit.
+  const _install14 = installChild;
+  const _ipgid14 = _install14 && _install14.pid;
+  _killTree(_install14, "SIGTERM");
   _killTree(engine, "SIGTERM");
   _killTree(dashboard, "SIGTERM");
   setTimeout(() => {
-    _killTree(installChild, "SIGKILL");
+    if (_ipgid14 && process.platform !== "win32") {
+      try { process.kill(-_ipgid14, "SIGKILL"); } catch (e) {}
+    }
+    _killTree(_install14, "SIGKILL");
     _killTree(engine, "SIGKILL");
     _killTree(dashboard, "SIGKILL");
   }, 1500);
@@ -245,9 +304,28 @@ async function main() {
     // the engine hard-requires it on every non-Android platform —
     // gate on it there. Android/Termux keeps the wave-12 exemption
     // (its node:sqlite fallback), so the gate still converges there.
+    // Wave 14 (run-13 launcher L13-4): require.resolve is NOT
+    // loadability for a native dep — a better-sqlite3 whose .node
+    // binding is absent (npm ci --ignore-scripts tree, exit 0)
+    // RESOLVES while require() fails "Could not locate the bindings
+    // file", so the resolve probe certified a tree the engine dies
+    // on every boot. Probe a real require in a throwaway child
+    // process (a broken addon can never crash the launcher).
+    const _bsqLoadable = () => {
+      if (_unloadable("better-sqlite3")) return false;
+      try {
+        const { spawnSync } = require("child_process");
+        const r = spawnSync(process.execPath,
+          ["-e", "require('module').createRequire(process.argv[1])"
+                 + "('better-sqlite3')",
+           path.join(engineServer, "package.json")],
+          { timeout: 15000, stdio: "ignore" });
+        return !r.error && r.status === 0;
+      } catch (e) { return false; }
+    };
     if (process.platform !== "android"
         && (_epkg.optionalDependencies || {})["better-sqlite3"]
-        && _unloadable("better-sqlite3")) {
+        && !_bsqLoadable()) {
       _depsMissing = true;
     }
   } catch (e) {
@@ -372,6 +450,13 @@ async function main() {
       // quoted/spaced/BOM values parse the way dotenv parses them.
       const _creds = readEngineAdminCreds(envFile);
       let email = _creds.email || null, pw = _creds.password || null;
+      // Wave 14 (run-13 launcher L13-2): the alternate parse of the
+      // recorded password (no comment truncation). A definitive
+      // refusal of the primary form retries ONCE with this form
+      // before anything may be deleted — a credential the engine
+      // itself accepts must never be destroyed on a parse
+      // technicality.
+      const pwAlt = _creds.passwordAlt || null;
       let emailDefaulted = false;
       if (!pw) {
         log("WARNING: the engine admin was already claimed but app/.env holds no ENGINE_ADMIN credentials — on a fresh install, another local process claimed it first.");
@@ -396,7 +481,7 @@ async function main() {
       // bounded number of times and end in a WARNING naming the
       // outcome — never silence, and credentials are only removed
       // on a DEFINITIVE 401/403.
-      let attempts = 0;
+      let attempts = 0, triedAlt = false;
       const tryLogin = () => {
         attempts += 1;
         const payload = JSON.stringify({ email, password: pw });
@@ -410,6 +495,15 @@ async function main() {
           r2.on("end", () => {
             if (r2.statusCode === 200) return; // ours — done
             if (r2.statusCode === 401 || r2.statusCode === 403) {
+              if (pwAlt && !triedAlt) {
+                // Wave 14: retry ONCE with the alternate form —
+                // only a refusal of BOTH forms is a foreign claim.
+                triedAlt = true;
+                pw = pwAlt;
+                attempts = 0;
+                setTimeout(tryLogin, 300);
+                return;
+              }
               if (emailDefaulted) {
                 // Wave 12 (L1): a login attempted with the DEFAULT
                 // email (the .env recorded none) is not a

@@ -4320,15 +4320,18 @@ class Wave12OpenHarness(_FixtureServerBase):
         try:
             # Wave 13 semantics (run-12 auth fixes): a successful
             # signup refunds its PER-SOURCE hit but NOT its global
-            # hit, so creations accrue against the 100/900 ceiling
+            # hit, so creations accrue against the global ceiling
             # exactly like taken verdicts; and each candidate has a
             # 10/900 per-candidate global sub-bucket, so ONE
             # candidate can no longer burn the ceiling alone. The
-            # ceiling is therefore exhausted with TEN distinct
-            # candidates: 10 creations (10 global hits) + 9 taken
-            # probes each (90 more) = 100. (Pre-wave-13 this test
-            # used one candidate x100 — the very burn fix 15 kills —
-            # and relied on the global refund fix 14 removes.)
+            # ceiling is therefore exhausted with TWENTY-FIVE
+            # distinct candidates: 25 creations (25 global hits) +
+            # 9 taken probes each (225 more) = 250. (Wave 14 raised
+            # the ceiling 100 -> 250 as a mitigation — successes
+            # still accrue, no refund returned. Pre-wave-13 this
+            # test used one candidate x100 — the very burn fix 15
+            # kills — and relied on the global refund fix 14
+            # removes.)
             cands = []
             for i, label in enumerate(("legit91a", "legit91b")):
                 pw = f"{label}-pw"
@@ -4338,7 +4341,7 @@ class Wave12OpenHarness(_FixtureServerBase):
                     headers={"X-Forwarded-For": f"10.91.0.{i + 1}"})
                 self.assertEqual(status, 200, (label, body))
                 cands.append(pw)
-            for i in range(8):
+            for i in range(23):
                 label = f"cand91_{i}"
                 pw = f"cand91-pw-{i}"
                 status, body, _ = self._req(
@@ -4356,12 +4359,12 @@ class Wave12OpenHarness(_FixtureServerBase):
                     {"label": f"taken91_{ci}_{k}", "password": cands[ci]},
                     headers={"X-Forwarded-For":
                              f"10.91.1.{ci * 9 + k}"})[0]
-            jobs = [(ci, k) for ci in range(10) for k in range(9)]
+            jobs = [(ci, k) for ci in range(25) for k in range(9)]
             with concurrent.futures.ThreadPoolExecutor(
                     max_workers=8) as ex:
                 codes = list(ex.map(probe, jobs))
-            self.assertEqual(codes, [400] * 90)
-            # The 101st verdict — taken or free, from a brand-new
+            self.assertEqual(codes, [400] * 225)
+            # The 251st verdict — taken or free, from a brand-new
             # source — is the same generic 429.
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
@@ -4636,7 +4639,12 @@ class Wave13UnitTests(unittest.TestCase):
         # Launcher: export prefix everywhere, comment rule, early
         # handlers, tracked installs.
         self.assertGreaterEqual(js.count("(?:export\\s+)?"), 4)
-        self.assertIn('v.indexOf("#")', js)
+        # Wave 14 (run-13 L13-2): the unquoted '#' rule is the
+        # whitespace-aware match now, and the parser records the
+        # alternate form for verify's one retry — the wave-13
+        # first-'#' indexOf is gone by design.
+        self.assertIn("v.match(/\\s+#|^#/)", js)
+        self.assertIn("passwordAlt", js)
         self.assertIn("runInstall(_npmCmd", js)
         self.assertLess(js.index('process.on("SIGTERM"'),
                         js.index("Installing engine dependencies"))
@@ -4670,9 +4678,41 @@ class Wave13LauncherTests(unittest.TestCase):
 
     # -- Fix 4: inline comments follow dotenv -----------------------
     def test_w13_verify_inline_comments(self):
-        self._h()._verify_variant(
+        # Wave 14 post-fix semantics (run-13 L13-2): a '#' NOT
+        # preceded by whitespace is password DATA in the primary
+        # parse now (this wave-13 variant's `pw#tail` line is
+        # exactly that ambiguity class), so the first login carries
+        # the full value; the stub (holding the dotenv form)
+        # refuses it, and verifyClaim's alternate-form retry — the
+        # dotenv-truncated value — is accepted. Credentials are
+        # kept and no foreign-claim alarm fires. (A `# comment`
+        # after whitespace still truncates in the primary parse —
+        # see the wave-14 parser tests.)
+        h = self._h()
+        tmp = h._fixture(
             f"ENGINE_ADMIN_EMAIL={self.ENGINE_EMAIL} # the owner\n"
             f"ENGINE_ADMIN_PASSWORD={self.ENGINE_PW}#tail\n")
+        proc = h._boot(tmp)
+        try:
+            h._wait_for(proc, tmp,
+                        lambda: len(h._logins(tmp)) >= 2,
+                        what="verify login + dotenv-form retry")
+            logins = h._logins(tmp)
+            self.assertEqual(logins[0]["password"],
+                             self.ENGINE_PW + "#tail")
+            self.assertEqual(logins[1]["password"], self.ENGINE_PW)
+            self.assertEqual(logins[1]["email"], self.ENGINE_EMAIL)
+            time.sleep(1)
+            env_after = (tmp / "app" / ".env").read_text(
+                encoding="utf-8")
+            self.assertIn("ENGINE_ADMIN_PASSWORD", env_after)
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertNotIn("NOT the ones from app/.env", log)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_w13_verify_comment_only_value_is_absent(self):
         self._h()._verify_variant(
@@ -5018,6 +5058,473 @@ class Wave13OpenHarness(_FixtureServerBase):
             self._access(
                 {"action": "settings_set", "master_pw": MASTER,
                  "patch": {"registration": "invite"}}, admin)
+
+
+class Wave14UnitTests(unittest.TestCase):
+    """Wave 14 (run-13 fixes): media spend-leg admission, completed
+    inside the reserve lock, invite-remove rollback union removal,
+    redeem-role rollback placement, the open:all mitigation bound,
+    and the add-friend clean slate."""
+
+    # -- Fix 1: a born-tagged pair at limit 1 admits exactly one ---
+    def test_w14_media_pair_admits_exactly_one(self):
+        orig_settings = dict(server._SETTINGS)
+        saved_counts = server._today_counts
+        saved_inflight = list(server._INFLIGHT)
+        try:
+            server._SETTINGS["provider_limits"] = {"prov14": 1}
+            server._SETTINGS["provider_disabled"] = []
+            server._today_counts = lambda fresh=False: {
+                "providers": {}, "users": {}, "total": 0}
+            server._INFLIGHT.clear()
+            r1 = server._inflight_add("u14", "prov14")
+            r2 = server._inflight_add("u14", "prov14")
+            # Pre-fix (>= form, peer counted in full): BOTH True.
+            self.assertFalse(
+                server._provider_blocked("prov14", exclude=r1))
+            self.assertTrue(
+                server._provider_blocked("prov14", exclude=r2))
+            # Solo at limit 1 is admitted; with one completed spend
+            # even the first reservation is refused.
+            server._INFLIGHT.clear()
+            r = server._inflight_add("u14", "prov14")
+            self.assertFalse(
+                server._provider_blocked("prov14", exclude=r))
+            server._today_counts = lambda fresh=False: {
+                "providers": {"prov14": 1}, "users": {}, "total": 0}
+            self.assertTrue(
+                server._provider_blocked("prov14", exclude=r))
+            # The untagged pre-check form is unchanged: one
+            # in-flight spend at limit 1 blocks a fresh caller.
+            server._today_counts = lambda fresh=False: {
+                "providers": {}, "users": {}, "total": 0}
+            self.assertTrue(server._provider_blocked("prov14"))
+        finally:
+            server._today_counts = saved_counts
+            server._INFLIGHT.clear()
+            server._INFLIGHT.extend(saved_inflight)
+            server._SETTINGS.clear()
+            server._SETTINGS.update(orig_settings)
+
+    # -- Fix 2: completed is evaluated INSIDE the reserve lock -----
+    def test_w14_reserve_completed_inside_lock(self):
+        saved_inflight = list(server._INFLIGHT)
+        try:
+            server._INFLIGHT.clear()
+            seen = {}
+
+            def completed_fn():
+                seen["locked"] = server._INFLIGHT_LOCK.locked()
+                return 1  # a peer completed in the old pre-lock gap
+
+            # Pre-fix the primitive took a precomputed int; a stale
+            # 0 computed before the peer completed admitted a second
+            # spend against limit 1. The callable form is judged on
+            # the value read under the lock: refused.
+            self.assertIsNone(server._inflight_reserve_capped(
+                "u14", "prov14", completed_fn, 1))
+            self.assertTrue(seen.get("locked"))
+            self.assertEqual(server._inflight_n(provider="prov14"), 0)
+            # A callable reporting room admits exactly one, and the
+            # plain int form keeps working for existing callers.
+            res = server._inflight_reserve_capped(
+                "u14", "prov14", lambda: 0, 1)
+            self.assertIsNotNone(res)
+            server._inflight_drop(res)
+            self.assertIsNotNone(server._inflight_reserve_capped(
+                "u14", "prov14", 0, 1))
+            server._INFLIGHT.clear()
+            # Both callsites pass the callable form now.
+            src = (REPO / "app" / "server.py").read_text()
+            self.assertNotIn("_completed = _today_counts(", src)
+            self.assertEqual(
+                src.count("lambda: _today_counts("), 2)
+        finally:
+            server._INFLIGHT.clear()
+            server._INFLIGHT.extend(saved_inflight)
+
+    # -- Fix 3: invite-remove rollback has no persisted union ------
+    def test_w14_invite_remove_rollback_restores(self):
+        orig = dict(server._SETTINGS)
+        saved_stack = list(server._OUTCOME_PERSISTED)
+        try:
+            server._SETTINGS["invites"] = [{"h": "KEEP14"}]
+            # The judged persisted snapshot still CONTAINS the
+            # removed invite (the revoke save faulted). Wave 13
+            # unioned it into the skip set and the rollback was an
+            # exact no-op; wave 14 re-adds it live.
+            server._OUTCOME_PERSISTED.append(
+                {"invites": [{"h": "KEEP14"}, {"h": "GONE14"}]})
+            server._cas_rollback_invite_remove([{"h": "GONE14"}])
+            self.assertEqual(
+                {i["h"] for i in server._SETTINGS["invites"]},
+                {"KEEP14", "GONE14"})
+            # An entry already live is not duplicated.
+            server._cas_rollback_invite_remove([{"h": "GONE14"}])
+            self.assertEqual(len(server._SETTINGS["invites"]), 2)
+        finally:
+            server._OUTCOME_PERSISTED[:] = saved_stack
+            server._SETTINGS.clear()
+            server._SETTINGS.update(orig)
+
+    # -- Fix 4: the redeem role rollback rides INTO the outcome ----
+    def test_w14_redeem_role_rollback_in_outcome(self):
+        src = (REPO / "app" / "server.py").read_text()
+        i = src.index("_roc13 = _settings_outcome(")
+        seg = src[i:i + 900]
+        # The rollback is the outcome's third argument now...
+        self.assertIn("lambda: _cas_rollback_dict_entry(", seg)
+        # ...and the manual post-hoc block (which fired even on
+        # "conflict", with an empty _OUTCOME_PERSISTED) is gone:
+        # after the outcome call, a non-ok verdict goes straight to
+        # the status mapping.
+        j = seg.index('if _roc13 != "ok":')
+        self.assertNotIn("_cas_rollback_dict_entry",
+                         seg[j:j + 200])
+
+    # -- Fix 9 (MITIGATION): open:all bound is 250/900 -------------
+    def test_w14_open_all_bound_250(self):
+        import re as _re14
+        src = (REPO / "app" / "server.py").read_text()
+        flat = _re14.sub(r"\s+", " ", src)
+        self.assertIn(
+            '_rl_ok("redeemprobe", "open:all", 250, 900)', flat)
+        self.assertNotIn(
+            '_rl_ok("redeemprobe", "open:all", 100, 900)', flat)
+        # No refund of the global hit returned with the raise.
+        self.assertNotIn('_rl_refund("redeemprobe", "open:all")',
+                         src)
+
+
+class Wave14LauncherTests(unittest.TestCase):
+    """Wave 14 launcher fixes: escape-aware .env parsing, the
+    unquoted-'#' claim/verify shapes, the shutdown SIGKILL
+    escalation capture, and the native-dep loadability gate."""
+
+    def _h(self):
+        return Wave12LauncherTests()
+
+    def _parse(self, env_text):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not available")
+        script = (
+            "const fs=require('fs');"
+            "const src=fs.readFileSync(process.argv[1],'utf8');"
+            "const i=src.indexOf('function parseEngineAdminCreds');"
+            "const j=src.indexOf('\\n}\\n',i);"
+            "eval(src.slice(i,j+3));"
+            "const r=parseEngineAdminCreds(process.argv[2]);"
+            "const codes=s=>s===undefined?null:"
+            "[...s].map(c=>c.charCodeAt(0));"
+            "console.log(JSON.stringify({pw:codes(r.password),"
+            "alt:codes(r.passwordAlt)}));")
+        r = subprocess.run(
+            [node, "-e", script, str(REPO / "bin" / "nexuslocal.js"),
+             env_text], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    @staticmethod
+    def _codes(s):
+        return [ord(c) for c in s]
+
+    # -- Fix 5: quoted values scan escape-aware (dotenv-exact) -----
+    def test_w14_parse_escaped_quote(self):
+        # dotenv: "a\"b#c" -> a\"b#c (the escaped quote is data).
+        out = self._parse(
+            'ENGINE_ADMIN_PASSWORD="a\\"b#c"\n')
+        self.assertEqual(out["pw"], self._codes('a\\"b#c'))
+        # Escaped backslash before the quote: the quote DOES close,
+        # and the trailing comment is dropped.
+        out = self._parse(
+            'ENGINE_ADMIN_PASSWORD="a\\\\" # tail\n')
+        self.assertEqual(out["pw"], self._codes('a\\\\'))
+        # Quote-then-comment (wave-13 case, must not regress).
+        out = self._parse('ENGINE_ADMIN_PASSWORD="abc" # c\n')
+        self.assertEqual(out["pw"], self._codes("abc"))
+        # Adjacent quotes are data throughout (dotenv greedy).
+        out = self._parse('ENGINE_ADMIN_PASSWORD="abc""def"\n')
+        self.assertEqual(out["pw"], self._codes('abc""def'))
+
+    # -- Fix 6 (claim shape): '#' is data unless at start / after
+    #    whitespace; run-12 comment cases keep working --------------
+    def test_w14_parse_unquoted_hash(self):
+        out = self._parse("ENGINE_ADMIN_PASSWORD=p@ss#w0rd!\n")
+        self.assertEqual(out["pw"], self._codes("p@ss#w0rd!"))
+        # Symmetrically, the alternate form is the dotenv
+        # truncation, for records whose engine holds that form.
+        self.assertEqual(out["alt"], self._codes("p@ss"))
+        out = self._parse(
+            "ENGINE_ADMIN_PASSWORD=abc123 # comment\n")
+        self.assertEqual(out["pw"], self._codes("abc123"))
+        # The untruncated form is recorded as the verify alternate.
+        self.assertEqual(out["alt"],
+                         self._codes("abc123 # comment"))
+        out = self._parse("ENGINE_ADMIN_PASSWORD= # none yet\n")
+        self.assertIsNone(out["pw"])
+
+    # -- Fix 5 E2E: verify keeps dotenv-valid escaped credentials --
+    def test_w14_verify_escaped_quote_kept(self):
+        h = self._h()
+        h.ENGINE_PW = 'a\\"b#c'  # chars: a \ " b # c
+        tmp = h._fixture(
+            f"ENGINE_ADMIN_EMAIL={h.ENGINE_EMAIL}\n"
+            'ENGINE_ADMIN_PASSWORD="a\\"b#c"\n')
+        # The fixture stub embeds the expected password in a JS
+        # string literal, which would eat the backslash (\" -> "):
+        # double it in the generated stub so the stub really holds
+        # the 6-char password a \ " b # c.
+        dist = tmp / "app" / "engine" / "server" / "dist" / "index.js"
+        stub = dist.read_text()
+        assert 'a\\"b#c' in stub
+        dist.write_text(stub.replace('a\\"b#c', 'a\\\\"b#c'))
+        proc = h._boot(tmp)
+        try:
+            h._wait_for(proc, tmp,
+                        lambda: len(h._logins(tmp)) >= 1,
+                        what="verify login")
+            time.sleep(1)
+            env_after = (tmp / "app" / ".env").read_text(
+                encoding="utf-8")
+            # Pre-fix the truncated parse 401'd and BOTH credential
+            # lines were deleted behind a false foreign-claim alarm.
+            self.assertIn("ENGINE_ADMIN_PASSWORD", env_after)
+            self.assertIn("ENGINE_ADMIN_EMAIL", env_after)
+            self.assertEqual(h._logins(tmp)[0]["password"],
+                             'a\\"b#c')
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Fix 6 E2E: verify retries the untruncated form before
+    #    anything may be deleted ------------------------------------
+    def test_w14_verify_untruncated_retry_keeps_creds(self):
+        h = self._h()
+        h.ENGINE_PW = "p@ss #w0rd"  # the engine's real password
+        tmp = h._fixture(
+            f"ENGINE_ADMIN_EMAIL={h.ENGINE_EMAIL}\n"
+            "ENGINE_ADMIN_PASSWORD=p@ss #w0rd\n")
+        proc = h._boot(tmp)
+        try:
+            # Primary parse (dotenv form "p@ss") is refused; the
+            # alternate (raw) form is then tried and accepted.
+            h._wait_for(proc, tmp,
+                        lambda: len(h._logins(tmp)) >= 2,
+                        what="verify login + alternate retry")
+            time.sleep(1)
+            self.assertEqual(h._logins(tmp)[0]["password"], "p@ss")
+            self.assertEqual(h._logins(tmp)[1]["password"],
+                             "p@ss #w0rd")
+            env_after = (tmp / "app" / ".env").read_text(
+                encoding="utf-8")
+            self.assertIn("ENGINE_ADMIN_PASSWORD", env_after)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Fix 7: the SIGKILL escalation keeps its captured target ---
+    def test_w14_sigkill_escalation_kills_term_ignoring_grandchild(
+            self):
+        import signal as _signal
+        node = shutil.which("node")
+        if not node or not shutil.which("unshare"):
+            self.skipTest("node/unshare not available")
+        h = self._h()
+        tmp = h._fixture("ENGINE_ADMIN_PASSWORD=<redacted>\n")
+        (tmp / "app" / "engine" / "server" / "node_modules"
+         / "express" / "index.js").unlink()  # gate -> install phase
+        fakebin = tmp / "fakebin"
+        fakebin.mkdir()
+        gc = fakebin / "gc.sh"
+        gc.write_text(
+            "#!/bin/sh\n"
+            "trap '' TERM\n"
+            "echo $$ > \"$GC_PID_FILE\"\n"
+            "while true; do sleep 1; done\n")
+        gc.chmod(0o755)
+        npm_stub = fakebin / "npm"
+        npm_stub.write_text(
+            "#!/bin/sh\n"
+            "echo $$ > \"$NPM_PID_FILE\"\n"
+            "sh \"$GC_SCRIPT\" &\n"
+            "wait\n")
+        npm_stub.chmod(0o755)
+        env = dict(os.environ)
+        env.update({
+            "NPM_PID_FILE": str(tmp / "npm.pid"),
+            "GC_PID_FILE": str(tmp / "gc.pid"),
+            "GC_SCRIPT": str(gc),
+            "PATH": str(fakebin) + os.pathsep + env.get("PATH", ""),
+            "no_proxy": "127.0.0.1,localhost",
+            "NO_PROXY": "127.0.0.1,localhost",
+        })
+        cmd = ["unshare", "-n", "bash", "-c",
+               "ip link set lo up 2>/dev/null; exec "
+               f"{node} {tmp / 'bin' / 'nexuslocal.js'}"]
+        proc = subprocess.Popen(
+            cmd, cwd=str(tmp), env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        gc_pid = None
+        try:
+            h._wait_for(proc, tmp, lambda: (tmp / "gc.pid").exists(),
+                        timeout=60, what="install grandchild running")
+            gc_pid = int((tmp / "gc.pid").read_text().strip())
+            proc.send_signal(_signal.SIGTERM)
+            proc.wait(timeout=15)
+            # The direct child dies on the group SIGTERM (nulling
+            # the global); the grandchild ignores TERM. Only the
+            # captured-pgid SIGKILL escalation can kill it.
+            self.assertTrue(
+                h._pid_dead(tmp / "gc.pid", timeout=8),
+                "TERM-ignoring install grandchild survived "
+                "launcher exit (SIGKILL escalation lost its target)")
+        finally:
+            if gc_pid is not None:
+                try:
+                    os.kill(gc_pid, 9)
+                except Exception:
+                    pass
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- Fix 8: a binding-less better-sqlite3 fails the gate -------
+    def test_w14_gate_bindingless_better_sqlite3_installs(self):
+        if sys.platform == "android":
+            self.skipTest("Android keeps the exemption")
+        h = self._h()
+        tmp = h._fixture("ENGINE_ADMIN_PASSWORD=<redacted>\n")
+        srv = tmp / "app" / "engine" / "server"
+        pkg = json.loads((srv / "package.json").read_text())
+        pkg["optionalDependencies"] = {"better-sqlite3": "^11.0.0"}
+        (srv / "package.json").write_text(json.dumps(pkg))
+        bsq = srv / "node_modules" / "better-sqlite3"
+        bsq.mkdir()
+        (bsq / "package.json").write_text("{}")
+        # Resolves fine, but require() dies exactly like a tree
+        # whose native binding was never built.
+        (bsq / "index.js").write_text(
+            "throw new Error('Could not locate the bindings file');\n")
+        proc = h._boot(tmp)
+        try:
+            h._wait_for(
+                proc, tmp,
+                lambda: (tmp / "startup.log").exists()
+                and "Installing engine dependencies"
+                in (tmp / "startup.log").read_text(errors="replace"),
+                timeout=60,
+                what="npm gate on binding-less better-sqlite3")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class Wave14FaultHarness(_FixtureServerBase):
+    """Carried item A (run-12 revoke-cleanup residual): a friend
+    re-created after a faulted revoke + restart must NOT inherit
+    the stranded per-user settings. Fault injection is the wave-13
+    harness's SAVE_FAULT shape, re-injected on this class's own
+    disposable copy."""
+
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+        sp = cls.tmp / "server.py"
+        txt = sp.read_text()
+        anchor = "def _save_settings():\n"
+        assert txt.count(anchor) == 1
+        sp.write_text(txt.replace(
+            anchor,
+            anchor + "    if (Path(__file__).parent / "
+                     "\"SAVE_FAULT\").exists():\n"
+                     "        return False\n", 1))
+        _respawn_fixture(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def _fault(self, on):
+        flag = self.tmp / "SAVE_FAULT"
+        if on:
+            flag.write_text("x")
+        else:
+            flag.unlink(missing_ok=True)
+
+    def test_w14_recreated_friend_starts_clean(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "add", "label": "inh14",
+             "password": "inh14-pw", "master_pw": MASTER,
+             "role": "moderator", "cap": 777}, admin)
+        self.assertEqual(status, 200, body)
+        # The revoke's cleanup save faults: honest 500, the cleanup
+        # lives only in memory.
+        self._fault(True)
+        try:
+            status, body, _ = self._access(
+                {"action": "revoke", "label": "inh14",
+                 "master_pw": MASTER}, admin)
+            self.assertEqual(status, 500, body)
+            self.assertIn("cleanup could not be saved",
+                          body.get("error", ""), body)
+        finally:
+            self._fault(False)
+        # Restart BEFORE any successful save: the stranded role/cap
+        # resurrect from the persisted settings.
+        _respawn_fixture(self.__class__)
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"global_cap": 0}}, admin)
+        self.assertEqual(status, 200, body)
+        stranded = body.get("settings") or {}
+        self.assertEqual(
+            (stranded.get("roles") or {}).get("inh14"), "moderator")
+        self.assertEqual(
+            (stranded.get("user_caps") or {}).get("inh14"), 777)
+        # Re-create the friend with NO role/cap of its own: the add
+        # must start from a clean slate, not inherit the stranded
+        # entries. Pre-fix the settings below still showed
+        # moderator/777 for the new account.
+        status, body, _ = self._access(
+            {"action": "add", "label": "inh14",
+             "password": "inh14-new-pw", "master_pw": MASTER},
+            admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"global_cap": 0}}, admin)
+        self.assertEqual(status, 200, body)
+        settings = body.get("settings") or {}
+        self.assertNotIn("inh14", settings.get("roles") or {})
+        self.assertNotIn("inh14", settings.get("user_caps") or {})
+        status, _, _ = self._login("inh14-new-pw")
+        self.assertEqual(status, 200)
+        # And the clean slate persists across another restart.
+        _respawn_fixture(self.__class__)
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"global_cap": 0}}, admin)
+        settings = body.get("settings") or {}
+        self.assertNotIn("inh14", settings.get("roles") or {})
+        self.assertNotIn("inh14", settings.get("user_caps") or {})
 
 
 if __name__ == "__main__":

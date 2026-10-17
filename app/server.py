@@ -445,10 +445,12 @@ def _cas_rollback_invite_remove(removed):
     if not isinstance(live, list):
         return
     have = {i.get("h") for i in live}
-    if _OUTCOME_PERSISTED:
-        _pi = (_OUTCOME_PERSISTED[-1] or {}).get("invites")
-        if isinstance(_pi, list):
-            have |= {i.get("h") for i in _pi}
+    # Wave 14 (run-13 settings): NO union with the judged persisted
+    # snapshot here. This helper's pred is NEGATIVE (revoke success =
+    # the invite ABSENT from persisted), so an entry present in the
+    # persisted snapshot is exactly the failure state this rollback
+    # exists to re-add live — the wave-13 union made the rollback an
+    # exact no-op precisely when the revoke save faulted.
     add = [i for i in (removed or []) if i.get("h") not in have]
     if add:
         _SETTINGS["invites"] = list(live) + add
@@ -646,8 +648,38 @@ def _provider_blocked(provider, exclude=None):
     _l = _lims13.get(provider)
     if _l:
         try:
-            return _today_counts(fresh=True)["providers"].get(provider, 0) \
-                + _inflight_n(provider=provider, exclude=exclude) >= int(_l)
+            _done14 = _today_counts(fresh=True)["providers"].get(
+                provider, 0)
+            if exclude is not None:
+                # Wave 14 (run-13 caps): a born-tagged caller (the
+                # media surfaces) is judged with the spend-leg form:
+                # its RANK among the provider's live reservations
+                # (in reservation order) takes the place of the raw
+                # in-flight count, and it is refused only when
+                # completed + rank passes the limit. Two concurrent
+                # spends at the last slot therefore admit exactly
+                # one — the earlier reservation — whichever check
+                # runs first. The old >= form counted the PEER in
+                # full (exclude=self removed only its own) and
+                # refused BOTH (0 admitted).
+                _inflight_n(provider=provider)  # prune expired first
+                with _INFLIGHT_LOCK:
+                    _rank14 = 0
+                    _found14 = False
+                    for _e14 in _INFLIGHT:
+                        if _e14["provider"] == provider:
+                            _rank14 += 1
+                            if _e14 is exclude:
+                                _found14 = True
+                                break
+                if _found14:
+                    return _done14 + _rank14 > int(_l)
+                # The caller's reservation is not tagged with this
+                # provider (a funding-lane side check): the old form.
+                return _done14 + _inflight_n(
+                    provider=provider, exclude=exclude) >= int(_l)
+            return _done14 + _inflight_n(
+                provider=provider, exclude=exclude) >= int(_l)
         except Exception:
             return False
     return False
@@ -1428,6 +1460,12 @@ def _inflight_count_locked(provider=None):
 
 
 def _inflight_reserve_capped(user, provider, completed, limit):
+    # Wave 14 (run-13 caps): `completed` may be a zero-arg callable;
+    # it is then invoked INSIDE the lock hold below, so completed +
+    # in-flight are ONE snapshot. Callers used to compute it before
+    # the call, and a peer completing in that gap left the count
+    # stale (2 spends against a limit of 1). A callable that raises
+    # falls back to the callers' old no-cap shape (reservation kept).
     """Wave 13 (run-12 caps): ONE locked reserve+count primitive.
     The old reserve-then-count shape added, counted and dropped in
     three separate operations, so two concurrent spends at a limit
@@ -1445,6 +1483,11 @@ def _inflight_reserve_capped(user, provider, completed, limit):
                 _lim13 = int(limit)
             except Exception:
                 return res
+            if callable(completed):
+                try:
+                    completed = completed()
+                except Exception:
+                    return res
             if completed + _inflight_count_locked(provider) > _lim13:
                 _inflight_drop_locked(res)
                 return None
@@ -3870,15 +3913,11 @@ def _v1_chat(messages, model, temperature=None):
         # the peer's reservation, both dropped: 0 hits).
         _lim = _lims13.get(lane)
         if _lim:
-            try:
-                _completed = _today_counts(fresh=True)["providers"].get(
-                    lane, 0)
-            except Exception:
-                _completed = 0
-                _lim = None
-        if _lim:
-            _vres = _inflight_reserve_capped("v1", lane, _completed,
-                                             _lim)
+            _vres = _inflight_reserve_capped(
+                "v1", lane,
+                lambda: _today_counts(fresh=True)["providers"].get(
+                    lane, 0),
+                _lim)
             if _vres is None:
                 continue
         else:
@@ -8160,13 +8199,10 @@ class Handler(BaseHTTPRequestHandler):
                 _l = _lims13.get(p)
                 if not _l:
                     return _inflight_add(_chat_label, p, attempt=True)
-                try:
-                    _completed = _today_counts(
-                        fresh=True)["providers"].get(p, 0)
-                except Exception:
-                    return _inflight_add(_chat_label, p, attempt=True)
                 return _inflight_reserve_capped(
-                    _chat_label, p, _completed, _l)
+                    _chat_label, p,
+                    lambda: _today_counts(
+                        fresh=True)["providers"].get(p, 0), _l)
 
             _kept = [(p, m) for (p, m) in _attempts if _lane_ok(p)]
             if not _kept:
@@ -8641,9 +8677,10 @@ class Handler(BaseHTTPRequestHandler):
                 # legitimate signups), but per-source alone lets one
                 # host rotate IPv6 sources for an unbounded
                 # taken/free oracle, dropping the run-8 cross-source
-                # budget invariant. 100 verdicts/900s across all
-                # sources is far above any plausible legitimate
-                # signup volume for this deployment. Both buckets
+                # budget invariant. 250 verdicts/900s across all
+                # sources (100 until wave 14) is far above any
+                # plausible legitimate signup volume for this
+                # deployment. Both buckets
                 # are consumed BEFORE the verdict, so post-budget
                 # taken and free stay indistinguishable in scope.
                 _probe_ok = _rl_ok("redeemprobe", _probe_key, 10, 900)
@@ -8658,8 +8695,13 @@ class Handler(BaseHTTPRequestHandler):
                         password.encode()).hexdigest()
                     _probe_ok = _rl_ok("redeemprobe", _cand13, 10, 900)
                 if _probe_ok and not code:
+                    # Wave 14 (run-13 auth, MITIGATION): the bound is
+                    # raised 100 -> 250/900 for headroom only —
+                    # successes still accrue against it exactly like
+                    # verdicts (no refund returns; run-12's closure
+                    # holds) and the per-candidate cap still binds.
                     _probe_ok = _rl_ok("redeemprobe", "open:all",
-                                       100, 900)
+                                       250, 900)
                 if not _probe_ok:
                     _audit("Auth", f"Invite signup refused, probe budget exhausted: {label}")
                     self._set_json_headers(429)
@@ -8760,15 +8802,21 @@ class Handler(BaseHTTPRequestHandler):
                         # running server does not claim it either.
                         # (terms_seen alone stays best-effort.)
                         if _w10_role:
+                            # Wave 14 (run-13 settings): the rollback
+                            # is passed INTO the outcome call like
+                            # every other checked site — wave 13 ran
+                            # it manually afterwards, with an empty
+                            # _OUTCOME_PERSISTED (no identical-peer
+                            # protection) and even on "conflict",
+                            # where the contract is NO rollback.
                             _roc13 = _settings_outcome(
                                 _rsv13,
                                 lambda s: (s.get("roles") or {}).get(
-                                    label) == role)
+                                    label) == role,
+                                lambda: _cas_rollback_dict_entry(
+                                    "roles", label,
+                                    _prior_roles13, _new_roles13))
                             if _roc13 != "ok":
-                                with _SETTINGS_LOCK:
-                                    _cas_rollback_dict_entry(
-                                        "roles", label,
-                                        _prior_roles13, _new_roles13)
                                 self._set_json_headers(
                                     409 if _roc13 == "conflict" else 500)
                                 self.wfile.write(json.dumps(
@@ -8788,7 +8836,8 @@ class Handler(BaseHTTPRequestHandler):
                 _rl_refund("redeemprobe", _probe_key)
                 # Wave 13 (run-12 auth): the GLOBAL hit is NOT
                 # refunded any more — successes accrue against the
-                # 100/900 ceiling exactly like taken verdicts, so
+                # global ceiling (250/900 since wave 14) exactly
+                # like taken verdicts, so
                 # free verdicts share the cross-source bound again.
                 # The per-source refund above stays (F11 fairness).
             _audit("Users", f"Signed up via invite: {label} ({role})",
@@ -10306,6 +10355,57 @@ class Handler(BaseHTTPRequestHandler):
                     _fresh[label] = _new_hash
                     _save_access(_fresh, None if _mod_add else master_pw)
                     access = _fresh
+                # Wave 14 (run-12 revoke-cleanup residual): the new
+                # account starts from a CLEAN per-user slate. Revoke's
+                # settings cleanup lives only in memory until a save
+                # persists it; a restart in that window resurrects
+                # the stranded entries, and a same-label re-created
+                # friend used to INHERIT them. Clearing the label's
+                # entries here — the same set revoke's cleanup clears
+                # (roles, user_caps, vault_meta, suspended,
+                # terms_seen, oauth_links) — closes inheritance for
+                # every stranding path; the role/cap this add itself
+                # explicitly passes are applied fresh below.
+                with _SETTINGS_LOCK:
+                    _cl14 = False
+                    for _k14 in ("roles", "user_caps", "vault_meta"):
+                        _d14 = dict(_SETTINGS.get(_k14) or {})
+                        if label in _d14:
+                            _d14.pop(label, None)
+                            _SETTINGS[_k14] = _d14
+                            _cl14 = True
+                    for _k14 in ("suspended", "terms_seen"):
+                        _l14 = [x for x in
+                                (_SETTINGS.get(_k14) or [])
+                                if x != label]
+                        if _l14 != (_SETTINGS.get(_k14) or []):
+                            _SETTINGS[_k14] = _l14
+                            _cl14 = True
+                    _ol14 = [e for e in
+                             (_SETTINGS.get("oauth_links") or [])
+                             if not (isinstance(e, dict)
+                                     and e.get("label") == label)]
+                    if _ol14 != (_SETTINGS.get("oauth_links") or []):
+                        _SETTINGS["oauth_links"] = _ol14
+                        _cl14 = True
+                if _cl14:
+                    _coc14 = _settings_outcome(
+                        _save_settings(),
+                        lambda s: label not in (s.get("roles") or {})
+                        and label not in (s.get("user_caps") or {})
+                        and label not in (s.get("vault_meta") or {})
+                        and label not in (s.get("suspended") or [])
+                        and label not in (s.get("terms_seen") or [])
+                        and not any(
+                            isinstance(e, dict)
+                            and e.get("label") == label
+                            for e in (s.get("oauth_links") or [])))
+                    if _coc14 != "ok":
+                        self._set_json_headers(
+                            409 if _coc14 == "conflict" else 500)
+                        self.wfile.write(json.dumps(
+                            {"error": "friend added, but leftover settings from a previous account with this name could not be cleared — clear them from the console"}).encode())
+                        return
                 # Optional role + cap straight from the add-user dialog.
                 _nrole = (data.get("role") or "friend").strip()
                 if _nrole in ("moderator", "viewer") \
