@@ -4659,9 +4659,16 @@ class Wave13UnitTests(unittest.TestCase):
         # line start on CRLF files; the read-side parser keeps
         # the \s form. The export-prefix-everywhere property is
         # the SUM over both forms.
+        # Wave 19 (run-18 L18-L2): the write-back classes widened
+        # again — [ \t] became [^\S\r\n] (every whitespace the
+        # parser accepts: VT/FF/NBSP leads included; still never
+        # CR/LF) — so the write-back export prefix is now the
+        # (?:export[^\S\r\n]+)? form and the property is the SUM
+        # over all three forms.
         self.assertGreaterEqual(
             js.count("(?:export\\s+)?")
-            + js.count("(?:export[ \\t]+)?"), 4)
+            + js.count("(?:export[ \\t]+)?")
+            + js.count("(?:export[^\\S\\r\\n]+)?"), 4)
         # Wave 14 (run-13 L13-2): the unquoted '#' rule is the
         # whitespace-aware match now, and the parser records the
         # alternate form for verify's one retry — the wave-13

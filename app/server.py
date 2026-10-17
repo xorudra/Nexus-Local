@@ -227,6 +227,10 @@ _SETTINGS_DEFAULTS = {
     "backup_snapshot": None,    # last auto-backup {ts, config}
     "last_digest": "",          # date/week stamp of the last digest sent
     "last_backup": "",          # date stamp of the last auto-backup
+    # Wave 19 (run-18 D18-2): users.enc divergence record —
+    # None, or {"ts":…, "intended_labels":[…]} written when a
+    # users.enc backup write failed; see _note_backup_diverged.
+    "access_backup_diverged": None,
 }
 _SETTINGS = dict(_SETTINGS_DEFAULTS)
 _BOOT_TS = time.time()
@@ -3203,6 +3207,66 @@ def _load_access():
         pass
     return {}
 
+# Wave 19 (run-18 D18-2): persistent divergence record for the
+# users.enc disaster backup. Invariant: the flag is present IFF
+# users.enc MAY differ from the last dict a master-bearing save
+# intended to persist there, and intended_labels is that dict's
+# label set. Any successful users.enc write makes users.enc equal
+# to the dict just written (which is also the live store at that
+# moment), so success CLEARS the flag; a failed write RAISES it
+# with the set that failed to land. The record lives in a
+# _SETTINGS key: settings.enc rides the same friend_blob sync as
+# users.enc and is readable without a master context, so the flag
+# survives every restore shape users.enc itself survives. An
+# in-memory copy backs it up when the settings save itself fails
+# (if only the persisted copy survives a clear attempt, the
+# idempotent login merge simply re-runs and re-clears it).
+_BACKUP_DIVERGED_MEM = [None]
+
+
+def _backup_diverged():
+    v = None
+    try:
+        v = _SETTINGS.get("access_backup_diverged")
+    except Exception:
+        pass
+    if not (isinstance(v, dict)
+            and isinstance(v.get("intended_labels"), list)):
+        v = _BACKUP_DIVERGED_MEM[0]
+    if isinstance(v, dict) \
+            and isinstance(v.get("intended_labels"), list):
+        return v
+    return None
+
+
+def _note_backup_diverged(intended_labels):
+    rec = {"ts": int(time.time()),
+           "intended_labels": sorted(intended_labels)}
+    _BACKUP_DIVERGED_MEM[0] = rec
+    try:
+        _SETTINGS["access_backup_diverged"] = rec
+    except Exception:
+        pass
+    try:
+        _save_settings()
+    except Exception:
+        pass
+
+
+def _clear_backup_diverged():
+    if _backup_diverged() is None:
+        return
+    _BACKUP_DIVERGED_MEM[0] = None
+    try:
+        _SETTINGS["access_backup_diverged"] = None
+    except Exception:
+        pass
+    try:
+        _save_settings()
+    except Exception:
+        pass
+
+
 def _save_access(d, master_pw=None):
     # Mirror FIRST, working file second (audit run-5): at boot the
     # mirror is the source of truth, so a crash between the two
@@ -3215,8 +3279,18 @@ def _save_access(d, master_pw=None):
         try:
             encrypt_keys(d, master_pw, USERS_PATH)
             os.chmod(USERS_PATH, 0o600)
+            # Wave 19 (D18-2): a successful users.enc write IS
+            # proven convergence — users.enc now equals the dict
+            # just written to the live stores — so any recorded
+            # divergence is healed by this write.
+            _clear_backup_diverged()
         except Exception:
-            pass
+            # Wave 19 (D18-2): never swallow silently — record
+            # the divergence and the intended label set, so a
+            # later login restore can exclude stale backup
+            # labels (a revoked label stays revoked) instead of
+            # treating the stale backup as truth.
+            _note_backup_diverged(sorted(d.keys()))
 
 def _carry_over_master_rotation(cur, new):
     """Re-encrypt every master-keyed artefact under a NEW master
@@ -3298,6 +3372,12 @@ def _restore_access(master_pw):
                 needs = not isinstance(existing, dict) or not existing
             except Exception:
                 needs = True
+        # Wave 19 (run-18 D18-2): a recorded users.enc
+        # divergence also forces the merge — the live store may
+        # be non-empty while the backup is stale in either
+        # direction, and the needs-gate alone would never retry.
+        if _backup_diverged() is not None:
+            needs = True
         if needs and USERS_PATH.exists():
             # Wave 18 (run-17 AUTH17-1): decrypt OUTSIDE the lock
             # (the ~0.7s PBKDF2 must not stall creations), then
@@ -3307,32 +3387,79 @@ def _restore_access(master_pw):
             # hunter's skip-on-nonempty shape was rejected: it
             # deterministically sacrifices the restored friends
             # instead. Current store wins every label conflict.
-            _b18 = USERS_PATH.read_bytes()
-            d = decrypt_keys(USERS_PATH, master_pw)
-            if not isinstance(d, dict):
-                return
-            with _ACCESS_LOCK:
-                if USERS_PATH.read_bytes() != _b18:
-                    # A master_pw-bearing save landed mid-decrypt:
-                    # judge the fresh bytes, not the stale dict —
-                    # this is what keeps a label revoked inside
-                    # the window from being resurrected.
-                    d = decrypt_keys(USERS_PATH, master_pw)
-                    if not isinstance(d, dict):
-                        return
-                _cur18 = _load_access()
-                if not isinstance(_cur18, dict):
-                    _cur18 = {}
-                merged = dict(d)
-                merged.update(_cur18)
-                _write_access_enc(merged)
-                ACCESS_PATH.write_text(json.dumps(merged, indent=2))
+            # Wave 19 (run-18 D18-1): the bytes guard is an
+            # OUTSIDE-LOCK RETRY LOOP — if users.enc changed
+            # mid-decrypt, the lock is released, the fresh bytes
+            # are re-decrypted outside it, and the merge retries
+            # (bounded 3 attempts, then fall back to judging the
+            # freshest bytes under the lock, the wave-18 shape).
+            # No decrypt runs inside the lock on the retry path.
+            # The two in-lock encrypts (mirror + backup
+            # convergence, inside _merge19) stay: the merged dict
+            # depends on the in-lock current-store read, so they
+            # cannot be pre-computed — their ~0.65s divergent-case
+            # hold is the documented accepted cost.
+            def _merge19(d19):
+                # Runs under _ACCESS_LOCK. Wave 19 (D18-2): when
+                # a divergence flag is set, backup-sourced labels
+                # are capped to the flag's intended set — labels
+                # the last intended dict did not contain (e.g. one
+                # revoked before the fault) stay excluded; labels
+                # in the intended set but missing from the backup
+                # are recovered from the live store via the
+                # current-wins update below.
+                flag19 = _backup_diverged()
+                if flag19 is not None:
+                    keep19 = set(flag19.get("intended_labels")
+                                 or [])
+                    d19 = {k: v for k, v in d19.items()
+                           if k in keep19}
+                _cur19 = _load_access()
+                if not isinstance(_cur19, dict):
+                    _cur19 = {}
+                merged19 = dict(d19)
+                merged19.update(_cur19)
+                _write_access_enc(merged19)
+                ACCESS_PATH.write_text(
+                    json.dumps(merged19, indent=2))
                 try:
                     # Converge the backup too, or a second wipe
                     # episode re-loses the merged creation.
-                    encrypt_keys(merged, master_pw, USERS_PATH)
+                    encrypt_keys(merged19, master_pw, USERS_PATH)
+                    # Proven convergence: the backup now equals
+                    # the live store this merge just wrote.
+                    _clear_backup_diverged()
                 except Exception:
-                    pass
+                    _note_backup_diverged(sorted(merged19.keys()))
+                return merged19
+
+            _done19 = False
+            for _attempt19 in range(3):
+                _b19 = USERS_PATH.read_bytes()
+                d = decrypt_keys(USERS_PATH, master_pw)
+                if not isinstance(d, dict):
+                    return
+                with _ACCESS_LOCK:
+                    if USERS_PATH.read_bytes() == _b19:
+                        _merge19(d)
+                        _done19 = True
+                if _done19:
+                    break
+                # Bytes changed mid-decrypt (a master-bearing
+                # save landed in the window): loop and re-decrypt
+                # OUTSIDE the lock — this is what keeps a label
+                # revoked inside the window from being
+                # resurrected, without holding the lock across
+                # the PBKDF2 decrypt.
+            if not _done19:
+                # Bounded retries exhausted: fall back to judging
+                # the freshest bytes under the lock (wave-18
+                # shape), rather than failing the restore.
+                with _ACCESS_LOCK:
+                    d = decrypt_keys(USERS_PATH, master_pw)
+                    if not isinstance(d, dict):
+                        return
+                    _merge19(d)
     except Exception:
         pass
 

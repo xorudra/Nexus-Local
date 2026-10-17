@@ -56,7 +56,14 @@ function parseEngineAdminCreds(envTxt) {
   let txt = envTxt || "";
   if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
   const out = { hasEmail: false, hasPassword: false };
-  for (const line of txt.split(/\r?\n/)) {
+  // Wave 19 (run-18 launcher L18-L1): split on every line
+  // ending dotenv accepts — /\r\n|\r|\n/ — not just /\r?\n/:
+  // a piece ending in a lone \r failed the per-line $ anchor
+  // below, so CRCRLF / CR-only / trailing-CR-at-EOF records
+  // read as ABSENT to the launcher while the engine's dotenv
+  // recovered them (a permanent false foreign-claim alarm,
+  // and the claim was never verified).
+  for (const line of txt.split(/\r\n|\r|\n/)) {
     const m = line.match(/^\s*(?:export\s+)?(ENGINE_ADMIN_EMAIL|ENGINE_ADMIN_PASSWORD)\s*=\s*(.*)$/);
     if (!m) continue;
     const isEmail = m[1] === "ENGINE_ADMIN_EMAIL";
@@ -188,9 +195,16 @@ function removeEngineAdminCreds(envFile) {
   // on a CRLF .env a rewrite glued the cred line onto its
   // neighbour and the launcher's own parser read it back as
   // absent (a permanent false foreign-claim alarm).
+  // Wave 19 (run-18 launcher L18-L2): the class is now
+  // [^\S\r\n] — every whitespace the PARSER accepts (its ^\s*
+  // covers VT/FF/NBSP leads, which the horizontal-only
+  // narrowing silently no-oped on: a claim password recorded
+  // nowhere, a removal that removed nothing) — while still
+  // never crossing a line boundary (CR/LF excluded), so
+  // wave 18's CRLF safety holds.
   const envTxt = fs.readFileSync(envFile, "utf8");
   fs.writeFileSync(envFile,
-    envTxt.replace(/^\uFEFF?[ \t]*(?:export[ \t]+)?ENGINE_ADMIN_(EMAIL|PASSWORD)[ \t]*=.*\r?\n?/gm, ""));
+    envTxt.replace(/^\uFEFF?[^\S\r\n]*(?:export[^\S\r\n]+)?ENGINE_ADMIN_(EMAIL|PASSWORD)[^\S\r\n]*=.*\r?\n?/gm, ""));
   try { fs.chmodSync(envFile, 0o600); } catch (e) {}
 }
 
@@ -294,6 +308,54 @@ async function main() {
   process.on("SIGINT", () => shutdown(0));
   process.on("SIGTERM", () => shutdown(0));
   process.on("SIGHUP", () => shutdown(0));
+  // Wave 19 (run-18 launcher L18-L3): single-instance lock,
+  // taken before the port probe / any spawn / any engine
+  // traffic — the probe cannot see a sibling whose engine
+  // child has spawned but is not LISTENING yet, and a second
+  // launcher used to claim that sibling's engine. The lock
+  // file lives beside the launcher's other state (PKG_ROOT,
+  // like startup.log), names its holder's pid, and is held
+  // for the process lifetime. A stale lock (holder provably
+  // dead) is reclaimed once; a live holder — or a pid that
+  // cannot be read, which cannot be proven dead — means
+  // another launcher owns this install and this one exits.
+  const _lockPath19 = path.join(PKG_ROOT, ".nexuslocal.lock");
+  let _lockFd19 = null;
+  for (let _att19 = 0; _att19 < 2 && _lockFd19 === null;
+       _att19++) {
+    try {
+      _lockFd19 = fs.openSync(_lockPath19, "wx");
+    } catch (e) {
+      if (!e || e.code !== "EEXIST") {
+        log("ERROR: could not take the single-instance lock ("
+            + ((e && e.message) || e) + ") — exiting.");
+        process.exit(1);
+      }
+      let _pid19 = NaN;
+      try {
+        _pid19 = parseInt(
+          fs.readFileSync(_lockPath19, "utf8").trim(), 10);
+      } catch (e2) {}
+      let _alive19 = true;
+      if (Number.isFinite(_pid19) && _pid19 > 0) {
+        try { process.kill(_pid19, 0); }
+        catch (e3) { _alive19 = !!(e3 && e3.code === "EPERM"); }
+      }
+      if (_alive19 || _att19 === 1) {
+        log("nexuslocal is already running — exiting.");
+        process.exit(0);
+      }
+      try { fs.unlinkSync(_lockPath19); } catch (e4) {}
+    }
+  }
+  if (_lockFd19 !== null) {
+    try { fs.writeSync(_lockFd19, String(process.pid)); }
+    catch (e) {}
+    process.on("exit", () => {
+      try { fs.closeSync(_lockFd19); } catch (e) {}
+      try { fs.unlinkSync(_lockPath19); } catch (e) {}
+    });
+  }
   console.log("============================================");
   console.log(" Nexus-Local - Your Personal AI Dashboard");
   console.log("============================================\n");
@@ -746,13 +808,13 @@ async function main() {
               pw = require("crypto").randomBytes(24).toString("hex");
               let txt = envTxt, add = "";
               if (pmEmpty) {
-                txt = txt.replace(/^\uFEFF?[ \t]*(?:export[ \t]+)?ENGINE_ADMIN_PASSWORD[ \t]*=.*$/m,
+                txt = txt.replace(/^\uFEFF?[^\S\r\n]*(?:export[^\S\r\n]+)?ENGINE_ADMIN_PASSWORD[^\S\r\n]*=.*$/m,
                                   `ENGINE_ADMIN_PASSWORD=${pw}`);
               } else {
                 add += `\nENGINE_ADMIN_PASSWORD=${pw}\n`;
               }
               if (emEmpty) {
-                txt = txt.replace(/^\uFEFF?[ \t]*(?:export[ \t]+)?ENGINE_ADMIN_EMAIL[ \t]*=.*$/m,
+                txt = txt.replace(/^\uFEFF?[^\S\r\n]*(?:export[^\S\r\n]+)?ENGINE_ADMIN_EMAIL[^\S\r\n]*=.*$/m,
                                   `ENGINE_ADMIN_EMAIL=${email}`);
               } else if (!_creds.hasEmail) {
                 add += `\nENGINE_ADMIN_EMAIL=${email}`;
@@ -769,7 +831,7 @@ async function main() {
               // shadowed duplicate.
               if (emEmpty) {
                 fs.writeFileSync(envFile, envTxt.replace(
-                  /^\uFEFF?[ \t]*(?:export[ \t]+)?ENGINE_ADMIN_EMAIL[ \t]*=.*$/m,
+                  /^\uFEFF?[^\S\r\n]*(?:export[^\S\r\n]+)?ENGINE_ADMIN_EMAIL[^\S\r\n]*=.*$/m,
                   `ENGINE_ADMIN_EMAIL=${email}`));
               } else {
                 fs.appendFileSync(envFile, `\nENGINE_ADMIN_EMAIL=${email}\n`);
