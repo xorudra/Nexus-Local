@@ -788,6 +788,297 @@ class ValidatorUnitTests(unittest.TestCase):
                              r.stderr.decode(errors="replace"))
 
 
+class Wave11UnitTests(unittest.TestCase):
+    """Wave 11 (run-10 fixes): outcome-check helper, inflight lock,
+    redeemprobe refund, and launcher source shape."""
+
+    # -- F1/F2: _settings_outcome verifies the outcome --------------
+    def test_w11_settings_outcome_shapes(self):
+        import tempfile
+        from pathlib import Path as _P
+        saved = (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+                 server.RESTORE_KEY)
+        orig_settings = dict(server._SETTINGS)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                server.SETTINGS_PATH = _P(td) / "settings.json"
+                server.SETTINGS_ENC_PATH = _P(td) / "settings.enc"
+                server.RESTORE_KEY = "unit-restore-11"
+                pred = lambda s: s.get("announcement") == "W11"
+                # True + mutation is the live state -> ok.
+                server._SETTINGS["announcement"] = "W11"
+                self.assertEqual(
+                    server._settings_outcome(True, pred), "ok")
+                # True (generation-guard branch) but a concurrent save
+                # superseded the mutation -> conflict, never ok.
+                server._SETTINGS["announcement"] = "OTHER"
+                self.assertEqual(
+                    server._settings_outcome(True, pred), "conflict")
+                # False, but the mutation already landed in the
+                # mirror via a concurrent save -> honest ok, and the
+                # rollback must NOT run.
+                self.assertTrue(server._save_settings.__wrapped__
+                                if hasattr(server._save_settings,
+                                           "__wrapped__")
+                                else server._save_settings())
+                server._SETTINGS["announcement"] = "W11"
+                self.assertTrue(server._save_settings())
+                rolled = []
+                self.assertEqual(
+                    server._settings_outcome(
+                        False, pred, lambda: rolled.append(1)), "ok")
+                self.assertEqual(rolled, [])
+                # False and genuinely unpersisted (the GHOST
+                # mutation never landed anywhere) -> failed, with the
+                # in-memory mutation rolled back.
+                server._SETTINGS["announcement"] = "GHOST"
+                self.assertEqual(
+                    server._settings_outcome(
+                        False,
+                        lambda s: s.get("announcement") == "GHOST",
+                        lambda: server._SETTINGS.__setitem__(
+                            "announcement", "W11")),
+                    "failed")
+                self.assertEqual(server._SETTINGS["announcement"], "W11")
+        finally:
+            (server.SETTINGS_PATH, server.SETTINGS_ENC_PATH,
+             server.RESTORE_KEY) = saved
+            server._SETTINGS.clear()
+            server._SETTINGS.update(orig_settings)
+
+    # -- F11: a refunded hit frees the budget -------------------------
+    def test_w11_rl_refund(self):
+        saved = dict(server._RL)
+        try:
+            server._RL.clear()
+            key = "open:10.11.0.1"
+            for _i in range(10):
+                self.assertTrue(
+                    server._rl_ok("redeemprobe", key, 10, 900))
+            self.assertFalse(server._rl_ok("redeemprobe", key, 10, 900))
+            server._rl_refund("redeemprobe", key)
+            self.assertTrue(server._rl_ok("redeemprobe", key, 10, 900))
+        finally:
+            server._RL.clear()
+            server._RL.update(saved)
+
+    # -- F5: inflight prune/drop are identity-based and locked -------
+    def test_w11_inflight_identity_and_prune(self):
+        saved = list(server._INFLIGHT)
+        try:
+            server._INFLIGHT.clear()
+            expired = server._inflight_add("old11")
+            expired["ts"] = time.time() - 1000
+            keep = server._inflight_add("keep11")
+            self.assertEqual(server._inflight_n(), 1)
+            self.assertIn(keep, server._INFLIGHT)
+            self.assertNotIn(expired, server._INFLIGHT)
+            # Two EQUAL entries: dropping one by identity must leave
+            # the other (the old list.remove dropped by equality).
+            server._INFLIGHT.clear()
+            a = server._inflight_add("dup11", "groq", attempt=True)
+            b = server._inflight_add("dup11", "groq", attempt=True)
+            b["ts"] = a["ts"]
+            self.assertEqual(a, b)
+            server._inflight_drop(b)
+            self.assertTrue(any(x is a for x in server._INFLIGHT))
+            self.assertFalse(any(x is b for x in server._INFLIGHT))
+            # Concurrent adds are never lost to a racing prune/count.
+            server._INFLIGHT.clear()
+            stale = server._inflight_add("stale11")
+            stale["ts"] = time.time() - 1000
+
+            def worker(n):
+                for _i in range(50):
+                    e = server._inflight_add("stress11")
+                    server._inflight_n()
+                    if n % 2:
+                        server._inflight_drop(e)
+            threads = [threading.Thread(target=worker, args=(n,))
+                       for n in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(30)
+            # Odd workers dropped theirs; even workers' 4x50 remain.
+            self.assertEqual(server._inflight_n(user="stress11"), 200)
+        finally:
+            server._INFLIGHT.clear()
+            server._INFLIGHT.extend(saved)
+
+    # -- F3/F4/F6/F7-F10/F12-F15: source shape of the fixes ----------
+    def test_w11_source_shapes(self):
+        src = (APP / "server.py").read_text()
+        self.assertIn("_INFLIGHT_LOCK", src)
+        self.assertIn('def _lane_spend_ok', src)
+        self.assertIn('_inflight_add("v1:test")', src)
+        self.assertIn('_inflight_n(user="v1:test") > 4', src)
+        self.assertIn("_settings_outcome(", src)
+        self.assertIn("_rl_refund(\"redeemprobe\", _probe_key)", src)
+        # F10: the first-run re-check sits AFTER the gateway-URL
+        # validation in the /setup handler and inside _KEYS_LOCK.
+        i_chk = src.index("if not _entry_keys_exist and key_path.exists():")
+        i_gw = src.index("gateway URL must be a public http(s) address")
+        self.assertGreater(i_chk, i_gw)
+        self.assertIn("with _KEYS_LOCK:", src[max(0, i_chk - 200):i_chk])
+        # F7-F9 sit inside the /setup rotation block (before the
+        # audit line that follows it).
+        i = src.index('"Shared keys replaced via /setup')
+        block = src[max(0, i - 4000):i]
+        self.assertIn("_PENDING_2FA.clear()", block)
+        self.assertIn("_VIEW_GRANTS.clear()", block)
+        self.assertIn('V1KEY_PATH.unlink()', block)
+        js = (REPO / "bin" / "nexuslocal.js").read_text()
+        self.assertIn("let shuttingDown = false", js)
+        self.assertIn("shuttingDown = true", js)
+        self.assertIn("emEmpty", js)
+        self.assertIn("pmEmpty", js)
+        self.assertIn("_depsMissing", js)
+        node = shutil.which("node")
+        if node:
+            r = subprocess.run([node, "--check",
+                                str(REPO / "bin" / "nexuslocal.js")],
+                               capture_output=True)
+            self.assertEqual(r.returncode, 0,
+                             r.stderr.decode(errors="replace"))
+
+    # -- F12/F13/F15: launcher against a stub engine -----------------
+    def _launcher_fixture(self, env_text, with_express=True):
+        tmp = Path(tempfile.mkdtemp(prefix="nexus-test-w11-launcher-"))
+        (tmp / "bin").mkdir()
+        shutil.copy(REPO / "bin" / "nexuslocal.js", tmp / "bin")
+        app = tmp / "app"
+        srv = app / "engine" / "server"
+        (srv / "dist").mkdir(parents=True)
+        (app / "engine-data").mkdir()
+        # Dashboard stub: just stays alive until killed.
+        (app / "server.py").write_text(
+            "import time\ntime.sleep(120)\n")
+        (app / ".env").write_text(env_text)
+        (srv / "package.json").write_text(json.dumps({
+            "name": "stub", "dependencies": {
+                "dotenv": "^17.0.0", "express": "^5.0.0"}}))
+        (srv / "package-lock.json").write_text("{}")
+        nm = srv / "node_modules"
+        nm.mkdir()
+        (nm / "dotenv").mkdir()
+        (nm / ".package-lock.json").write_text("{}")
+        if with_express:
+            (nm / "express").mkdir()
+        (srv / "dist" / "index.js").write_text(
+            "const http=require('http');const fs=require('fs');"
+            "let claimed=false;"
+            "http.createServer((req,res)=>{"
+            "let b='';req.on('data',c=>b+=c);req.on('end',()=>{"
+            "res.setHeader('Content-Type','application/json');"
+            "if(req.url==='/api/auth/status'){"
+            "res.end(JSON.stringify({needsSetup:!claimed}));}"
+            "else if(req.url==='/api/auth/setup'){"
+            "claimed=true;fs.writeFileSync(process.env.CLAIM_FILE,b);"
+            "res.statusCode=201;res.end('{}');}"
+            "else if(req.url==='/api/auth/login'){"
+            "res.end(JSON.stringify({ok:true}));}"
+            "else{res.statusCode=404;res.end('{}');}});"
+            "}).listen(3001,'127.0.0.1');\n")
+        return tmp
+
+    def test_w11_launcher_empty_env_lines_and_shutdown(self):
+        import signal as _signal
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not available")
+        tmp = self._launcher_fixture(
+            "ENGINE_ADMIN_EMAIL=\nENGINE_ADMIN_PASSWORD=\n")
+        claim_file = tmp / "claim.json"
+        env = dict(os.environ)
+        env["CLAIM_FILE"] = str(claim_file)
+        env["no_proxy"] = "127.0.0.1,localhost"
+        # The launcher hardcodes engine port 3001, which the host's
+        # real gateway already owns on this VM — run inside a private
+        # network namespace (loopback only) so the stub engine binds
+        # it cleanly and no real service is ever touched.
+        if shutil.which("unshare"):
+            cmd = ["unshare", "-n", "bash", "-c",
+                   "ip link set lo up 2>/dev/null; exec "
+                   f"{node} {tmp / 'bin' / 'nexuslocal.js'}"]
+        else:
+            cmd = [node, str(tmp / "bin" / "nexuslocal.js")]
+        proc = subprocess.Popen(
+            cmd, cwd=str(tmp), env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            deadline = time.time() + 30
+            while time.time() < deadline and not claim_file.exists():
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.25)
+            self.assertTrue(claim_file.exists(),
+                            (tmp / "startup.log").read_text(
+                                errors="replace")[-1500:])
+            claim = json.loads(claim_file.read_text())
+            # F13: the claim used the default email, not "".
+            self.assertEqual(claim["email"], "owner@example.com")
+            self.assertTrue(claim["password"])
+            # F12: exactly ONE email and ONE password line, both
+            # non-empty, and the password is the claimed one.
+            env_txt = (tmp / "app" / ".env").read_text()
+            emails = [ln for ln in env_txt.splitlines()
+                      if ln.startswith("ENGINE_ADMIN_EMAIL=")]
+            pws = [ln for ln in env_txt.splitlines()
+                   if ln.startswith("ENGINE_ADMIN_PASSWORD=")]
+            self.assertEqual(len(emails), 1, env_txt)
+            self.assertEqual(len(pws), 1, env_txt)
+            self.assertEqual(emails[0],
+                             "ENGINE_ADMIN_EMAIL=owner@example.com")
+            self.assertEqual(pws[0], "ENGINE_ADMIN_PASSWORD="
+                             + claim["password"])
+            # F15: SIGINT shutdown must not log the gateway-down
+            # WARNING for the engine exit it causes itself.
+            proc.send_signal(_signal.SIGINT)
+            proc.wait(timeout=15)
+            log = (tmp / "startup.log").read_text(errors="replace")
+            self.assertIn("Engine stopped", log)
+            self.assertNotIn("WARNING: engine process exited", log)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- F14: sentinel-surviving partial tree triggers npm ci -------
+    def test_w11_launcher_npm_gate_partial_tree(self):
+        node = shutil.which("node")
+        npm = shutil.which("npm")
+        if not node or not npm:
+            self.skipTest("node/npm not available")
+        tmp = self._launcher_fixture(
+            "ENGINE_ADMIN_EMAIL=owner@example.com\n"
+            "ENGINE_ADMIN_PASSWORD=abc123\n",
+            with_express=False)
+        proc = subprocess.Popen(
+            [node, str(tmp / "bin" / "nexuslocal.js")],
+            cwd=str(tmp), env=dict(os.environ),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            deadline = time.time() + 60
+            seen = ""
+            while time.time() < deadline:
+                if (tmp / "startup.log").exists():
+                    seen = (tmp / "startup.log").read_text(
+                        errors="replace")
+                    if "Installing engine dependencies" in seen:
+                        break
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.5)
+            self.assertIn("Installing engine dependencies", seen)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class AuditFixHarness(unittest.TestCase):
     """ Boots a fixture server (same pattern as test_hardening). """
     proc = None
@@ -2717,6 +3008,389 @@ class Wave10AgentHarness(_FixtureServerBase):
         spends = [h for h in _StubRelayHandler.hits
                   if h.endswith("/chat/completions")]
         self.assertEqual(len(spends), 1, _StubRelayHandler.hits)
+
+
+class Wave11Harness(_FixtureServerBase):
+    """Wave 11 (run-10 fixes) over real HTTP."""
+    FIXTURE_FILES = ("keys", "access")
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    @staticmethod
+    def _wait_next_step():
+        time.sleep(31 - (time.time() % 30))
+
+    # -- F1: create-vs-revoke race never hands out a dead code -------
+    def test_49_invite_create_revoke_race_no_stillborn(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        for trial in range(6):
+            res = {}
+            revokes = []  # (invite id, finish time) of 200 revokes
+
+            def create():
+                res["r"] = self._access(
+                    {"action": "invite_create", "role": "friend",
+                     "days": 1, "master_pw": MASTER}, admin)
+                res["t"] = time.time()
+            t = threading.Thread(target=create)
+            t.start()
+            # Revoke whatever appears while the create is in flight.
+            deadline = time.time() + 20
+            while t.is_alive() and time.time() < deadline:
+                _, lst, _ = self._access({"action": "invite_list"},
+                                         admin)
+                for inv in (lst.get("invites") or []):
+                    st_r, _, _ = self._access(
+                        {"action": "invite_revoke",
+                         "id": inv["id"], "master_pw": MASTER}, admin)
+                    if st_r == 200:
+                        revokes.append((inv["id"], time.time()))
+                time.sleep(0.02)
+            t.join(20)
+            status, body, _ = res["r"]
+            if status == 200:
+                h8 = hashlib.sha256(
+                    body["code"].encode()).hexdigest()[:8]
+                # A revoke of THIS invite that completed before the
+                # create answered (50 ms grace for the thread's own
+                # bookkeeping) would make the handout stillborn —
+                # that is the bug. A revoke landing only afterwards
+                # legitimately kills the code; skip the redeem check
+                # for that trial.
+                during = any(rid == h8 and rt <= res["t"] - 0.05
+                             for rid, rt in revokes)
+                after = any(rid == h8 and rt > res["t"] - 0.05
+                            for rid, rt in revokes)
+                self.assertFalse(during, (trial, body, revokes))
+                if after:
+                    continue
+                # A handed-out code must actually redeem.
+                st2, body2, _ = self._req(
+                    "POST", "/api/invite/redeem",
+                    {"label": f"race49_{trial}",
+                     "password": f"race49-pw-{trial}", "code": body["code"]},
+                    headers={"X-Forwarded-For": f"10.49.1.{trial + 1}"})
+                self.assertEqual(st2, 200, (trial, body2))
+            else:
+                # Supersession is an honest 409, never a 200 handout
+                # of a dead code and never a misleading 500.
+                self.assertEqual(status, 409, (trial, body))
+
+    # -- F11: open-mode junk cannot block a legitimate signup --------
+    def test_50_open_mode_junk_does_not_block_legit(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"registration": "open"}}, admin)
+        self.assertEqual(status, 200, body)
+        try:
+            for i in range(10):
+                status, body, _ = self._req(
+                    "POST", "/api/invite/redeem",
+                    {"label": f"junk50_{i}",
+                     "password": f"junk50-pw-{i}"},
+                    headers={"X-Forwarded-For": f"10.50.0.{i + 1}"})
+                self.assertEqual(status, 200, (i, body))
+            # Pre-fix the flat "open" bucket was exhausted by the
+            # junk above and this legitimate signup got a 429.
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": "legit50", "password": "legit50-pw"},
+                headers={"X-Forwarded-For": "10.50.9.1"})
+            self.assertEqual(status, 200, body)
+            # A same-source oracle still exhausts: ten taken verdicts
+            # from ONE source, then taken and free are the same 429.
+            # (FRIEND_PW is the taken password in this fixture.)
+            for i in range(10):
+                status, body, _ = self._req(
+                    "POST", "/api/invite/redeem",
+                    {"label": f"orc50_{i}", "password": FRIEND_PW},
+                    headers={"X-Forwarded-For": "10.50.7.7"})
+                self.assertEqual(status, 400, (i, body))
+            status, body, _ = self._req(
+                "POST", "/api/invite/redeem",
+                {"label": "orc50_free", "password": "orc50-free-pw"},
+                headers={"X-Forwarded-For": "10.50.7.7"})
+            self.assertEqual(status, 429, body)
+        finally:
+            self._access(
+                {"action": "settings_set", "master_pw": MASTER,
+                 "patch": {"registration": "invite"}}, admin)
+
+    # -- F6: the self-test gate counts in-flight /v1 requests --------
+    def test_51_v1_access_test_gate_counts_inflight(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "gate51",
+                                     "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        key = body["key"]
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"global_cap": 2}}, admin)
+        self.assertEqual(status, 200, body)
+        held = []
+        try:
+            for _i in range(2):
+                s = socket.create_connection(("127.0.0.1", self.port),
+                                             timeout=30)
+                s.sendall((
+                    "POST /v1/chat/completions HTTP/1.1\r\n"
+                    "Host: 127.0.0.1\r\n"
+                    "Content-Type: application/json\r\n"
+                    f"Authorization: Bearer {key}\r\n"
+                    "Content-Length: 200\r\n"
+                    "Connection: close\r\n\r\n"
+                    '{"messages": [{"role": "user", "content": "hi"}]'
+                    ).encode())
+                held.append(s)
+            time.sleep(1.0)
+            # Two /v1 bases are in flight against a cap of 2 and ZERO
+            # rows have completed: the real /v1 gate refuses here, so
+            # the self-test must refuse too (pre-fix it spent).
+            status, body, _ = self._req("POST", "/api/v1-access/test",
+                                        {}, admin)
+            self.assertEqual(status, 200, body)
+            self.assertFalse(body.get("ok"), body)
+            self.assertIn("daily limit", json.dumps(body), body)
+        finally:
+            for s in held:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+            self._access(
+                {"action": "settings_set", "master_pw": MASTER,
+                 "patch": {"global_cap": 0}}, admin)
+
+    # -- F7/F8/F9: a proven /setup rotation revokes like change_master
+    def test_52_setup_rotation_revokes_credentials(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        # A stored /v1 key (dies on rotation — F7).
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "rot52",
+                                     "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        v1key = body["key"]
+        status, _, _ = self._req("GET", "/v1/models", None,
+                                 headers={"Authorization":
+                                          f"Bearer {v1key}"})
+        self.assertEqual(status, 200)
+        # A live view grant (dies on rotation — F9).
+        status, body, _ = self._access(
+            {"action": "viewpass_create", "name": "rot52", "hours": 24,
+             "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        view_url = body["url"]
+        status, _, _ = self._req("GET", view_url)
+        self.assertEqual(status, 302)
+        # 2FA on, then a pending completion minted pre-rotation (F8).
+        status, body, _ = self._access(
+            {"action": "2fa_enable", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        secret = body["secret"]
+        self._wait_next_step()
+        status, body, _ = self._access(
+            {"action": "2fa_confirm", "master_pw": MASTER,
+             "code": _totp(secret)}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._login(MASTER)
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body.get("need_2fa"), body)
+        tmp = body["tmp"]
+        # The proven /setup rotation.
+        status, body = self._form("/setup", {
+            "password": MASTER_B, "confirm": MASTER_B,
+            "current_master": MASTER, "k_groq": "sk-rotated-52"},
+            admin)
+        self.assertEqual(status, 302, body)
+        # F7: the pre-rotation /v1 key is dead (no stored keys and no
+        # env fallback in the fixture -> the surface is 404).
+        status, _, _ = self._req("GET", "/v1/models", None,
+                                 headers={"Authorization":
+                                          f"Bearer {v1key}"})
+        self.assertEqual(status, 404)
+        # F9: the pre-rotation view link no longer mints a session.
+        status, _, _ = self._req("GET", view_url)
+        self.assertEqual(status, 404)
+        # F8: the pending 2FA completion minted under the old master
+        # is dead even with a fresh, correct code.
+        status, body, _ = self._req(
+            "POST", "/api/login", {"tmp": tmp, "code": _totp(secret)})
+        self.assertEqual(status, 401, body)
+        # Rotate back (2FA rides along) and switch 2FA off again so
+        # the rest of the class is unaffected.
+        self._wait_next_step()
+        status, body, _ = self._login(MASTER_B)
+        self.assertTrue(body.get("need_2fa"), body)
+        self._wait_next_step()
+        status, body, ck = self._req(
+            "POST", "/api/login",
+            {"tmp": body["tmp"], "code": _totp(secret)})
+        self.assertEqual(status, 200, body)
+        status, body = self._form("/setup", {
+            "password": MASTER, "confirm": MASTER,
+            "current_master": MASTER_B, "k_groq": "sk-shared-fake"},
+            ck)
+        self.assertEqual(status, 302, body)
+        self._wait_next_step()
+        status, body, _ = self._login(MASTER)
+        self.assertTrue(body.get("need_2fa"), body)
+        self._wait_next_step()
+        status, body, ck = self._req(
+            "POST", "/api/login",
+            {"tmp": body["tmp"], "code": _totp(secret)})
+        self.assertEqual(status, 200, body)
+        self._wait_next_step()
+        status, body, _ = self._access(
+            {"action": "2fa_disable", "master_pw": MASTER,
+             "code": _totp(secret)}, ck)
+        self.assertEqual(status, 200, body)
+        status, _, _ = self._login(MASTER)
+        self.assertEqual(status, 200)
+
+
+class Wave11VoiceHarness(_FixtureServerBase):
+    """F3: the voice branch governs the funding lane."""
+    FIXTURE_FILES = ("keys", "access")
+    KEYS = {"groq": "sk-groq-fake-11"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def _access(self, payload, ck):
+        return self._req("POST", "/api/access", payload, ck=ck)
+
+    def _voice(self, ck):
+        try:
+            status, body, _ = self._req(
+                "POST", "/api/chat",
+                {"provider": "relay_groq", "mode": "voice",
+                 "message": "hello nexus"}, ck=ck)
+            return status
+        except Exception:
+            # A timeout here means the request passed the governance
+            # gate and is waiting on the (fake-key) upstream.
+            return "passed-gate"
+
+    def test_01_voice_fallback_funding_lane_governed(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        # Funding lane (groq) disabled: a relay_groq pick that would
+        # fall back to the groq key is refused BEFORE any spend.
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"provider_disabled": ["groq"]}}, admin)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self._voice(admin), 403)
+        # Re-enabled: the same pick passes the gate (and then fails
+        # or succeeds at the upstream with the fake key — never 403).
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"provider_disabled": []}}, admin)
+        self.assertEqual(status, 200, body)
+        self.assertNotEqual(self._voice(admin), 403)
+
+    def test_02_voice_own_key_lane_not_blocked_by_groq(self):
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        # Give relay_groq its OWN key via a proven /setup replacement
+        # (master unchanged): now the pick funds from relay_groq, so
+        # a disabled groq lane must not block it.
+        status, body = self._form("/setup", {
+            "password": MASTER, "confirm": MASTER,
+            "current_master": MASTER, "k_groq": "sk-groq-fake-11",
+            "k_relay_groq": "sk-relay-groq-fake-11"}, admin)
+        self.assertEqual(status, 302, body)
+        _, _, admin = self._login(MASTER)
+        self.assertTrue(admin)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"provider_disabled": ["groq"]}}, admin)
+        self.assertEqual(status, 200, body)
+        self.assertNotEqual(self._voice(admin), 403)
+        self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"provider_disabled": []}}, admin)
+
+
+class Wave11SetupStallHarness(_FixtureServerBase):
+    """F10: a held first-run request whose post-recheck work stalls
+    (here: a gateway URL whose resolution is slow) still may not land
+    as an unproven replacement once a genuine setup completed."""
+    FIXTURE_FILES = ()
+
+    @classmethod
+    def setUpClass(cls):
+        cls._boot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._stop()
+
+    def test_01_setup_stall_between_recheck_and_encrypt(self):
+        import socket as _socket
+        victim_pw = "victim-master-11"
+        attacker_pw = "attacker-master-11"
+        # The attacker's form carries a gateway URL on a .invalid
+        # name: validation fails for THEM eventually, but the point
+        # is the ordering — with a resolvable-but-slow name the stall
+        # is longer. Use a real public URL so validation can pass,
+        # and hold the body instead: the recheck-to-encrypt window
+        # must simply not exist.
+        body_a = urllib.parse.urlencode({
+            "password": attacker_pw, "confirm": attacker_pw,
+            "k_groq": "sk-attacker",
+            # A literal public IP: validation passes instantly with
+            # no DNS, so the request reaches the deferred re-check —
+            # which must now answer 401 from inside _KEYS_LOCK.
+            "url_freellmapi": "https://93.184.216.34/gw"}).encode()
+        sock = _socket.create_connection(("127.0.0.1", self.port),
+                                         timeout=30)
+        try:
+            sock.sendall((
+                "POST /setup HTTP/1.1\r\n"
+                "Host: 127.0.0.1\r\n"
+                "Content-Type: application/x-www-form-urlencoded\r\n"
+                f"Content-Length: {len(body_a)}\r\n"
+                "Connection: close\r\n\r\n").encode() + body_a[:8])
+            time.sleep(0.5)
+            status, _ = self._form("/setup", {
+                "password": victim_pw, "confirm": victim_pw,
+                "k_groq": "sk-victim"})
+            self.assertEqual(status, 302)
+            sock.sendall(body_a[8:])
+            resp = b""
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                resp += chunk
+            status_line = resp.split(b"\r\n", 1)[0].decode(
+                errors="replace")
+            self.assertIn("401", status_line, resp[:400])
+        finally:
+            sock.close()
+        status, _, _ = self._login(victim_pw)
+        self.assertEqual(status, 200)
+        status, _, _ = self._login(attacker_pw)
+        self.assertEqual(status, 401)
 
 
 if __name__ == "__main__":

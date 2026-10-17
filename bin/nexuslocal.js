@@ -80,8 +80,26 @@ function main() {
   // total silence (stdio ignored). npm ci also writes
   // node_modules/.package-lock.json, so require both: a partial
   // tree now triggers the install.
-  if (!fs.existsSync(path.join(nodeModules, "dotenv"))
-      || !fs.existsSync(path.join(nodeModules, ".package-lock.json"))) {
+  // Wave 11 (F14): the two sentinels alone are not enough — a
+  // partial tree can keep dotenv + the hidden lockfile while losing
+  // another direct dependency (express is the engine's entry point),
+  // and the engine then died on every boot with the install never
+  // re-attempted. Probe every direct runtime dependency named in
+  // the engine's own package.json (still a cheap existence check).
+  let _depsMissing = !fs.existsSync(path.join(nodeModules, "dotenv"))
+      || !fs.existsSync(path.join(nodeModules, ".package-lock.json"));
+  try {
+    const _epkg = JSON.parse(fs.readFileSync(
+      path.join(engineServer, "package.json"), "utf8"));
+    const _edeps = Object.keys({
+      ...(_epkg.dependencies || {}),
+      ...(_epkg.optionalDependencies || {})});
+    if (_edeps.some((d) => !fs.existsSync(
+        path.join(nodeModules, ...d.split("/"))))) {
+      _depsMissing = true;
+    }
+  } catch (e) {}
+  if (_depsMissing) {
     log("Installing engine dependencies (first run)...");
     console.log("Installing engine (first run)...");
     // Audit run-7: install EXACTLY the pinned tree from the shipped
@@ -138,6 +156,10 @@ function main() {
   // Start engine (if dist exists)
   const engineDist = path.join(engineServer, "dist", "index.js");
   let engine = null;
+  // Wave 11 (F15): set by the shutdown path BEFORE it kills the
+  // engine, so the exit handler can tell a deliberate stop from a
+  // genuine crash (which must still warn).
+  let shuttingDown = false;
   if (fs.existsSync(engineDist)) {
     log("Starting engine on 127.0.0.1:3001");
     console.log("Starting engine...");
@@ -174,6 +196,12 @@ function main() {
     let engineExited = false;
     engine.on("exit", (code, signal) => {
       engineExited = true;
+      if (shuttingDown) {
+        // Wave 11 (F15): our own SIGINT handler killed the engine —
+        // an intentional stop is not a gateway failure.
+        log(`Engine stopped (code ${code}, signal ${signal}) — launcher shutdown.`);
+        return;
+      }
       // Audit run-9 (L4): a dead engine was silent (stdio ignored,
       // exit unlogged) — the dashboard kept running with no gateway
       // behind it. Name the exit in startup.log.
@@ -287,20 +315,52 @@ function main() {
             const envTxt = fs.readFileSync(envFile, "utf8");
             const em = envTxt.match(/^ENGINE_ADMIN_EMAIL=(.*)$/m);
             const pm = envTxt.match(/^ENGINE_ADMIN_PASSWORD=(.*)$/m);
-            if (em) email = em[1].trim();
+            // Wave 11 (F12/F13): an EMPTY-valued line counts as
+            // ABSENT everywhere — the same test verifyClaim's
+            // fallback already applied. Readers are first-match, so
+            // an empty line left in place would shadow any appended
+            // credential forever (the claim POSTed {"email":""} and
+            // the engine 400'd for the life of the process; an
+            // appended password behind an empty line was never read
+            // and the next boot cried foreign-claim). Empty lines
+            // are therefore REWRITTEN IN PLACE with the value being
+            // recorded, never duplicated by an append.
+            if (em && em[1].trim()) email = em[1].trim();
             if (pm) pw = pm[1].trim();
+            const emEmpty = !!em && !em[1].trim();
+            const pmEmpty = !!pm && !pm[1].trim();
             if (!pw) {
               pw = require("crypto").randomBytes(24).toString("hex");
-              let add = "";
-              if (!em) add += `\nENGINE_ADMIN_EMAIL=${email}`;
-              add += `\nENGINE_ADMIN_PASSWORD=${pw}\n`;
-              fs.appendFileSync(envFile, add);
-            } else if (!em) {
+              let txt = envTxt, add = "";
+              if (pmEmpty) {
+                txt = txt.replace(/^ENGINE_ADMIN_PASSWORD=.*$/m,
+                                  `ENGINE_ADMIN_PASSWORD=${pw}`);
+              } else {
+                add += `\nENGINE_ADMIN_PASSWORD=${pw}\n`;
+              }
+              if (emEmpty) {
+                txt = txt.replace(/^ENGINE_ADMIN_EMAIL=.*$/m,
+                                  `ENGINE_ADMIN_EMAIL=${email}`);
+              } else if (!em) {
+                add += `\nENGINE_ADMIN_EMAIL=${email}`;
+              }
+              if (txt !== envTxt) fs.writeFileSync(envFile, txt);
+              if (add) fs.appendFileSync(envFile, add);
+            } else if (!em || emEmpty) {
               // Audit run-9 (L2): a pre-existing password with NO
               // email line — record the email actually being used
               // (the default above) so verifyClaim never has to
-              // guess it (it used to POST {"email":null}).
-              fs.appendFileSync(envFile, `\nENGINE_ADMIN_EMAIL=${email}\n`);
+              // guess it (it used to POST {"email":null}). Wave 11:
+              // an EMPTY email line gets the same recording, by
+              // rewriting it in place instead of appending a
+              // shadowed duplicate.
+              if (emEmpty) {
+                fs.writeFileSync(envFile, envTxt.replace(
+                  /^ENGINE_ADMIN_EMAIL=.*$/m,
+                  `ENGINE_ADMIN_EMAIL=${email}`));
+              } else {
+                fs.appendFileSync(envFile, `\nENGINE_ADMIN_EMAIL=${email}\n`);
+              }
             }
           } catch (e) { return retry("env write failed"); }
           const payload = JSON.stringify({ email, password: pw });
@@ -362,6 +422,7 @@ function main() {
 
   // Graceful shutdown — kill engine AND dashboard
   process.on("SIGINT", () => {
+    shuttingDown = true;  // F15: the engine exit this causes is ours
     log("Shutting down...");
     if (engine) {
       try { engine.kill(); } catch (e) {}

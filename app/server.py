@@ -84,6 +84,18 @@ def _rl_ok(bucket, token, limit, window=60):
                 _RL.pop(next(iter(_RL)), None)
         return True
 
+def _rl_refund(bucket, token):
+    """Give back one consumed budget hit (wave 11, F11): a SUCCESSFUL
+    redemption is observable anyway (the account exists), so refunding
+    its hit does not reopen the taken/free oracle — but junk signups
+    must not be able to burn the budget a legitimate signup needs."""
+    key = (bucket, token or "?")
+    with _RL_LOCK:
+        hits = _RL.get(key) or []
+        if hits:
+            hits.pop()
+            _RL[key] = hits
+
 # Serializes every load-modify-save of the friend access store:
 # redemption's lookup -> claim -> create must be atomic (one single-use
 # invite must never become many accounts), and no other writer (console
@@ -303,6 +315,56 @@ def _save_settings():
         if ok:
             _SETTINGS_WRITTEN_GEN[0] = max(_SETTINGS_WRITTEN_GEN[0], gen)
         return ok
+
+
+def _persisted_settings():
+    """The settings state that actually landed on disk: the encrypted
+    mirror first (it is the boot source of truth), then the plain
+    working copy. None when neither can be read."""
+    if RESTORE_KEY:
+        try:
+            if SETTINGS_ENC_PATH.exists():
+                d = decrypt_keys(SETTINGS_ENC_PATH, RESTORE_KEY)
+                if isinstance(d, dict):
+                    return d
+        except Exception:
+            pass
+    try:
+        if SETTINGS_PATH.exists():
+            d = json.loads(SETTINGS_PATH.read_text())
+            if isinstance(d, dict):
+                return d
+    except Exception:
+        pass
+    return None
+
+
+def _settings_outcome(sv, pred, rollback=None):
+    """Wave 11 (F1/F2): verify the OUTCOME of a consequential settings
+    save, not the save call's return value. _save_settings can return
+    True via the generation-guard superseded branch while a concurrent
+    save has already replaced this caller's mutation on disk, and it
+    can return False after a concurrent save already persisted this
+    caller's mutation. Returns "ok" (the intended mutation IS the
+    persisted state), "conflict" (a concurrent change superseded it —
+    the caller must answer 409, never hand out a dead result), or
+    "failed" (genuinely unpersisted; the in-memory mutation is rolled
+    back via rollback() under _SETTINGS_LOCK so a later unrelated save
+    cannot resurrect it and the caller's 500 text becomes true)."""
+    if sv:
+        with _SETTINGS_LOCK:
+            return "ok" if pred(_SETTINGS) else "conflict"
+    persisted = _persisted_settings()
+    if persisted is not None:
+        try:
+            if pred(persisted):
+                return "ok"
+        except Exception:
+            pass
+    if rollback is not None:
+        with _SETTINGS_LOCK:
+            rollback()
+    return "failed"
 
 
 def _boot_restore_settings():
@@ -1122,20 +1184,28 @@ def _today_total_requests(fresh=False):
 
 
 _INFLIGHT = []
+# Wave 11 (F5): every add/drop/count/prune of _INFLIGHT runs under
+# this one lock — the unlocked snapshot-then-assign prune could
+# destroy a concurrent add (or resurrect a concurrent drop) whenever
+# the list length changed inside the window. Holds are microscopic:
+# no I/O and no upstream calls ever happen under it.
+_INFLIGHT_LOCK = threading.Lock()
 
 
 def _inflight_add(user, provider=None, attempt=False):
     e = {"user": user, "provider": provider, "ts": time.time(),
          "att": bool(attempt)}
-    _INFLIGHT.append(e)
+    with _INFLIGHT_LOCK:
+        _INFLIGHT.append(e)
     return e
 
 
 def _inflight_drop(e):
-    try:
-        _INFLIGHT.remove(e)
-    except ValueError:
-        pass
+    with _INFLIGHT_LOCK:
+        for i, x in enumerate(_INFLIGHT):
+            if x is e:
+                del _INFLIGHT[i]
+                break
 
 
 def _inflight_n(user=None, provider=None, exclude=None):
@@ -1154,9 +1224,15 @@ def _inflight_n(user=None, provider=None, exclude=None):
     reservation and are skipped; provider-filtered counts include
     them, since a provider limit binds attempts."""
     now = time.time()
-    live = [e for e in _INFLIGHT if now - e["ts"] <= 900]
-    if len(live) != len(_INFLIGHT):
-        _INFLIGHT[:] = live
+    with _INFLIGHT_LOCK:
+        # Prune expired entries BY IDENTITY under the lock (wave 11,
+        # F5): never overwrite the list from an unlocked snapshot.
+        for e in [x for x in _INFLIGHT if now - x["ts"] > 900]:
+            for i, x in enumerate(_INFLIGHT):
+                if x is e:
+                    del _INFLIGHT[i]
+                    break
+        live = list(_INFLIGHT)
     n = 0
     for e in live:
         if exclude is not None and e is exclude:
@@ -4225,11 +4301,25 @@ class Handler(BaseHTTPRequestHandler):
         # system and the global-cap gate, so the in-flight terms
         # never saw it and global_cap never bound it. do_POST's
         # finally drops the reservation on every exit.
-        if _instance_cap_reached():
+        # Wave 11 (F6): the gate must match the real /v1 gate —
+        # _instance_cap_reached reads COMPLETED rows only, so held
+        # /v1 requests were invisible here, and the base reservation
+        # used the plain shared "v1" label with no ceiling. Reserve
+        # first under a per-principal label ("v1:test"), apply the
+        # same ceiling of 4 as every other surface, and count
+        # in-flight terms against the global cap exactly like
+        # _v1_chat_completions does.
+        self._cap_res = _inflight_add("v1:test")
+        if _inflight_n(user="v1:test") > 4:
+            self._set_json_headers(200)
+            self.wfile.write(json.dumps({"ok": False, "error": "too many requests already in flight"}).encode())
+            return
+        _gcap_t = int(_SETTINGS.get("global_cap") or 0)
+        if _gcap_t and _today_total_requests(fresh=True) \
+                + _inflight_n(exclude=self._cap_res) >= _gcap_t:
             self._set_json_headers(200)
             self.wfile.write(json.dumps({"ok": False, "error": "instance daily limit reached"}).encode())
             return
-        self._cap_res = _inflight_add("v1")
         started = time.time()
         code, out, lane = _v1_chat([{"role": "user", "content": "Reply with exactly: NEXUS API OK"}],
                                    "nexus-auto")
@@ -6061,27 +6151,23 @@ class Handler(BaseHTTPRequestHandler):
             # _master_proof) whenever a master already exists;
             # first-time setup stays proof-free.
             _cur_keys = None
+            _entry_keys_exist = keys_exist
             if keys_exist:
                 _cur_keys = _master_proof(form.get("current_master", [""])[0])
                 if _cur_keys is None:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "current master password is wrong or missing"}).encode())
                     return
-            elif key_path.exists():
-                # Audit run-9 (S4): keys.enc APPEARED while this
-                # request was in flight — the entry snapshot said
-                # "first run", but a real first setup completed
-                # meanwhile (the held-request TOCTOU: a slow-trickled
-                # body outlives the genuine setup, then lands as an
-                # unproven replacement). The body is fully read now,
-                # so re-check: from here on this is a ROTATION and
-                # demands the same current-master proof.
-                _cur_keys = _master_proof(form.get("current_master", [""])[0])
-                if _cur_keys is None:
-                    self._set_json_headers(401)
-                    self.wfile.write(json.dumps({"error": "current master password is wrong or missing"}).encode())
-                    return
-                keys_exist = True
+            # Audit run-9 (S4) / wave 11 (F10): the first-run re-check
+            # is DEFERRED to the encrypt site below. S4 re-checked here,
+            # but the provider-form loops after this point call
+            # _public_base_url_ok (getaddrinfo on an attacker-supplied
+            # hostname), so a held request could stall inside that
+            # window and still land as an unproven replacement. Now
+            # every slow validation runs BEFORE the re-check, and the
+            # re-check itself runs INSIDE _KEYS_LOCK, atomic with the
+            # encrypt: keys.enc appearing meanwhile turns this request
+            # into a rotation that must prove the current master.
             keys = {}
             for n in PROVIDER_NAMES:
                 v = form.get("k_" + n, [""])[0].strip()
@@ -6126,6 +6212,24 @@ class Handler(BaseHTTPRequestHandler):
                     if _ik.startswith("_") and _ik not in keys:
                         keys[_ik] = _iv
             with _KEYS_LOCK:
+                if not _entry_keys_exist and key_path.exists():
+                    # F10: re-stat + proof INSIDE the lock, immediately
+                    # before the encrypt — nothing slow sits between
+                    # the check and the write any more, and every other
+                    # keys.enc writer is already proof-gated under this
+                    # same lock. The loser of the first-run race gets
+                    # the same 401 as any unproven rotation.
+                    _rc_keys = _master_proof(
+                        form.get("current_master", [""])[0])
+                    if _rc_keys is None:
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "current master password is wrong or missing"}).encode())
+                        return
+                    _cur_keys = _rc_keys
+                    keys_exist = True
+                    for _ik, _iv in _rc_keys.items():
+                        if _ik.startswith("_") and _ik not in keys:
+                            keys[_ik] = _iv
                 encrypt_keys(keys, pw, key_path)
                 os.chmod(key_path, 0o600)
             if keys_exist:
@@ -6137,6 +6241,28 @@ class Handler(BaseHTTPRequestHandler):
                 Handler.keys = keys
                 register_custom_providers(keys)
                 SESSIONS.clear()
+                # Wave 11 (F7/F8/F9): S8 mirrored change_master
+                # incompletely — a proven /setup rotation now revokes
+                # credential state exactly like change_master does:
+                # stored /v1 keys die (file + live set; the accepted
+                # consequence, as with change_master, is that
+                # DSRclone's copilot key must be re-wired afterwards),
+                # pending-2FA completions minted under the old master
+                # die with their chat unlocks, and /view grants stop
+                # re-minting viewer sessions.
+                for _pend in list(_PENDING_2FA.values()):
+                    if isinstance(_pend, dict):
+                        _drop_chat_unlock(_pend.get("chat_unlock"))
+                _PENDING_2FA.clear()
+                _2FA_ATTEMPTS.clear()
+                _VIEW_GRANTS.clear()
+                try:
+                    if V1KEY_PATH.exists():
+                        V1KEY_PATH.unlink()
+                except Exception:
+                    pass
+                with _V1KEYS_LOCK:
+                    _V1KEYS["keys"] = []
             _audit("System", "Shared keys replaced via /setup (current master proven)"
                    if keys_exist else "First-time setup completed")
             self.send_response(302)
@@ -6780,7 +6906,13 @@ class Handler(BaseHTTPRequestHandler):
                 # limit state of BOTH lanes was bypassed and the
                 # in-flight term accrued to a lane that never spends.
                 # Which key pays is unchanged.
-                if _provider_blocked(_prov):
+                if _provider_blocked(_prov) or _provider_blocked(
+                        _prov if (_ekeys or {}).get(_prov) else "groq"):
+                    # Wave 11 (F3): govern the lane that PAYS — when
+                    # _prov holds no key of its own, _gk above fell
+                    # back to the groq key, so the groq lane's own
+                    # disabled/limit state binds the spend too (the
+                    # transcribe branch already checks both lanes).
                     self._set_json_headers(403)
                     self.wfile.write(json.dumps({"error": "voice is unavailable — the Groq provider is disabled or over its daily limit"}).encode())
                     return
@@ -7556,6 +7688,23 @@ class Handler(BaseHTTPRequestHandler):
                 return (_today_counts(fresh=True)["providers"].get(p, 0)
                         + _inflight_n(provider=p)) < int(_l)
 
+            def _lane_spend_ok(p):
+                # Wave 11 (F4): the spend-leg twin of _lane_ok for a
+                # caller that has ALREADY taken its attempt reservation
+                # for p — the reservation is part of the in-flight term,
+                # so the check and the reservation are atomic in effect:
+                # completed + in-flight (including this attempt) must
+                # not EXCEED the limit. The old shape checked first and
+                # reserved after, and two rendezvoused spends both
+                # passed a limit of 1.
+                if p in _dis:
+                    return False
+                _l = _lims.get(p)
+                if not _l:
+                    return True
+                return (_today_counts(fresh=True)["providers"].get(p, 0)
+                        + _inflight_n(provider=p)) <= int(_l)
+
             _kept = [(p, m) for (p, m) in _attempts if _lane_ok(p)]
             if not _kept:
                 self._set_json_headers(503)
@@ -7738,13 +7887,17 @@ class Handler(BaseHTTPRequestHandler):
                     _ok = False
                     _reply = ""
                     for (_cp, _cm) in _agent_list[:3]:
-                        if not _lane_ok(_cp):
+                        # Wave 11 (F4): reserve FIRST, then check with
+                        # the reservation counted (S13 checked first and
+                        # reserved after — the check-then-add window).
+                        _ares = _inflight_add(_chat_label, _cp, attempt=True)
+                        if not _lane_spend_ok(_cp):
                             # S13: re-test the lane immediately
                             # before THIS spend — a lane that filled
                             # up since admission (or since the last
                             # round) is skipped, not spent on.
+                            _inflight_drop(_ares)
                             continue
-                        _ares = _inflight_add(_chat_label, _cp, attempt=True)
                         try:
                             _res = _attempt(_cp, _cm, 60, _msgs)
                         finally:
@@ -7787,12 +7940,14 @@ class Handler(BaseHTTPRequestHandler):
                     _msgs.append({"role": "user", "content": f"Tool result ({_tname}):\n{str(_tres)[:7000]}\n\nContinue: use another tool if needed, else give the final answer."})
                 if _final is None:
                     _msgs.append({"role": "user", "content": "Give your final answer now, without any tool block."})
-                    if not _lane_ok(_ap2):
+                    # Wave 11 (F4): reserve first, then check counted.
+                    _ares = _inflight_add(_chat_label, _ap2, attempt=True)
+                    if not _lane_spend_ok(_ap2):
                         # S13: the final call is a spend too — the
                         # lane's limit binds it like every other.
+                        _inflight_drop(_ares)
                         _final = "I couldn't complete that. Try again."
                     else:
-                        _ares = _inflight_add(_chat_label, _ap2, attempt=True)
                         try:
                             _res = _attempt(_ap2, _am2, 60, _msgs)
                         finally:
@@ -7816,7 +7971,12 @@ class Handler(BaseHTTPRequestHandler):
                 _hf = _attempts[0][0] if _i > 0 else (
                     _prev_by_id if _prev_by_id and _prev_by_id != _ap else None)
                 _ta = time.time()
-                if not _lane_ok(_ap):
+                # Wave 11 (F4): reserve FIRST, then re-verify with the
+                # reservation counted — S13 checked first and reserved
+                # after, leaving a microsecond check-then-add window
+                # where two rendezvoused spends both passed.
+                _ares = _inflight_add(_chat_label, _ap, attempt=True)
+                if not _lane_spend_ok(_ap):
                     # Audit run-9 (S13): _lane_ok was a snapshot
                     # taken at build time and never re-checked at
                     # spend — rendezvoused concurrent builds each
@@ -7826,12 +7986,12 @@ class Handler(BaseHTTPRequestHandler):
                     # in-flight term inside _lane_ok); a lane that
                     # filled up meanwhile fails over, or refuses
                     # when it was the last one.
+                    _inflight_drop(_ares)
                     _trace.append({"p": _ap, "m": _am, "ok": False,
                                    "ms": 0,
                                    "e": "provider daily limit reached"})
                     _last = (429, f"{_ap} reached today's provider limit")
                     continue
-                _ares = _inflight_add(_chat_label, _ap, attempt=True)
                 try:
                     _ok, *_rest = _attempt(_ap, _am, 45 if _i == 0 else 30,
                                            msgs=_msgs_for(_ap, _hf))
@@ -7998,7 +8158,21 @@ class Handler(BaseHTTPRequestHandler):
                 # the budget ran out the 429 itself became the
                 # verdict (taken -> 429, free -> account created).
                 # Post-budget both now get the identical 429.
-                if not _rl_ok("redeemprobe", h if code else "open", 10, 900):
+                # Wave 11 (F11): open mode no longer keys the budget
+                # to one flat "open" bucket — ten junk signups from
+                # distinct sources used to exhaust it and block the
+                # 11th legitimate signup, renewable every 900s. Open
+                # mode is now keyed per source (in addition to the
+                # per-IP route ledger above): junk from other sources
+                # cannot block a legitimate signup, while a same-source
+                # oracle still exhausts its own bucket. Invite mode
+                # keeps per-code keying exactly as S5 left it, and the
+                # budget is still consumed BEFORE the verdict, so
+                # post-budget taken and free stay indistinguishable.
+                _probe_key = h if code else (
+                    "open:" + _client_ip(self.headers,
+                                         self.client_address[0]))
+                if not _rl_ok("redeemprobe", _probe_key, 10, 900):
                     _audit("Auth", f"Invite signup refused, probe budget exhausted: {label}")
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
@@ -8067,6 +8241,12 @@ class Handler(BaseHTTPRequestHandler):
                             invite["used_by"] = None  # roll the claim back
                         _save_settings()
                     raise
+                # Wave 11 (F11): the account was created — refund the
+                # probe-budget hit this success consumed. A success is
+                # observable anyway (the account now exists), so the
+                # refund cannot reopen the taken/free oracle; refused
+                # attempts above keep their hits.
+                _rl_refund("redeemprobe", _probe_key)
             _audit("Users", f"Signed up via invite: {label} ({role})",
                    ip=_client_ip(self.headers, self.client_address[0]))
             _alert("signup", "signup", {"label": label, "role": role})
@@ -8633,7 +8813,8 @@ class Handler(BaseHTTPRequestHandler):
                     # other's update), and a failed save answers 500
                     # instead of ok:true (run-7 #14, completed here).
                     with _SETTINGS_LOCK:
-                        caps = dict(_SETTINGS.get("user_caps") or {})
+                        _prior_caps = dict(_SETTINGS.get("user_caps") or {})
+                        caps = dict(_prior_caps)
                         if data.get("cap") is None:
                             caps.pop(stored, None)
                         else:
@@ -8648,7 +8829,22 @@ class Handler(BaseHTTPRequestHandler):
                             caps[stored] = _c
                         _SETTINGS["user_caps"] = caps
                     _sv = _save_settings()  # S2: after the lock releases
-                    if not _sv:
+                    # Wave 11 (F1/F2): verify the outcome, not the
+                    # return value — 409 on supersession, rollback +
+                    # an honest 500 when genuinely unpersisted.
+                    _oc = _settings_outcome(
+                        _sv,
+                        lambda s: (s.get("user_caps") or {}).get(stored)
+                        == caps.get(stored)
+                        and (stored in (s.get("user_caps") or {}))
+                        == (stored in caps),
+                        lambda: _SETTINGS.__setitem__("user_caps",
+                                                      _prior_caps))
+                    if _oc == "conflict":
+                        self._set_json_headers(409)
+                        self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
+                        return
+                    if _oc != "ok":
                         self._set_json_headers(500)
                         self.wfile.write(json.dumps({"error": "cap could not be saved to disk"}).encode())
                         return
@@ -8667,13 +8863,23 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "moderators cannot suspend other moderators"}).encode())
                         return
                     with _SETTINGS_LOCK:
-                        susp = [x for x in (_SETTINGS.get("suspended") or [])
-                                if x != stored]
+                        _prior_susp = list(_SETTINGS.get("suspended") or [])
+                        susp = [x for x in _prior_susp if x != stored]
                         if data.get("on"):
                             susp.append(stored)
                         _SETTINGS["suspended"] = susp
                     _sv = _save_settings()  # S2: after the lock releases
-                    if not _sv:
+                    _oc = _settings_outcome(
+                        _sv,
+                        lambda s: (stored in (s.get("suspended") or []))
+                        == bool(data.get("on")),
+                        lambda: _SETTINGS.__setitem__("suspended",
+                                                      _prior_susp))
+                    if _oc == "conflict":
+                        self._set_json_headers(409)
+                        self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
+                        return
+                    if _oc != "ok":
                         self._set_json_headers(500)
                         self.wfile.write(json.dumps({"error": "suspension could not be saved to disk"}).encode())
                         return
@@ -8701,14 +8907,25 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "moderators cannot grant or change moderator roles"}).encode())
                         return
                     with _SETTINGS_LOCK:
-                        roles = dict(_SETTINGS.get("roles") or {})
+                        _prior_roles = dict(_SETTINGS.get("roles") or {})
+                        roles = dict(_prior_roles)
                         if role == "friend":
                             roles.pop(stored, None)
                         else:
                             roles[stored] = role
                         _SETTINGS["roles"] = roles
                     _sv = _save_settings()  # S2: after the lock releases
-                    if not _sv:
+                    _oc = _settings_outcome(
+                        _sv,
+                        lambda s: (s.get("roles") or {}).get(stored)
+                        == (None if role == "friend" else role),
+                        lambda: _SETTINGS.__setitem__("roles",
+                                                      _prior_roles))
+                    if _oc == "conflict":
+                        self._set_json_headers(409)
+                        self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
+                        return
+                    if _oc != "ok":
                         self._set_json_headers(500)
                         self.wfile.write(json.dumps({"error": "role could not be saved to disk"}).encode())
                         return
@@ -8960,7 +9177,8 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "expiry must be 1, 7 or 30 days"}).encode())
                         return
                     with _SETTINGS_LOCK:
-                        invites = [i for i in (_SETTINGS.get("invites") or [])
+                        _prior_invites = list(_SETTINGS.get("invites") or [])
+                        invites = [i for i in _prior_invites
                                    if not i.get("used_by")
                                    and i.get("expires", 0) > time.time()]
                         if len(invites) >= 10:
@@ -8976,7 +9194,25 @@ class Handler(BaseHTTPRequestHandler):
                                         "used_by": None})
                         _SETTINGS["invites"] = invites
                     _sv = _save_settings()  # S2: after the lock releases
-                    if not _sv:
+                    # Wave 11 (F1/F2): hand the code out only when THIS
+                    # invite is the persisted state. A True return via
+                    # the generation guard can still mean a concurrent
+                    # revoke already landed without it (409, no handout);
+                    # a False return whose invite a concurrent save
+                    # already persisted is an honest success; a genuinely
+                    # unpersisted False rolls the invite back so the
+                    # 500's "no code was created" is actually true.
+                    _oc = _settings_outcome(
+                        _sv,
+                        lambda s: any(i.get("h") == h
+                                      for i in (s.get("invites") or [])),
+                        lambda: _SETTINGS.__setitem__("invites",
+                                                      _prior_invites))
+                    if _oc == "conflict":
+                        self._set_json_headers(409)
+                        self.wfile.write(json.dumps({"error": "invite superseded by a concurrent change — no code was created, try again"}).encode())
+                        return
+                    if _oc != "ok":
                         # Audit run-8 (#14): never hand out a code
                         # whose save did not land — it would be dead
                         # at restart while the admin believes it works.
@@ -8997,6 +9233,7 @@ class Handler(BaseHTTPRequestHandler):
                     # both callers held 200/ok:true.
                     with _SETTINGS_LOCK:
                         invites = _SETTINGS.get("invites") or []
+                        _prior_invites_r = list(invites)
                         keep = [i for i in invites
                                 if not (len(gid) >= 6 and i["h"].startswith(gid))]
                         if len(keep) == len(invites):
@@ -9005,7 +9242,18 @@ class Handler(BaseHTTPRequestHandler):
                             return
                         _SETTINGS["invites"] = keep
                     _sv = _save_settings()  # S2: after the lock releases
-                    if not _sv:
+                    _oc = _settings_outcome(
+                        _sv,
+                        lambda s: not any(
+                            len(gid) >= 6 and i["h"].startswith(gid)
+                            for i in (s.get("invites") or [])),
+                        lambda: _SETTINGS.__setitem__("invites",
+                                                      _prior_invites_r))
+                    if _oc == "conflict":
+                        self._set_json_headers(409)
+                        self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
+                        return
+                    if _oc != "ok":
                         self._set_json_headers(500)
                         self.wfile.write(json.dumps({"error": "revocation could not be saved to disk"}).encode())
                         return
@@ -9161,9 +9409,19 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": err}).encode())
                         return
                     with _SETTINGS_LOCK:
+                        _prior_set = {k: _SETTINGS.get(k) for k in clean}
                         _SETTINGS.update(clean)
                     _saved = _save_settings()  # S2: after the lock releases
-                    if not _saved:
+                    _oc = _settings_outcome(
+                        _saved,
+                        lambda s: all(s.get(k) == v
+                                      for k, v in clean.items()),
+                        lambda: _SETTINGS.update(_prior_set))
+                    if _oc == "conflict":
+                        self._set_json_headers(409)
+                        self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
+                        return
+                    if _oc != "ok":
                         self._set_json_headers(500)
                         self.wfile.write(json.dumps({"error": "settings could not be saved to disk"}).encode())
                         return
@@ -9222,13 +9480,27 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     clean = ent[1]
                     with _SETTINGS_LOCK:
+                        _prior_rst = {k: _SETTINGS.get(k) for k in clean}
+                        _prior_snap = _SETTINGS.get("backup_snapshot")
                         _SETTINGS["backup_snapshot"] = {
                             "ts": datetime.datetime.now().isoformat(),
                             "config": {k: _SETTINGS.get(k)
                                        for k in sorted(_RESTORE_ALLOWED)}}
                         _SETTINGS.update(clean)
                     _sv = _save_settings()  # S2: after the lock releases
-                    if not _sv:
+                    def _rst_rollback():
+                        _SETTINGS.update(_prior_rst)
+                        _SETTINGS["backup_snapshot"] = _prior_snap
+                    _oc = _settings_outcome(
+                        _sv,
+                        lambda s: all(s.get(k) == v
+                                      for k, v in clean.items()),
+                        _rst_rollback)
+                    if _oc == "conflict":
+                        self._set_json_headers(409)
+                        self.wfile.write(json.dumps({"error": "superseded by a concurrent change — try again"}).encode())
+                        return
+                    if _oc != "ok":
                         self._set_json_headers(500)
                         self.wfile.write(json.dumps({"error": "restored settings could not be saved to disk"}).encode())
                         return
