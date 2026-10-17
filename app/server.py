@@ -101,6 +101,17 @@ _ACCESS_LOCK = threading.RLock()
 # not heal. Every keys.enc RMW below runs under this lock, with
 # the decrypt INSIDE it (no stale snapshots).
 _KEYS_LOCK = threading.RLock()
+# Per-store locks for the remaining load->mutate->save vaults (audit
+# run-6: parallel saves against one stale snapshot silently erased
+# each other in the chats, integrations and userkeys stores, and the
+# usage/audit rewrites resurrected purged rows).
+_CHATS_LOCK = threading.RLock()
+_INTG_LOCK = threading.RLock()
+_USERKEYS_LOCK = threading.RLock()
+_USAGE_LOCK = threading.RLock()
+_CHATS_STORE_CAP = 32 * 1024 * 1024  # serialized per-account chat store
+_USERKEY_VALUE_CAP = 512
+_USERKEY_COUNT_CAP = 200
 
 # Provider health (circuit breaker): provider -> {"fails": int, "down_until": float}
 _PROVIDER_HEALTH = {}
@@ -309,7 +320,8 @@ def _provider_blocked(provider):
     _l = (_SETTINGS.get("provider_limits") or {}).get(provider)
     if _l:
         try:
-            return _today_counts()["providers"].get(provider, 0) >= int(_l)
+            return _today_counts(fresh=True)["providers"].get(provider, 0) \
+                + _inflight_n(provider=provider) >= int(_l)
         except Exception:
             return False
     return False
@@ -438,11 +450,18 @@ def _safe_url(u):
 
 
 class _GuardedRedirect(HTTPRedirectHandler):
-    """Follow redirects only to targets that still pass _safe_url."""
+    """Follow redirects only to targets that still pass _safe_url,
+    and strip credential headers when a hop changes origin (audit
+    run-6: the integration lanes ride this opener carrying Basic /
+    Bearer tokens, and re-validating the target's address class
+    does nothing to stop the token itself moving to a new origin)."""
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not _safe_url(newurl):
             return None
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and _origin_of(newurl) != _origin_of(req.full_url):
+            _strip_cred_headers(new)
+        return new
 
 
 def _addr_is_public(a):
@@ -518,7 +537,8 @@ def _strip_cred_headers(req_obj):
         for _k in list(_hdrs.keys()):
             if _k.lower() in ("authorization", "x-api-key", "api-key",
                               "x-goog-api-key", "x-relay-token",
-                              "x-vault-key", "apikey"):
+                              "x-vault-key", "apikey", "cookie",
+                              "chatgpt-account-id"):
                 del _hdrs[_k]
 
 
@@ -924,8 +944,8 @@ def _boot_restore_telemetry():
         if data is None and RESTORE_KEY and os.environ.get("RENDER"):
             try:
                 import urllib.request as _u
-                with _u.urlopen(_TELEMETRY_BRANCH_URL, timeout=5) as r:
-                    TELEMETRY_ENC_PATH.write_bytes(r.read())
+                with _open_cred(Request(_TELEMETRY_BRANCH_URL), 5) as r:
+                    TELEMETRY_ENC_PATH.write_bytes(_read_capped_bytes(r))
                 data = decrypt_keys(TELEMETRY_ENC_PATH, RESTORE_KEY)
             except Exception:
                 data = None
@@ -968,9 +988,9 @@ def _audit_count_today(prefix, cat=None):
 _TODAY_CACHE = {"ts": 0.0, "providers": {}, "users": {}}
 
 
-def _today_counts():
+def _today_counts(fresh=False):
     now = time.time()
-    if now - _TODAY_CACHE["ts"] < 20:
+    if not fresh and now - _TODAY_CACHE["ts"] < 20:
         return _TODAY_CACHE
     providers, users = {}, {}
     today = datetime.date.today().isoformat()
@@ -998,15 +1018,51 @@ def _today_counts():
     return _TODAY_CACHE
 
 
-def _today_total_requests():
+def _today_total_requests(fresh=False):
     """Today's counted requests across both surfaces: dashboard chat
     (counted per user) plus /v1 API rows (which carry no user — they
     are counted under their 'v1:<lane>' provider names)."""
-    c = _today_counts()
+    c = _today_counts(fresh)
     total = sum(c["users"].values())
     total += sum(v for k, v in c["providers"].items()
                  if k.startswith("v1:"))
     return total
+
+
+_INFLIGHT = []
+
+
+def _inflight_add(user, provider=None):
+    e = {"user": user, "provider": provider, "ts": time.time()}
+    _INFLIGHT.append(e)
+    return e
+
+
+def _inflight_drop(e):
+    try:
+        _INFLIGHT.remove(e)
+    except ValueError:
+        pass
+
+
+def _inflight_n(user=None, provider=None):
+    """Admitted-but-not-yet-counted requests (audit run-6): the cap
+    checks used to read only COMPLETED usage rows through a 20s
+    cache, so a parallel burst all passed the same stale snapshot.
+    Checks now read fresh counts PLUS these reservations; entries
+    expire after 15 minutes so a wedged request cannot reserve
+    forever."""
+    now = time.time()
+    n = 0
+    for e in list(_INFLIGHT):
+        if now - e["ts"] > 900:
+            continue
+        if user is not None and e["user"] != user:
+            continue
+        if provider is not None and e["provider"] != provider:
+            continue
+        n += 1
+    return n
 
 
 def _instance_cap_reached():
@@ -1016,10 +1072,19 @@ def _instance_cap_reached():
         gcap = int(_SETTINGS.get("global_cap") or 0)
     except Exception:
         gcap = 0
-    return bool(gcap) and _today_total_requests() >= gcap
+    return bool(gcap) and _today_total_requests(fresh=True) >= gcap
 
 
 _V1_CAP_AUDIT = [0.0]
+
+
+def _finite_num(x):
+    """A real, finite JSON number — not a bool, not NaN/Infinity
+    (audit run-6: int(nan) raised inside the dict-valued branches
+    below and 500'd the settings endpoint; JSON has no business
+    carrying non-finite numbers into persisted settings)."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) \
+        and x == x and abs(x) != float("inf")
 
 
 def _validate_settings_patch(patch):
@@ -1048,18 +1113,18 @@ def _validate_settings_patch(patch):
                 return None, "suspended must be a list"
             clean[k] = [str(x)[:30] for x in v if isinstance(x, str)][:50]
         elif k == "max_attempts":
-            if not isinstance(v, int) or not 1 <= v <= 8:
+            if (not isinstance(v, int) or isinstance(v, bool)) or not 1 <= v <= 8:
                 return None, "max_attempts must be 1-8"
             clean[k] = v
         elif k == "daily_cap":
-            if not isinstance(v, int) or not 0 <= v <= 100000:
+            if (not isinstance(v, int) or isinstance(v, bool)) or not 0 <= v <= 100000:
                 return None, "daily_cap must be 0-100000"
             clean[k] = v
         elif k == "user_caps":
             if not isinstance(v, dict):
                 return None, "user_caps must be an object"
             clean[k] = {str(a)[:30]: max(0, min(100000, int(b)))
-                        for a, b in v.items() if isinstance(b, (int, float))}
+                        for a, b in v.items() if _finite_num(b)}
         elif k == "provider_order":
             if not isinstance(v, list):
                 return None, "provider_order must be a list"
@@ -1072,13 +1137,13 @@ def _validate_settings_patch(patch):
             if not isinstance(v, dict):
                 return None, "provider_limits must be an object"
             clean[k] = {str(a)[:64]: int(b) for a, b in v.items()
-                        if isinstance(b, (int, float)) and int(b) > 0}
+                        if _finite_num(b) and int(b) > 0}
         elif k == "session_minutes":
-            if v not in (30, 60, 480, 1440):
+            if isinstance(v, bool) or not isinstance(v, int) or v not in (30, 60, 480, 1440):
                 return None, "session_minutes must be 30, 60, 480 or 1440"
             clean[k] = v
         elif k == "retention_days":
-            if v not in (7, 30, 90):
+            if isinstance(v, bool) or not isinstance(v, int) or v not in (7, 30, 90):
                 return None, "retention_days must be 7, 30 or 90"
             clean[k] = v
         elif k == "instance_name":
@@ -1086,7 +1151,7 @@ def _validate_settings_patch(patch):
                 return None, "instance_name must be 1-40 chars"
             clean[k] = v.strip()
         elif k == "global_cap":
-            if not isinstance(v, int) or not 0 <= v <= 1000000:
+            if (not isinstance(v, int) or isinstance(v, bool)) or not 0 <= v <= 1000000:
                 return None, "global_cap must be 0-1000000"
             clean[k] = v
         elif k == "chain_mode":
@@ -1097,17 +1162,21 @@ def _validate_settings_patch(patch):
             if not isinstance(v, dict):
                 return None, "provider_timeouts must be an object"
             clean[k] = {str(a)[:64]: max(5, min(600, int(b)))
-                        for a, b in v.items() if isinstance(b, (int, float))}
+                        for a, b in v.items() if _finite_num(b)}
         elif k == "cb_failures":
-            if v is not None and (not isinstance(v, int) or not 1 <= v <= 10):
+            if v is not None and ((not isinstance(v, int) or isinstance(v, bool)) or not 1 <= v <= 10):
                 return None, "cb_failures must be 1-10"
             clean[k] = v
         elif k == "cb_cooldown_s":
-            if v not in (None, 30, 120, 180, 600):
+            if v is not None and (isinstance(v, bool)
+                                  or not isinstance(v, int)
+                                  or v not in (30, 120, 180, 600)):
                 return None, "cb_cooldown_s must be 30, 120, 180 or 600"
             clean[k] = v
         elif k == "chat_rate":
-            if v not in (None, 0, 10, 30, 40, 60):
+            if v is not None and (isinstance(v, bool)
+                                  or not isinstance(v, int)
+                                  or v not in (0, 10, 30, 40, 60)):
                 return None, "chat_rate must be 10, 30, 40, 60 or 0 (off)"
             clean[k] = v
         elif k == "webhook_url":
@@ -1156,15 +1225,15 @@ def _validate_settings_patch(patch):
                 return None, "signup_role must be friend or viewer"
             clean[k] = v
         elif k == "pw_min":
-            if v not in (8, 12, 16):
+            if isinstance(v, bool) or not isinstance(v, int) or v not in (8, 12, 16):
                 return None, "pw_min must be 8, 12 or 16"
             clean[k] = v
         elif k == "latency_alert_s":
-            if v not in (0, 1, 2, 5):
+            if isinstance(v, bool) or not isinstance(v, int) or v not in (0, 1, 2, 5):
                 return None, "latency_alert_s must be 0, 1, 2 or 5"
             clean[k] = v
         elif k == "quota_alert_pct":
-            if v not in (80, 90, 95):
+            if isinstance(v, bool) or not isinstance(v, int) or v not in (80, 90, 95):
                 return None, "quota_alert_pct must be 80, 90 or 95"
             clean[k] = v
         elif k == "oauth_admin_emails":
@@ -1446,6 +1515,49 @@ def _save_intg(label, data, password):
     os.chmod(p, 0o600)
 
 
+_PW_FAILS = {}
+
+
+def _pw_throttled(kind, key):
+    """Audit run-6: the master/friend password proofs are offline-
+    oracle shaped — PBKDF2 cost was the only brake (measured:
+    thousands of guesses a day from one host). 10 failures per
+    (kind, key) inside 15 minutes locks further proofs for that
+    key; kind "master" keys on the client IP (mirrors the login
+    ledger), the friend kinds key on the account label."""
+    now = time.time()
+    fails = [t for t in _PW_FAILS.get((kind, key), []) if now - t < 900]
+    _PW_FAILS[(kind, key)] = fails
+    return len(fails) >= 10
+
+
+def _pw_failed(kind, key):
+    _PW_FAILS.setdefault((kind, key), []).append(time.time())
+    return len(_PW_FAILS[(kind, key)])
+
+
+def _master_proof(pw):
+    """The one master-password oracle (audit run-6): a keys.enc
+    decrypt attempt behind the shared failure budget — returns the
+    decrypted dict, or None for a wrong password AND while the
+    budget is exhausted (callers already answer both the same way).
+    Every console/inline site that used to decrypt directly goes
+    through here so no parallel unthrottled oracle remains."""
+    if not pw or _pw_throttled("master", ""):
+        return None
+    try:
+        keys = decrypt_keys(Path(__file__).parent / "keys.enc", pw)
+    except Exception:
+        _pw_failed("master", "")
+        return None
+    # A success clears the budget: the lockout exists to stop
+    # GUESSING, and a guesser never succeeds — while the owner's
+    # own correct proofs (and the console's negative probes that a
+    # success follows) must not starve each other.
+    _PW_FAILS.pop(("master", ""), None)
+    return keys
+
+
 def _intg_verify(info, password):
     """Verify an account password for a persistence operation —
     friends against their stored hash, the owner by decrypting the
@@ -1453,14 +1565,26 @@ def _intg_verify(info, password):
     if not password:
         return False
     if info.get("admin"):
+        # The master proof is a single global secret: one shared
+        # failure budget across every oracle that checks it.
+        if _pw_throttled("master", ""):
+            return False
         try:
             decrypt_keys(Path(__file__).parent / "keys.enc", password)
+            _PW_FAILS.pop(("master", ""), None)
             return True
         except Exception:
+            _pw_failed("master", "")
             return False
     label = info.get("label", "")
+    if _pw_throttled("intg", label):
+        return False
     stored = (_load_access() or {}).get(label, "")
     ok, _up = _verify_password(password, stored)
+    if not ok:
+        _pw_failed("intg", label)
+    else:
+        _PW_FAILS.pop(("intg", label), None)
     return bool(ok)
 
 
@@ -1493,6 +1617,15 @@ def _read_capped(resp, cap=_INTG_READ_CAP):
     if len(data) > cap:
         data = data[:cap]
     return data.decode(errors="replace")
+
+
+def _read_capped_bytes(resp, cap=_INTG_READ_CAP):
+    """Bytes twin of _read_capped for callers that forward or store
+    the body itself (the relay, the telemetry mirror)."""
+    data = resp.read(cap + 1)
+    if len(data) > cap:
+        data = data[:cap]
+    return data
 
 
 def _intg_http(url, method="GET", headers=None, data=None, timeout=20):
@@ -1659,7 +1792,13 @@ _AIOAUTH_CLIENTS = {
         "scope": ("https://www.googleapis.com/auth/cloud-platform "
                   "https://www.googleapis.com/auth/userinfo.email "
                   "https://www.googleapis.com/auth/userinfo.profile"),
-        "pkce": False,
+        # PKCE on (audit run-6): the codeassist page shows a BARE
+        # code, which carries no state to compare — without PKCE any
+        # code minted for this public client exchanged into any
+        # signed-in session that had clicked Sign in. With S256 the
+        # code only exchanges against the verifier held by the
+        # browser that started this flow.
+        "pkce": True,
         "extra": {"access_type": "offline", "prompt": "consent"},
     },
 }
@@ -2359,13 +2498,7 @@ def _is_master_password(password):
     permanently shadowed — and its holder would land in an admin
     session. Checked at every friend-password set site and, in reverse,
     when the master password itself is rotated."""
-    if not password:
-        return False
-    try:
-        decrypt_keys(Path(__file__).parent / "keys.enc", password)
-        return True
-    except Exception:
-        return False
+    return _master_proof(password) is not None
 
 # ---------------------------------------------------------------------------
 # Structured server-side logging with secret redaction + usage-log rotation.
@@ -2415,7 +2548,22 @@ _USAGE_MAX_BYTES = 2_000_000   # rotate the usage log past ~2 MB
 _USAGE_KEEP_LINES = 20_000     # ...keeping the newest 20k entries
 
 
+def _rewrite_lines(path, lines):
+    """Atomically replace a line file via a UNIQUE temp name — the
+    old shared `.tmp` let two concurrent rewrites clobber each other
+    mid-replace (audit run-6)."""
+    tmp = "%s.%d.tmp" % (path, threading.get_ident())
+    with open(tmp, "w") as f:
+        f.writelines(lines)
+    os.replace(tmp, path)
+
+
 def _append_usage(entry):
+    with _USAGE_LOCK:
+        _append_usage_locked(entry)
+
+
+def _append_usage_locked(entry):
     """Append one usage record, trimming the log when it grows past the
     cap so it stays bounded forever (usage stats read the newest data;
     the trim keeps far more than the 7-day history window). Never raises:
@@ -2431,15 +2579,17 @@ def _append_usage(entry):
                     - datetime.timedelta(days=int(_SETTINGS.get("retention_days") or 30))).isoformat()
             lines = [ln for ln in lines[-_USAGE_KEEP_LINES:]
                      if _fresh_line(ln, _cut)]
-            tmp = str(USAGE_PATH) + ".tmp"
-            with open(tmp, "w") as f:
-                f.writelines(lines)
-            os.replace(tmp, USAGE_PATH)
+            _rewrite_lines(USAGE_PATH, lines)
     except Exception:
         pass
 
 
 def _purge_label_history(label):
+    with _USAGE_LOCK:
+        return _purge_label_history_locked(label)
+
+
+def _purge_label_history_locked(label):
     """Revoke cleanup (Launch Safety Standard F28): drop the label's
     rows from usage.jsonl (rows carry "user") and from audit.jsonl
     (rows whose event names the label), so a removed account leaves no
@@ -2466,10 +2616,7 @@ def _purge_label_history(label):
                     n += 1
                     continue
                 keep.append(line)
-            tmp = str(USAGE_PATH) + ".tmp"
-            with open(tmp, "w") as f:
-                f.writelines(keep)
-            os.replace(tmp, USAGE_PATH)
+            _rewrite_lines(USAGE_PATH, keep)
     except Exception:
         pass
     try:
@@ -2489,10 +2636,7 @@ def _purge_label_history(label):
                         and pat.search(str(e.get("event", ""))):
                     continue
                 keep.append(line)
-            tmp = str(AUDIT_PATH) + ".tmp"
-            with open(tmp, "w") as f:
-                f.writelines(keep)
-            os.replace(tmp, AUDIT_PATH)
+            _rewrite_lines(AUDIT_PATH, keep)
     except Exception:
         pass
     _TELEMETRY["dirty"] = True
@@ -2872,7 +3016,7 @@ def _oauth_public_base(headers):
 def _oauth_http_json(url, data=None, headers=None, timeout=20):
     req = Request(url, data=data, headers=headers or {},
                   method="POST" if data is not None else "GET")
-    with urlopen(req, timeout=timeout) as resp:
+    with _open_cred(req, timeout) as resp:
         return json.loads(_read_capped(resp))
 
 
@@ -3093,7 +3237,7 @@ def _v1_relay_call(lane, path, payload=None, timeout=90):
                   data=data, headers=headers,
                   method="POST" if payload is not None else "GET")
     with _open_loopback(req, timeout) as resp:
-        return json.loads(resp.read().decode())
+        return json.loads(_read_capped(resp))
 
 
 def _v1_route(model):
@@ -3205,8 +3349,49 @@ def register_custom_providers(keys):
         _CUSTOM_RELAY_NAMES.add(name)
 
 
+class _DeadlineReader:
+    """Bounds the TOTAL time a request may spend arriving (audit
+    run-6): the per-read socket timeout restarts on every trickled
+    byte, so a 1-byte-per-2s sender held handler threads forever.
+    This wrapper re-arms the socket timeout to the request's
+    remaining budget before every read — trickling cannot push the
+    total past the deadline. Raising TimeoutError here is
+    indistinguishable from a socket timeout to http.server, which
+    closes the connection quietly."""
+    def __init__(self, raw, conn, budget):
+        self._raw = raw
+        self._conn = conn
+        self._deadline = time.time() + budget
+
+    def _arm(self):
+        left = self._deadline - time.time()
+        if left <= 0:
+            raise TimeoutError("request took too long to arrive")
+        try:
+            # The 10s per-read idle timeout still applies to each
+            # individual read; the budget only caps the TOTAL.
+            self._conn.settimeout(min(10, left))
+        except Exception:
+            pass
+
+    def read(self, n=-1):
+        self._arm()
+        return self._raw.read(n)
+
+    def readline(self, limit=-1):
+        self._arm()
+        return self._raw.readline(limit)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
 class RelayHandler(BaseHTTPRequestHandler):
     timeout = 10  # per-read socket deadline: stalled connections close
+
+    def setup(self):
+        super().setup()
+        self.rfile = _DeadlineReader(self.rfile, self.connection, 120)
 
     def log_message(self, *args):
         return
@@ -3326,7 +3511,7 @@ class RelayHandler(BaseHTTPRequestHandler):
 
         try:
             with _open_cred(req, 60) as resp:
-                data = resp.read()
+                data = _read_capped_bytes(resp)
                 if _cf_models:
                     # Translate Cloudflare's catalog shape to OpenAI's.
                     try:
@@ -3340,7 +3525,7 @@ class RelayHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(data)
         except HTTPError as e:
-            data = e.read()
+            data = _read_capped_bytes(e)
             self.send_response(e.code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
@@ -3390,6 +3575,13 @@ class Handler(BaseHTTPRequestHandler):
     # pre-auth Slowloris — partial headers or a partial body — must not
     # hold a handler thread indefinitely.
     timeout = 10
+
+    def setup(self):
+        super().setup()
+        # Total-arrival deadline on top of the per-read one (audit
+        # run-6): generous enough for a 12 MB upload on a slow link,
+        # finite enough that trickle floods cannot pin threads.
+        self.rfile = _DeadlineReader(self.rfile, self.connection, 300)
     server_version = "NexusLocal"
     sys_version = ""
     keys: dict | None = None
@@ -3528,13 +3720,7 @@ class Handler(BaseHTTPRequestHandler):
     def _master_ok(self, data):
         """The console's master-password proof: decrypting keys.enc."""
         pw = (data or {}).get("master_pw") or ""
-        if not pw:
-            return False
-        try:
-            decrypt_keys(Path(__file__).parent / "keys.enc", pw)
-            return True
-        except Exception:
-            return False
+        return _master_proof(pw) is not None
 
     def _require_session(self):
         if not self._get_session():
@@ -3703,6 +3889,13 @@ class Handler(BaseHTTPRequestHandler):
                 data = json.loads(self.rfile.read(length) or b"{}")
         except Exception:
             data = {}
+        if _master_proof((data or {}).get("master_pw")) is None:
+            # Audit run-6: a session alone could mint bearer keys —
+            # and rotation minted fresh ones even after the master
+            # password changed. The proof matches the console's.
+            self._set_json_headers(401)
+            self._send_body(json.dumps({"error": "master password required"}).encode())
+            return
         entry = _create_v1key(data.get("name", ""))
         if not entry:
             self._set_json_headers(400)
@@ -3734,6 +3927,10 @@ class Handler(BaseHTTPRequestHandler):
                 data = json.loads(self.rfile.read(length) or b"{}")
         except Exception:
             data = {}
+        if _master_proof((data or {}).get("master_pw")) is None:
+            self._set_json_headers(401)
+            self._send_body(json.dumps({"error": "master password required"}).encode())
+            return
         entry = None
         for k in _V1KEYS["keys"]:
             if k["id"] == data.get("id", ""):
@@ -3866,6 +4063,19 @@ class Handler(BaseHTTPRequestHandler):
         # HEAD mirrors GET routing/status codes but sends no body
         # (uptime monitors use HEAD; without this BaseHTTPRequestHandler
         # answers 501 Not Implemented).
+        _hp = urlparse(self.path).path
+        if _hp.startswith("/view/") or _hp.startswith("/api/oauth/") \
+                or (_hp.startswith("/api/integrations/")
+                    and (_hp.endswith("/start")
+                         or _hp.endswith("/callback"))):
+            # Audit run-6: these GET routes have side effects (they
+            # mint sessions or start OAuth flows) — a HEAD request
+            # must never trigger them. Monitors only need plain pages.
+            self.send_response(405)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self._head_only = True
         self._resp_started = False
         try:
@@ -4406,6 +4616,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(429)
                 self._send_body(json.dumps({"error": "too many attempts, try again later"}).encode())
                 return
+            if not self._ip_gate():
+                # Audit run-6: every other session-minting route
+                # honors the IP allowlist; the (dormant) login OAuth
+                # mint skipped it.
+                return
             _obase = _oauth_public_base(self.headers)
             _ocb = f"{_obase}/api/oauth/{_oprov}/callback"
             if _oaction == "start":
@@ -4916,13 +5131,22 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/audit":
             # Readable by every console role (owner, moderator, viewer) —
             # the design's permission table gives viewers the audit log.
-            if self._console_kind()[0] is None:
+            _akind = self._console_kind()[0]
+            if _akind is None:
                 return self._require_admin()
             if not self._ip_gate():
                 return
+            _events = _read_audit(200)
+            if _akind == "viewer":
+                # The permission table grants viewers the events, not
+                # the client IPs inside them (audit run-6; same
+                # principle as the run-5 access-list strip).
+                _events = [{k: v for k, v in e.items() if k != "ip"}
+                           if isinstance(e, dict) else e
+                           for e in _events]
             self._set_json_headers()
             self._send_body(json.dumps({
-                "events": _read_audit(200),
+                "events": _events,
                 "failovers_today": _audit_count_today("Failover handled", "Providers"),
                 "fails_today": _audit_count_today("Attempt failed", "Providers"),
             }).encode())
@@ -5173,7 +5397,7 @@ class Handler(BaseHTTPRequestHandler):
                     req.add_header("x-api-key", vault_key)
                     req.add_header("anthropic-version", "2023-06-01")
                 with _open_cred(req, 10) as resp:
-                    data = js.loads(resp.read())
+                    data = js.loads(_read_capped(resp))
                     if isinstance(data, list):
                         # e.g. AI Horde: [{"name": "...", ...}]
                         models = [m.get("name", "") for m in data if isinstance(m, dict) and m.get("name")]
@@ -5341,6 +5565,10 @@ class Handler(BaseHTTPRequestHandler):
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": "password required to encrypt your vault"}).encode())
             return
+        if _pw_throttled("friend", label):
+            self._set_json_headers(429)
+            self.wfile.write(json.dumps({"error": "too many wrong passwords — try again in a few minutes"}).encode())
+            return
         access = _load_access()
         stored = access.get(label, "")
         ok, needs_up = _verify_password(password, stored)
@@ -5355,9 +5583,11 @@ class Handler(BaseHTTPRequestHandler):
                     _fresh[label] = _hash_password(password)
                     _save_access(_fresh)
         if not ok:
+            _pw_failed("friend", label)
             self._set_json_headers(401)
             self.wfile.write(json.dumps({"error": "wrong password"}).encode())
             return
+        _PW_FAILS.pop(("friend", label), None)
         keys = {}
         for n in PROVIDER_NAMES:
             v = form.get("k_" + n, [""])[0].strip()
@@ -5393,14 +5623,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "gateway URL must be a public http(s) address"}).encode())
                 return
             keys["freellmapi_url"] = gw_url
-        try:
-            vault = _load_userkeys_strict(label, password)
-        except Exception:
-            self._set_json_headers(500)
-            self.wfile.write(json.dumps({"error": "stored keys could not be decrypted — nothing was changed"}).encode())
+        if any(len(v) > _USERKEY_VALUE_CAP for v in keys.values()):
+            self._set_json_headers(400)
+            self.wfile.write(json.dumps({"error": "a key value is too long (512 characters max)"}).encode())
             return
-        vault.update(keys)
-        _save_userkeys(label, vault, password)
+        with _USERKEYS_LOCK:
+            try:
+                vault = _load_userkeys_strict(label, password)
+            except Exception:
+                self._set_json_headers(500)
+                self.wfile.write(json.dumps({"error": "stored keys could not be decrypted — nothing was changed"}).encode())
+                return
+            vault.update(keys)
+            if len([k for k in vault if not k.startswith("_")]) > _USERKEY_COUNT_CAP:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "too many keys in one vault"}).encode())
+                return
+            _save_userkeys(label, vault, password)
         for tok, sess in SESSIONS.items():
             if isinstance(sess, dict) and sess.get("label") == label and not sess.get("admin"):
                 sess["userkeys"] = dict(vault)
@@ -5415,12 +5654,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self._resp_started = False
+        self._cap_res = None
         try:
             self._do_post()
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as exc:
             self._handle_uncaught(exc)
+        finally:
+            if getattr(self, "_cap_res", None) is not None:
+                _inflight_drop(self._cap_res)
+                self._cap_res = None
 
     def _do_post(self):
         # DoS protection: reject bodies over 12 MB (covers image/file uploads)
@@ -5606,9 +5850,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with _KEYS_LOCK:
                 key_path = Path(__file__).parent / "keys.enc"
-                try:
-                    keys = decrypt_keys(key_path, pw)
-                except Exception:
+                keys = _master_proof(pw)
+                if keys is None:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                     return
@@ -5705,14 +5948,14 @@ class Handler(BaseHTTPRequestHandler):
             if not _tinfo.get("admin") and _label_t:
                 _cap = (_SETTINGS.get("user_caps") or {}).get(
                     _label_t, _SETTINGS.get("daily_cap", 200))
-                if _cap and _today_counts()["users"].get(_label_t, 0) >= int(_cap):
+                if _cap and _today_counts(fresh=True)["users"].get(_label_t, 0) + _inflight_n(user=_label_t) >= int(_cap):
                     _audit("Users", f"Daily cap hit: {_label_t} ({_cap}/day)")
                     _alert("cap_hit", "cap", {"label": _label_t, "cap": int(_cap)})
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
                     return
                 _gcap = int(_SETTINGS.get("global_cap") or 0)
-                if _gcap and _today_total_requests() >= _gcap:
+                if _gcap and _today_total_requests(fresh=True) + _inflight_n() >= _gcap:
                     _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
                     _alert("cap_hit", "cap", {"label": _label_t, "cap": _gcap, "scope": "instance"})
                     self._set_json_headers(429)
@@ -5750,10 +5993,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(413)
                 self.wfile.write(json.dumps({"error": "audio too large"}).encode())
                 return
+            self._cap_res = _inflight_add(_label_t, "groq")
             _ext = {"audio/webm": "webm", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/wav": "wav", "audio/mpeg": "mp3"}.get(_mime, "webm")
             _mdl = data.get("model") or "whisper-large-v3-turbo"
             if "whisper" not in str(_mdl):
                 _mdl = "whisper-large-v3-turbo"
+            # Both values are interpolated into a hand-built
+            # multipart body (audit run-6): CR/LF in either would
+            # forge extra parts/headers in the outbound request.
+            _mdl = str(_mdl).replace("\r", "").replace("\n", "")
+            _mime = str(_mime).replace("\r", "").replace("\n", "")
             import uuid as _uuid_t
             _b = "----nx" + _uuid_t.uuid4().hex
             _parts = []
@@ -5767,7 +6016,7 @@ class Handler(BaseHTTPRequestHandler):
                              "Content-Type": f"multipart/form-data; boundary={_b}",
                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, method="POST")
                 with _open_cred(_rq, 60) as _rs:
-                    _txt = json.loads(_rs.read().decode()).get("text", "")
+                    _txt = json.loads(_read_capped(_rs)).get("text", "")
                 _append_usage({"ts": datetime.datetime.now().isoformat(),
                                "provider": "groq", "model": _mdl,
                                "prompt_tokens": 0, "completion_tokens": 0,
@@ -5807,14 +6056,14 @@ class Handler(BaseHTTPRequestHandler):
             if not _sinfo.get("admin") and _chat_label:
                 _cap = (_SETTINGS.get("user_caps") or {}).get(
                     _chat_label, _SETTINGS.get("daily_cap", 200))
-                if _cap and _today_counts()["users"].get(_chat_label, 0) >= int(_cap):
+                if _cap and _today_counts(fresh=True)["users"].get(_chat_label, 0) + _inflight_n(user=_chat_label) >= int(_cap):
                     _audit("Users", f"Daily cap hit: {_chat_label} ({_cap}/day)")
                     _alert("cap_hit", "cap", {"label": _chat_label, "cap": int(_cap)})
                     self._set_json_headers(429)
                     self.wfile.write(json.dumps({"error": f"daily limit reached ({_cap} requests/day) — ask the admin to raise it"}).encode())
                     return
                 _gcap = int(_SETTINGS.get("global_cap") or 0)
-                if _gcap and _today_total_requests() >= _gcap:
+                if _gcap and _today_total_requests(fresh=True) + _inflight_n() >= _gcap:
                     _audit("Users", f"Instance daily cap hit ({_gcap}/day)")
                     _alert("cap_hit", "cap", {"label": _chat_label, "cap": _gcap, "scope": "instance"})
                     self._set_json_headers(429)
@@ -5828,6 +6077,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "invalid JSON"}).encode())
                 return
+            self._cap_res = _inflight_add(_chat_label)
             provider = data.get("provider")
             model = data.get("model")
             message = data.get("message")
@@ -5946,7 +6196,7 @@ class Handler(BaseHTTPRequestHandler):
                     for _att in range(3):
                         try:
                             rq = Request(u, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://nexus-local.onrender.com/"})
-                            with urlopen(rq, timeout=40) as rs:
+                            with _open_cred(rq, 40) as rs:
                                 _ct = rs.headers.get("Content-Type") or ""
                                 if rs.status == 200 and "image" in _ct:
                                     _bytes = rs.read(_MEDIA_IMAGE_CAP + 1)
@@ -5968,15 +6218,15 @@ class Handler(BaseHTTPRequestHandler):
                                     "models": [model], "nsfw": False, "censor_nsfw": True}).encode(),
                                 headers={"Content-Type": "application/json", "apikey": hk, "Client-Agent": "NexusLocal:1.0"}, method="POST")
                             with _open_cred(sub_req, 30) as rs:
-                                rid = json.loads(rs.read().decode()).get("id")
+                                rid = json.loads(_read_capped(rs)).get("id")
                             _horde_rid = rid
                             _t0 = time.time()
                             _deadline = _t0 + 110
                             while rid and time.time() < _deadline:
                                 time.sleep(6)
                                 chk_req = Request(f"https://stablehorde.net/api/v2/generate/check/{rid}", headers={"Client-Agent": "NexusLocal:1.0"})
-                                with urlopen(chk_req, timeout=20) as rs:
-                                    chk = json.loads(rs.read().decode())
+                                with _open_cred(chk_req, 20) as rs:
+                                    chk = json.loads(_read_capped(rs))
                                 if chk.get("faulted"):
                                     break
                                 # Anonymous queue can mean a 5+ min wait — bail to
@@ -5985,8 +6235,8 @@ class Handler(BaseHTTPRequestHandler):
                                     break
                                 if chk.get("done"):
                                     st_req = Request(f"https://stablehorde.net/api/v2/generate/status/{rid}", headers={"Client-Agent": "NexusLocal:1.0"})
-                                    with urlopen(st_req, timeout=20) as rs:
-                                        gens = json.loads(rs.read().decode()).get("generations", [])
+                                    with _open_cred(st_req, 20) as rs:
+                                        gens = json.loads(_read_capped(rs)).get("generations", [])
                                     if gens and gens[0].get("img"):
                                         _img = gens[0]["img"]
                                         # Inline it like Pollinations — hotlinked
@@ -6048,7 +6298,7 @@ class Handler(BaseHTTPRequestHandler):
                                     data=json.dumps({"prompt": _prompt}).encode(),
                                     headers={"Authorization": f"Bearer {_tok}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}, method="POST")
                                 with _open_cred(_creq, 90) as _crs:
-                                    _cd = json.loads(_crs.read().decode())
+                                    _cd = json.loads(_read_capped(_crs))
                                 _cimg = (_cd.get("result") or {}).get("image")
                                 if _cimg:
                                     _img = "data:image/jpeg;base64," + _cimg
@@ -6072,8 +6322,8 @@ class Handler(BaseHTTPRequestHandler):
                                 gurl = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_urlquote(gk, safe='')}"
                                 gbody = {"contents": [{"parts": [{"text": _prompt}]}], "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}}
                                 greq = Request(gurl, data=json.dumps(gbody).encode(), headers={"Content-Type": "application/json"}, method="POST")
-                                with urlopen(greq, timeout=90) as rs:
-                                    gd = json.loads(rs.read().decode())
+                                with _open_cred(greq, 90) as rs:
+                                    gd = json.loads(_read_capped(rs))
                                 for part in gd.get("candidates", [{}])[0].get("content", {}).get("parts", []):
                                     if "inlineData" in part:
                                         _img = "data:" + part["inlineData"]["mimeType"] + ";base64," + part["inlineData"]["data"]
@@ -6269,7 +6519,7 @@ class Handler(BaseHTTPRequestHandler):
                                        "prompt_tokens": 0, "completion_tokens": 0,
                                        "user": _chat_label, "ok": True})
                     try:
-                        _eb = e.read().decode(errors="replace")
+                        _eb = _read_capped(e)
                     except Exception:
                         _eb = ""
                     if "terms acceptance" in _eb:
@@ -6318,7 +6568,7 @@ class Handler(BaseHTTPRequestHandler):
                         data=json.dumps({"data": _data, "fn_index": 4, "session_hash": _sess}).encode(),
                         headers=_H, method="POST")
                     with _open_cred(_rq, 60) as _rs:
-                        json.loads(_rs.read().decode())
+                        json.loads(_read_capped(_rs))
                     _file_url = None
                     _rq2 = Request(_BASE + f"/gradio_api/queue/data?session_hash={_sess}",
                         headers={"User-Agent": "Mozilla/5.0", **({"Authorization": f"Bearer {_hk}"} if _hk else {})})
@@ -6420,8 +6670,8 @@ class Handler(BaseHTTPRequestHandler):
                         wreq = urllib.request.Request(
                             f"https://en.wikipedia.org/api/rest_v1/page/summary/{wq}",
                             headers={"User-Agent": "NexusLocal/1.0"})
-                        with urllib.request.urlopen(wreq, timeout=10) as wresp:
-                            wdata = json.loads(wresp.read().decode())
+                        with _open_cred(wreq, 10) as wresp:
+                            wdata = json.loads(_read_capped(wresp))
                             extract = wdata.get("extract", "")
                             if extract:
                                 message = (f"Reference information:\n{extract[:800]}\n\n"
@@ -6591,7 +6841,7 @@ class Handler(BaseHTTPRequestHandler):
                                                "Authorization": f"Bearer {akey}"},
                                       method="POST")
                         with _open_cred(req, timeout) as resp:
-                            resp_data = json.loads(resp.read().decode())
+                            resp_data = json.loads(_read_capped(resp))
                             _cu = resp_data.get("usage") or {}
                             _ct2 = _cu.get("tokens") or {}
                             _meter(_ct2.get("input_tokens",
@@ -6630,7 +6880,7 @@ class Handler(BaseHTTPRequestHandler):
                                                "anthropic-version": "2023-06-01"},
                                       method="POST")
                         with _open_cred(req, timeout) as resp:
-                            resp_data = json.loads(resp.read().decode())
+                            resp_data = json.loads(_read_capped(resp))
                             _txt = "".join(
                                 b.get("text", "") for b in resp_data.get("content", [])
                                 if isinstance(b, dict) and b.get("type") == "text")
@@ -6694,7 +6944,7 @@ class Handler(BaseHTTPRequestHandler):
                                                   "(external, cli)"},
                                 method="POST")
                             with _open_cred(req, timeout) as resp:
-                                resp_data = json.loads(resp.read().decode())
+                                resp_data = json.loads(_read_capped(resp))
                                 _txt = "".join(
                                     b.get("text", "")
                                     for b in resp_data.get("content", [])
@@ -6747,8 +6997,7 @@ class Handler(BaseHTTPRequestHandler):
                                 data=json.dumps(_xbody).encode(),
                                 headers=_xhdr, method="POST")
                             with _open_cred(req, timeout) as resp:
-                                _raw = resp.read().decode("utf-8",
-                                                          "replace")
+                                _raw = _read_capped(resp)
                             _deltas, _final = [], ""
                             _xusage = {}
                             for _line in _raw.splitlines():
@@ -6815,7 +7064,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "User-Agent": "GeminiCLI/0.1"},
                             method="POST")
                         with _open_cred(req, timeout) as resp:
-                            resp_data = json.loads(resp.read().decode())
+                            resp_data = json.loads(_read_capped(resp))
                         _inner = resp_data.get("response") or resp_data
                         _txt = ""
                         for _cand in _inner.get("candidates") or []:
@@ -6887,7 +7136,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     req = Request(f"{base}/chat/completions", data=json.dumps(body).encode(), headers=headers, method="POST")
                     with _open_cred(req, timeout) as resp:
-                        resp_data = json.loads(resp.read().decode())
+                        resp_data = json.loads(_read_capped(resp))
                         reply = resp_data["choices"][0]["message"]["content"]
                         usage = resp_data.get("usage", {})
                         _meter(usage.get("prompt_tokens", 0),
@@ -7010,8 +7259,8 @@ class Handler(BaseHTTPRequestHandler):
                 def _tool_search(query):
                     q = _uparse_a.quote_plus(str(query)[:200])
                     req = Request(f"https://www.bing.com/search?q={q}&count=6", headers=_BROWSER_UA)
-                    with urlopen(req, timeout=25) as r:
-                        page = r.read().decode(errors="replace")
+                    with _open_cred(req, 25) as r:
+                        page = _read_capped(r)
                     out = []
                     for block in page.split('<li class="b_algo"')[1:7]:
                         m = _re_a.search(r'<h2><a href="([^"]+)"[^>]*>(.*?)</a></h2>', block, _re_a.S)
@@ -7098,6 +7347,19 @@ class Handler(BaseHTTPRequestHandler):
                 _final = None
                 _ap2, _am2 = _agent_list[0]
                 for _round in range(5):
+                    if _round and not _sinfo.get("admin") and _chat_label:
+                        # Audit run-6: admission was a single
+                        # pre-check for up to 16 upstream calls. Each
+                        # round meters its own attempts, so a FRESH
+                        # count binds the loop to the same caps as any
+                        # other request before it spends more.
+                        _uc = (_SETTINGS.get("user_caps") or {}).get(
+                            _chat_label, _SETTINGS.get("daily_cap", 200))
+                        if (_uc and _today_counts(fresh=True)["users"].get(_chat_label, 0) >= int(_uc)) \
+                                or _instance_cap_reached():
+                            self._set_json_headers(429)
+                            self.wfile.write(json.dumps({"error": "daily limit reached — the agent stopped here"}).encode())
+                            return
                     _ok = False
                     _reply = ""
                     for (_cp, _cm) in _agent_list[:3]:
@@ -7206,7 +7468,7 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         return (name, bool((Handler.keys or {}).get(name)))
                     req = Request(base + "/models", headers={"User-Agent": "Mozilla/5.0", "X-Relay-Token": RELAY_TOKEN})
-                    with urlopen(req, timeout=8) as r:
+                    with _open_loopback(req, 8) as r:
                         return (name, r.status == 200)
                 except Exception:
                     return (name, False)
@@ -7747,9 +8009,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if action == "viewpass_create":
                 master_pw = data.get("master_pw") or ""
-                try:
-                    decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
-                except Exception:
+                if _master_proof(master_pw) is None:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
@@ -7795,9 +8055,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if action == "viewpass_revoke":
                 master_pw = data.get("master_pw") or ""
-                try:
-                    decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
-                except Exception:
+                if _master_proof(master_pw) is None:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
@@ -7833,10 +8091,20 @@ class Handler(BaseHTTPRequestHandler):
                         "failovers_today": _audit_count_today("Failover handled", "Providers"),
                     }).encode())
                     return
+                # Invite hashes are redacted in this copy (audit
+                # run-6): a full unsalted SHA-256 of a ~30-bit invite
+                # code is brute-forceable offline, and this read had
+                # no master gate while every sibling mutation does.
+                # The invites UI uses invite_list (prefixes) instead.
+                _pub = dict(_SETTINGS)
+                if isinstance(_pub.get("invites"), list):
+                    _pub["invites"] = [
+                        {**i, "h": ""} if isinstance(i, dict) else i
+                        for i in _pub["invites"]]
                 self._set_json_headers()
                 self.wfile.write(json.dumps({
                     "ok": True,
-                    "settings": _SETTINGS,
+                    "settings": _pub,
                     "system": _system_metrics(),
                     "failovers_today": _audit_count_today("Failover handled", "Providers"),
                 }).encode())
@@ -7905,6 +8173,10 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(404)
                         self.wfile.write(json.dumps({"error": "friend not found"}).encode())
                         return
+                    if _kind == "moderator" and (_SETTINGS.get("roles") or {}).get(stored) == "moderator":
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "moderators cannot suspend other moderators"}).encode())
+                        return
                     susp = [x for x in (_SETTINGS.get("suspended") or [])
                             if x != stored]
                     if data.get("on"):
@@ -7927,8 +8199,10 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "role must be friend, moderator or viewer"}).encode())
                         return
                     if _kind == "moderator" and (role == "moderator"
-                                                 or stored == _clabel):
-                        # No privilege escalation, no self-demotion games.
+                                                 or stored == _clabel
+                                                 or (_SETTINGS.get("roles") or {}).get(stored) == "moderator"):
+                        # No privilege escalation, no self-demotion
+                        # games, no demoting a peer moderator.
                         self._set_json_headers(403)
                         self.wfile.write(json.dumps({"error": "moderators cannot grant or change moderator roles"}).encode())
                         return
@@ -7996,26 +8270,33 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(403)
                         self.wfile.write(json.dumps({"error": "personal key vaults are disabled by the admin"}).encode())
                         return
+                    if _pw_throttled("friend", stored):
+                        self._set_json_headers(429)
+                        self.wfile.write(json.dumps({"error": "too many wrong passwords — try again in a few minutes"}).encode())
+                        return
                     access = _load_access()
                     ok_pw, needs_up = _verify_password(friend_pw, access.get(stored, ""))
                     if not ok_pw:
+                        _pw_failed("friend", stored)
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong password for that friend"}).encode())
                         return
+                    _PW_FAILS.pop(("friend", stored), None)
                     if needs_up:
                         with _ACCESS_LOCK:
                             _fresh = _load_access()
                             if _fresh.get(stored) == access.get(stored):
                                 _fresh[stored] = _hash_password(friend_pw)
                                 _save_access(_fresh, master_pw)
-                    try:
-                        vault = _load_userkeys_strict(stored, friend_pw)
-                    except Exception:
-                        self._set_json_headers(500)
-                        self.wfile.write(json.dumps({"error": "stored keys could not be decrypted — nothing was changed"}).encode())
-                        return
-                    vault[provider] = key
-                    _save_userkeys(stored, vault, friend_pw)
+                    with _USERKEYS_LOCK:
+                        try:
+                            vault = _load_userkeys_strict(stored, friend_pw)
+                        except Exception:
+                            self._set_json_headers(500)
+                            self.wfile.write(json.dumps({"error": "stored keys could not be decrypted — nothing was changed"}).encode())
+                            return
+                        vault[provider] = key
+                        _save_userkeys(stored, vault, friend_pw)
                     # Refresh live sessions' cached vault copies
                     # (audit run-5): without this, a key the admin
                     # adds for a signed-in friend stays invisible -
@@ -8187,6 +8468,14 @@ class Handler(BaseHTTPRequestHandler):
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": "use sign out for your own session"}).encode())
                         return
+                    if SESSIONS[hit].get("admin") and _kind != "admin":
+                        # Audit run-6: sessions_revoke_all already
+                        # spares the owner; the single revoke forgot
+                        # the same guard, so a moderator could log
+                        # the owner out at will.
+                        self._set_json_headers(403)
+                        self.wfile.write(json.dumps({"error": "only the owner can revoke an admin session"}).encode())
+                        return
                     _lbl = SESSIONS[hit].get("label", "?")
                     _drop_chat_unlock(SESSIONS[hit].get("chat_unlock"))
                     del SESSIONS[hit]
@@ -8232,10 +8521,8 @@ class Handler(BaseHTTPRequestHandler):
                                     n += 1
                                     continue
                                 keep.append(line)
-                            tmp = str(USAGE_PATH) + ".tmp"
-                            with open(tmp, "w") as f:
-                                f.writelines(keep)
-                            os.replace(tmp, USAGE_PATH)
+                            with _USAGE_LOCK:
+                                _rewrite_lines(USAGE_PATH, keep)
                     except Exception:
                         pass
                     _TODAY_CACHE["ts"] = 0.0
@@ -8251,9 +8538,7 @@ class Handler(BaseHTTPRequestHandler):
                 # All console mutations are master-password gated, the
                 # same proof the other sensitive actions use.
                 master_pw = data.get("master_pw") or ""
-                try:
-                    decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
-                except Exception:
+                if _master_proof(master_pw) is None:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
@@ -8297,17 +8582,21 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "backup file too large"}).encode())
                         return
                     src = backup["settings"]
-                    refused = sorted(k for k in src
+                    # Non-restorable keys are SKIPPED with a note,
+                    # not fatal (audit run-6): a genuine backup
+                    # contains the full settings object, so refusing
+                    # the whole file made real backups unrestorable.
+                    skipped = sorted(k for k in src
                                      if k not in _RESTORE_ALLOWED)
-                    if refused:
-                        self._set_json_headers(400)
-                        self.wfile.write(json.dumps({"error": "backup contains settings that are never restorable: " + ", ".join(refused)}).encode())
-                        return
                     clean, err = _validate_settings_patch(
                         {k: src[k] for k in src if k in _RESTORE_ALLOWED})
                     if err:
                         self._set_json_headers(400)
                         self.wfile.write(json.dumps({"error": err}).encode())
+                        return
+                    if not clean and skipped:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "backup contains only settings that are never restorable: " + ", ".join(skipped)}).encode())
                         return
                     diff = []
                     for k in sorted(clean):
@@ -8319,7 +8608,7 @@ class Handler(BaseHTTPRequestHandler):
                     nonce = secrets.token_hex(12)
                     _RESTORE_NONCES[nonce] = (time.time() + 300, clean)
                     self._set_json_headers()
-                    self.wfile.write(json.dumps({"ok": True, "nonce": nonce, "diff": diff}).encode())
+                    self.wfile.write(json.dumps({"ok": True, "nonce": nonce, "diff": diff, "skipped": skipped}).encode())
                     return
                 if action == "settings_restore_apply":
                     ent = _RESTORE_NONCES.pop(data.get("nonce") or "", None)
@@ -8513,9 +8802,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if not _mod_add:
                     # Verify master password by decrypting keys.enc
-                    try:
-                        decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
-                    except Exception:
+                    if _master_proof(master_pw) is None:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
@@ -8579,9 +8866,7 @@ class Handler(BaseHTTPRequestHandler):
                 if stored_label is not None:
                     label = stored_label
                     # Verify master password by decrypting keys.enc
-                    try:
-                        decrypt_keys(Path(__file__).parent / "keys.enc", master_pw)
-                    except Exception:
+                    if _master_proof(master_pw) is None:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
@@ -8692,9 +8977,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 with _KEYS_LOCK:
                     key_path = Path(__file__).parent / "keys.enc"
-                    try:
-                        kd = decrypt_keys(key_path, cur)
-                    except Exception:
+                    kd = _master_proof(cur)
+                    if kd is None:
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                         return
@@ -8755,6 +9039,10 @@ class Handler(BaseHTTPRequestHandler):
                 # rotation like every session does.
                 _PENDING_2FA.clear()
                 _2FA_ATTEMPTS.clear()
+                # View grants were minted under the old password's
+                # authority too (audit run-6): a pre-rotation /view
+                # link must not re-mint a session afterwards.
+                _VIEW_GRANTS.clear()
                 self._set_json_headers()
                 _audit("System", "Master password changed")
                 self.wfile.write(json.dumps({"ok": True, "note": "password changed; all sessions signed out" + _chats_note + _intg_note}).encode())
@@ -8769,10 +9057,8 @@ class Handler(BaseHTTPRequestHandler):
                                "pending": bool(Handler.keys and Handler.keys.get("_totp_pending"))}).encode())
                 return
             if action == "2fa_status":
-                try:
-                    keys = decrypt_keys(Path(__file__).parent / "keys.enc",
-                                        (data.get("master_pw") or ""))
-                except Exception:
+                keys = _master_proof(data.get("master_pw") or "")
+                if keys is None:
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong master password"}).encode())
                     return
@@ -8938,6 +9224,11 @@ class Handler(BaseHTTPRequestHandler):
                     _save_admin_chats(_admin_rec, store)
                 else:
                     _save_chats(label, store, chat_pw)
+
+            def _reload_store():
+                if _admin_rec is not None:
+                    return _load_admin_chats_strict(_admin_rec["dek"])
+                return _load_chats_strict(label, chat_pw)
             if action == "export":
                 # Data export (F29 / DPDP data portability): the
                 # caller downloads their OWN decrypted chat store as a
@@ -9051,36 +9342,65 @@ class Handler(BaseHTTPRequestHandler):
                     first = next((m["t"] for m in msgs if m["r"] == "user"), "Chat")
                     title = first[:48]
                 now = int(time.time())
-                cid = str(data.get("id") or "")
-                existing = next((c for c in chats if c.get("id") == cid), None) if cid else None
-                if existing:
-                    existing["messages"] = msgs
-                    existing["updated"] = now
-                    if title:
-                        existing["title"] = title
-                    cid = existing["id"]
-                else:
-                    cid = f"{now}-{secrets.token_hex(3)}"
-                    chats.append({"id": cid, "title": title, "ts": now,
-                                  "updated": now, "messages": msgs})
-                chats = sorted(chats, key=lambda c: -c.get("updated", 0))[:50]
-                store["chats"] = chats
-                try:
-                    _persist()
-                except Exception:
-                    self._set_json_headers(500)
-                    self.wfile.write(json.dumps({"error": "could not save chat"}).encode())
-                    return
+                with _CHATS_LOCK:
+                    # Re-load under the lock (audit run-6): parallel
+                    # saves used to mutate the snapshot loaded at the
+                    # top of this handler, and the later persist
+                    # silently erased the earlier tab's chat.
+                    try:
+                        store = _reload_store()
+                    except Exception:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "saved chats could not be decrypted"}).encode())
+                        return
+                    chats = store.get("chats", [])
+                    cid = str(data.get("id") or "")
+                    existing = next((c for c in chats if c.get("id") == cid), None) if cid else None
+                    if existing:
+                        existing["messages"] = msgs
+                        existing["updated"] = now
+                        if title:
+                            existing["title"] = title
+                        cid = existing["id"]
+                    else:
+                        cid = f"{now}-{secrets.token_hex(3)}"
+                        chats.append({"id": cid, "title": title, "ts": now,
+                                      "updated": now, "messages": msgs})
+                    chats = sorted(chats, key=lambda c: -c.get("updated", 0))[:50]
+                    store["chats"] = chats
+                    if len(json.dumps(store)) > _CHATS_STORE_CAP:
+                        self._set_json_headers(413)
+                        self.wfile.write(json.dumps({"error": "chat storage is full for this account — delete some chats first"}).encode())
+                        return
+                    try:
+                        _persist()
+                    except Exception:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "could not save chat"}).encode())
+                        return
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True, "id": cid}).encode())
                 return
             if action == "delete":
                 cid = str(data.get("id") or "")
-                store["chats"] = [c for c in chats if c.get("id") != cid]
-                try:
-                    _persist()
-                except Exception:
-                    pass
+                with _CHATS_LOCK:
+                    try:
+                        store = _reload_store()
+                    except Exception:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "saved chats could not be decrypted"}).encode())
+                        return
+                    store["chats"] = [c for c in store.get("chats", [])
+                                       if c.get("id") != cid]
+                    try:
+                        _persist()
+                    except Exception:
+                        # A delete whose persist failed must not
+                        # report success (audit run-6): the chat
+                        # would still be on disk.
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "could not delete chat"}).encode())
+                        return
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode())
                 return
@@ -9211,11 +9531,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not _intg_verify(info, pw):
                     _err(401, "wrong password")
                     return
-                try:
-                    vault = _load_userkeys_strict(flabel, pw)
-                except Exception:
-                    _err(500, "stored keys could not be decrypted — nothing was changed")
-                    return
                 if action == "ai_save":
                     if prov in _INTG_AI_KEYLESS:
                         _err(400, "this lane is keyless — nothing to connect")
@@ -9224,16 +9539,28 @@ class Handler(BaseHTTPRequestHandler):
                     if not key or len(key) > 512:
                         _err(400, "that key looks empty or too long")
                         return
-                    vault[prov] = key
-                    _save_userkeys(flabel, vault, pw)
+                    with _USERKEYS_LOCK:
+                        try:
+                            vault = _load_userkeys_strict(flabel, pw)
+                        except Exception:
+                            _err(500, "stored keys could not be decrypted — nothing was changed")
+                            return
+                        vault[prov] = key
+                        _save_userkeys(flabel, vault, pw)
                     info["userkeys"] = dict(vault)
                     ok, acct, detail = _intg_test_ai(prov, key)
                     _status({"saved": True, "verified": bool(ok),
                              "account": acct, "detail": detail})
                     return
                 # ai_disconnect
-                vault.pop(prov, None)
-                _save_userkeys(flabel, vault, pw)
+                with _USERKEYS_LOCK:
+                    try:
+                        vault = _load_userkeys_strict(flabel, pw)
+                    except Exception:
+                        _err(500, "stored keys could not be decrypted — nothing was changed")
+                        return
+                    vault.pop(prov, None)
+                    _save_userkeys(flabel, vault, pw)
                 info["userkeys"] = dict(vault)
                 _status()
                 return
@@ -9255,12 +9582,18 @@ class Handler(BaseHTTPRequestHandler):
                     _err(500, "stored integrations could not be decrypted — nothing was changed")
                     return
                 if action == "oauth_disconnect":
-                    (store2.get("ai_oauth") or {}).pop(lane, None)
-                    try:
-                        _save_intg(label, store2, pw)
-                    except Exception:
-                        _err(500, "could not save")
-                        return
+                    with _INTG_LOCK:
+                        try:
+                            store2 = _load_intg_strict(label, pw)
+                        except Exception:
+                            _err(500, "stored integrations could not be decrypted — nothing was changed")
+                            return
+                        (store2.get("ai_oauth") or {}).pop(lane, None)
+                        try:
+                            _save_intg(label, store2, pw)
+                        except Exception:
+                            _err(500, "could not save")
+                            return
                     info["integrations"] = store2
                     _status()
                     return
@@ -9284,9 +9617,11 @@ class Handler(BaseHTTPRequestHandler):
                 cparts = ck.split(":")
                 verifier = ""
                 # The state-cookie binding is UNCONDITIONAL for every
-                # lane (including gemini_cli, which has no PKCE): the
-                # code may only be exchanged against the flow this
-                # browser session actually started.
+                # lane: the code may only be exchanged against the
+                # flow this browser session actually started. Lanes
+                # whose artifact carries a state get it compared
+                # below; bare codes are bound by PKCE instead (every
+                # lane now runs PKCE — see _AIOAUTH_CLIENTS).
                 if len(cparts) != 3 or cparts[0] != lane or not cparts[1]:
                     _err(400, "sign-in session expired — click Sign in "
                               "and paste the new code")
@@ -9323,12 +9658,22 @@ class Handler(BaseHTTPRequestHandler):
                                   "Assist did not grant a project — "
                                   "try again in a minute")
                         return
-                store2.setdefault("ai_oauth", {})[lane] = tok
-                try:
-                    _save_intg(label, store2, pw)
-                except Exception:
-                    _err(500, "could not save the connection")
-                    return
+                # Re-load under the lock before saving (audit
+                # run-6): the snapshot loaded above predates the
+                # token exchange's network calls, so saving it
+                # verbatim erased anything saved in between.
+                with _INTG_LOCK:
+                    try:
+                        store2 = _load_intg_strict(label, pw)
+                    except Exception:
+                        _err(500, "stored integrations could not be decrypted — nothing was changed")
+                        return
+                    store2.setdefault("ai_oauth", {})[lane] = tok
+                    try:
+                        _save_intg(label, store2, pw)
+                    except Exception:
+                        _err(500, "could not save the connection")
+                        return
                 info["integrations"] = store2
                 _status({"connected": lane,
                          "account": tok.get("email") or ""})
@@ -9364,14 +9709,14 @@ class Handler(BaseHTTPRequestHandler):
                 ok, account, detail = _INTG_TESTERS[svc](entry)
                 if ok:
                     entry["_account"] = account
-                disk = None
-                try:
-                    disk = _load_intg_strict(label, pw)
-                except Exception:
-                    _err(500, "stored integrations could not be decrypted — nothing was changed")
-                    return
-                disk[svc] = entry
-                _save_intg(label, disk, pw)
+                with _INTG_LOCK:
+                    try:
+                        disk = _load_intg_strict(label, pw)
+                    except Exception:
+                        _err(500, "stored integrations could not be decrypted — nothing was changed")
+                        return
+                    disk[svc] = entry
+                    _save_intg(label, disk, pw)
                 info["integrations"] = disk
                 store = disk
                 _status({"saved": True, "verified": bool(ok),
@@ -9443,14 +9788,14 @@ class Handler(BaseHTTPRequestHandler):
                 if label is None or not _intg_verify(info, pw):
                     _err(401, "wrong password")
                     return
-                disk = None
-                try:
-                    disk = _load_intg_strict(label, pw)
-                except Exception:
-                    _err(500, "stored integrations could not be decrypted — nothing was changed")
-                    return
-                disk.pop(key, None)
-                _save_intg(label, disk, pw)
+                with _INTG_LOCK:
+                    try:
+                        disk = _load_intg_strict(label, pw)
+                    except Exception:
+                        _err(500, "stored integrations could not be decrypted — nothing was changed")
+                        return
+                    disk.pop(key, None)
+                    _save_intg(label, disk, pw)
                 info["integrations"] = disk
                 store = disk
                 _status()
@@ -9468,16 +9813,16 @@ class Handler(BaseHTTPRequestHandler):
                 if label is None or not _intg_verify(info, pw):
                     _err(401, "wrong password")
                     return
-                disk = None
-                try:
-                    disk = _load_intg_strict(label, pw)
-                except Exception:
-                    _err(500, "stored integrations could not be decrypted — nothing was changed")
-                    return
-                entry = dict(entry)
-                entry["saved"] = True
-                disk[svc] = entry
-                _save_intg(label, disk, pw)
+                with _INTG_LOCK:
+                    try:
+                        disk = _load_intg_strict(label, pw)
+                    except Exception:
+                        _err(500, "stored integrations could not be decrypted — nothing was changed")
+                        return
+                    entry = dict(entry)
+                    entry["saved"] = True
+                    disk[svc] = entry
+                    _save_intg(label, disk, pw)
                 info["integrations"] = disk
                 store = disk
                 _status()
@@ -9642,7 +9987,13 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "password required to encrypt"}).encode())
                     return
-                # Verify password against stored hash
+                # Verify password against stored hash (audit run-6:
+                # the proof feeds a per-account failure budget — it
+                # was an unthrottled offline oracle).
+                if _pw_throttled("friend", label):
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": "too many wrong passwords — try again in a few minutes"}).encode())
+                    return
                 access = _load_access()
                 stored = access.get(label, "")
                 ok, needs_up = _verify_password(password, stored)
@@ -9653,14 +10004,21 @@ class Handler(BaseHTTPRequestHandler):
                             _fresh[label] = _hash_password(password)
                             _save_access(_fresh)
                 if not ok:
+                    _pw_failed("friend", label)
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong password"}).encode())
                     return
+                _PW_FAILS.pop(("friend", label), None)
                 keys_in = data.get("keys") or {}
                 if not isinstance(keys_in, dict):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "invalid keys"}).encode())
                     return
+                for k, v in keys_in.items():
+                    if isinstance(v, str) and len(v) > _USERKEY_VALUE_CAP:
+                        self._set_json_headers(400)
+                        self.wfile.write(json.dumps({"error": "a key value is too long (512 characters max)"}).encode())
+                        return
                 # SSRF guard (A5): provider/gateway base URLs are
                 # fetched server-side with the vault key attached, so a
                 # stored URL must resolve to public addresses only.
@@ -9676,30 +10034,35 @@ class Handler(BaseHTTPRequestHandler):
                 # Load existing vault STRICTLY: an existing vault that
                 # fails to decrypt must refuse the save outright — a
                 # lenient empty load would let the merge overwrite it.
-                try:
-                    _vault_pre = _load_userkeys_strict(label, password)
-                except Exception:
-                    self._set_json_headers(500)
-                    self.wfile.write(json.dumps({"error": "stored keys could not be decrypted — nothing was changed"}).encode())
-                    return
-                # Load existing vault and merge: a NON-blank value sets
-                # the key; a BLANK field KEEPS the stored value (the
-                # pages submit every field on save, so blank must never
-                # silently delete). Removal is explicit only: keys named
-                # in the payload's "remove" list are deleted.
-                vault = _vault_pre
-                for k, v in keys_in.items():
-                    if not isinstance(k, str) or not _re.match(r"^[a-z0-9_]+$", k):
-                        continue
-                    if k.startswith("_"):
-                        continue
-                    v = (v or "").strip() if isinstance(v, str) else ""
-                    if v:
-                        vault[k] = v
-                for k in (data.get("remove") or []):
-                    if isinstance(k, str) and not k.startswith("_"):
-                        vault.pop(k, None)
-                _save_userkeys(label, vault, password)
+                with _USERKEYS_LOCK:
+                    try:
+                        _vault_pre = _load_userkeys_strict(label, password)
+                    except Exception:
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "stored keys could not be decrypted — nothing was changed"}).encode())
+                        return
+                    # Load existing vault and merge: a NON-blank value sets
+                    # the key; a BLANK field KEEPS the stored value (the
+                    # pages submit every field on save, so blank must never
+                    # silently delete). Removal is explicit only: keys named
+                    # in the payload's "remove" list are deleted.
+                    vault = _vault_pre
+                    for k, v in keys_in.items():
+                        if not isinstance(k, str) or not _re.match(r"^[a-z0-9_]+$", k):
+                            continue
+                        if k.startswith("_"):
+                            continue
+                        v = (v or "").strip() if isinstance(v, str) else ""
+                        if v:
+                            vault[k] = v
+                    for k in (data.get("remove") or []):
+                        if isinstance(k, str) and not k.startswith("_"):
+                            vault.pop(k, None)
+                        if len([k for k in vault if not k.startswith("_")]) > _USERKEY_COUNT_CAP:
+                            self._set_json_headers(400)
+                            self.wfile.write(json.dumps({"error": "too many keys in one vault"}).encode())
+                            return
+                    _save_userkeys(label, vault, password)
                 # Refresh session copy
                 for tok, s in SESSIONS.items():
                     if isinstance(s, dict) and s.get("label") == label and not s.get("admin"):

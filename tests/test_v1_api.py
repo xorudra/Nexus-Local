@@ -140,12 +140,12 @@ class V1CapTests(unittest.TestCase):
 
     def test_today_total_requests(self):
         with mock.patch.object(server, "_today_counts",
-                               lambda: dict(self.COUNTS)):
+                               lambda fresh=False: dict(self.COUNTS)):
             self.assertEqual(server._today_total_requests(), 6)
 
     def test_instance_cap_reached(self):
         with mock.patch.object(server, "_today_counts",
-                               lambda: dict(self.COUNTS)):
+                               lambda fresh=False: dict(self.COUNTS)):
             with mock.patch.dict(server._SETTINGS, {"global_cap": 0}):
                 self.assertFalse(server._instance_cap_reached())
             with mock.patch.dict(server._SETTINGS, {"global_cap": 7}):

@@ -415,10 +415,17 @@ document.getElementById('keys-rows').addEventListener('click',function(e){
   }
   keyState(id,act);
 });
+var _mpw='';
+function askMaster(){
+  var p=prompt('Enter your master password to confirm this change:');
+  if(p){_mpw=p;}
+  return p;
+}
 function keyState(id,act,msg){
   var out=document.getElementById('gen-result');
-  fetch('/api/v1-access/'+act,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
-  .then(function(r){return r.json()}).then(function(d){
+  if(!_mpw && !askMaster()){ out.textContent='✗ Cancelled.'; return; }
+  fetch('/api/v1-access/'+act,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,master_pw:_mpw})})
+  .then(function(r){ if(r.status===401){_mpw='';} return r.json()}).then(function(d){
     if(d.ok){ out.textContent=msg||'✓ Done.'; loadInfo(); }
     else{ out.textContent='✗ '+(d.error||'action failed'); }
   }).catch(function(){ out.textContent='✗ Request failed.'; });
@@ -432,9 +439,10 @@ function toggleCreate(){
 function createKey(){
   var name=document.getElementById('new-name').value.trim();
   var out=document.getElementById('gen-result');
+  if(!_mpw && !askMaster()){ out.textContent='✗ Cancelled.'; return; }
   out.textContent='Creating…';
-  fetch('/api/v1-access/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})})
-  .then(function(r){return r.json()}).then(function(d){
+  fetch('/api/v1-access/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,master_pw:_mpw})})
+  .then(function(r){ if(r.status===401){_mpw='';} return r.json()}).then(function(d){
     if(d.ok){
       out.textContent='✓ Key "'+d.name+'" created — copy it from the table into the project that needs it.';
       document.getElementById('new-name').value='';

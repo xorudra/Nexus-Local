@@ -984,12 +984,13 @@ $("#rsFile").addEventListener('change',async e=>{
   const r=await apiS('settings_restore_preview',{backup},{master_pw:pw});
   if(!r.ok){toast((r.j&&r.j.error)||'Preview failed');return}
   const diff=r.j.diff||[];
-  if(!diff.length){$("#rsLine").textContent='That backup matches the current settings — nothing to restore.';return}
+  const skipped=r.j.skipped||[];
+  if(!diff.length){$("#rsLine").textContent='That backup matches the current settings — nothing to restore.'+(skipped.length?' (Skipped — never restorable from a file: '+skipped.join(', ')+')':'');return}
   const clip=v=>{const s=typeof v==='string'?v:JSON.stringify(v);return s&&s.length>42?s.slice(0,42)+'…':String(s)};
   const v=await dlg('Restore these settings?',[['Changes (key: current → backup)','x',diff.map(d=>d.key+': '+clip(d.from)+' → '+clip(d.to)).join(' · '),'text']]);
   if(!v)return;
   const r2=await apiS('settings_restore_apply',{nonce:r.j.nonce},{master_pw:pw});
-  if(r2.ok){S=r2.j.settings;$("#rsLine").textContent='Restored: '+(r2.j.applied||[]).join(', ')+'. The previous values were snapshotted for undo.';toast('Settings restored');renderAll()}
+  if(r2.ok){S=r2.j.settings;$("#rsLine").textContent='Restored: '+(r2.j.applied||[]).join(', ')+'. The previous values were snapshotted for undo.'+(skipped.length?' Skipped — never restorable from a file: '+skipped.join(', '):'');toast('Settings restored');renderAll()}
   else toast((r2.j&&r2.j.error)||'Restore failed');
 });
 // ===== navigation =====

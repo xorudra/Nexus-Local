@@ -324,7 +324,7 @@ class ValidatorUnitTests(unittest.TestCase):
         # requests today. (A limit of 0 disables the cap in the
         # shared predicate - the same semantics chat has always had -
         # so the limits here are positive.)
-        srv._today_counts = lambda: {
+        srv._today_counts = lambda fresh=False: {
             "providers": {lane: 5 for lane, _m in srv._V1_LANES}}
         try:
             srv._SETTINGS["provider_limits"] = {
@@ -345,6 +345,108 @@ class ValidatorUnitTests(unittest.TestCase):
             srv._v1_relay_call, srv._append_usage = real_relay, real_append
             srv._SETTINGS["provider_limits"] = real_limits
             srv._today_counts = real_counts
+
+    # -- run-6: credential strip list covers Cookie + account id -----
+    def test_strip_cred_headers_covers_cookie_and_account(self):
+        from urllib.request import Request
+        req = Request("https://a.example/x")
+        req.add_header("Authorization", "Bearer t")
+        req.add_header("Cookie", "session=abc")
+        req.add_header("Chatgpt-Account-Id", "acct-1")
+        req.add_header("X-Other", "keep")
+        server._strip_cred_headers(req)
+        keys = {k.lower() for k in req.headers}
+        self.assertNotIn("authorization", keys)
+        self.assertNotIn("cookie", keys)
+        self.assertNotIn("chatgpt-account-id", keys)
+        self.assertIn("x-other", keys)
+
+    # -- run-6: guarded redirect strips on origin change ------------
+    def test_guarded_redirect_strips_cross_origin(self):
+        from urllib.request import Request
+        req = Request("https://a.example/x")
+        req.add_header("Authorization", "Bearer t")
+        req.add_header("Cookie", "session=abc")
+        h = server._GuardedRedirect()
+        # Literal public IPs: the sandbox resolver maps every name
+        # into a private range, which _safe_url rightly refuses.
+        req = Request("https://93.184.216.34/x")
+        req.add_header("Authorization", "Bearer t")
+        req.add_header("Cookie", "session=abc")
+        new = h.redirect_request(req, None, 302, "Found", {},
+                                 "https://93.184.215.14/y")
+        self.assertIsNotNone(new)
+        keys = {k.lower() for k in new.headers}
+        self.assertNotIn("authorization", keys)
+        self.assertNotIn("cookie", keys)
+        new2 = h.redirect_request(req, None, 302, "Found", {},
+                                  "https://93.184.216.34/z")
+        self.assertIn("authorization",
+                      {k.lower() for k in new2.headers})
+
+    # -- run-6: capped byte reads truncate ---------------------------
+    def test_read_capped_bytes_truncates(self):
+        import io
+        big = io.BytesIO(b"x" * 100)
+        self.assertEqual(len(server._read_capped_bytes(big, cap=10)), 10)
+        small = io.BytesIO(b"abc")
+        self.assertEqual(server._read_capped_bytes(small), b"abc")
+
+    # -- run-6: deadline reader enforces a total budget --------------
+    def test_deadline_reader_budget(self):
+        import io
+
+        class _Conn:
+            def __init__(self):
+                self.timeouts = []
+
+            def settimeout(self, v):
+                self.timeouts.append(v)
+
+        conn = _Conn()
+        raw = io.BytesIO(b"hello\nworld")
+        r = server._DeadlineReader(raw, conn, 60)
+        self.assertEqual(r.readline(), b"hello\n")
+        self.assertTrue(all(t <= 10 for t in conn.timeouts))
+        dead = server._DeadlineReader(io.BytesIO(b"x"), _Conn(), 0)
+        self.assertRaises(TimeoutError, dead.read)
+
+    # -- run-6: Gemini sign-in lane runs PKCE -------------------------
+    def test_gemini_lane_uses_pkce(self):
+        self.assertTrue(server._AIOAUTH_CLIENTS["gemini_cli"]["pkce"])
+        url = server._aioauth_url("gemini_cli", "state-x", "chal-y")
+        self.assertIn("code_challenge=chal-y", url)
+        self.assertIn("code_challenge_method=S256", url)
+
+    # -- run-6: in-flight reservations feed the provider gate --------
+    def test_inflight_reservation_blocks_provider(self):
+        saved = server._SETTINGS.get("provider_limits")
+        server._SETTINGS["provider_limits"] = {"groq": 1}
+        try:
+            self.assertFalse(server._provider_blocked("groq"))
+            res = server._inflight_add("someone", "groq")
+            try:
+                self.assertTrue(server._provider_blocked("groq"))
+            finally:
+                server._inflight_drop(res)
+            self.assertFalse(server._provider_blocked("groq"))
+        finally:
+            if saved is None:
+                server._SETTINGS.pop("provider_limits", None)
+            else:
+                server._SETTINGS["provider_limits"] = saved
+
+    # -- run-6: password-proof failure budget ------------------------
+    def test_pw_failure_budget(self):
+        kind, key = "unittest-kind", "unittest-key"
+        server._PW_FAILS.pop((kind, key), None)
+        try:
+            self.assertFalse(server._pw_throttled(kind, key))
+            for _ in range(10):
+                server._pw_failed(kind, key)
+            self.assertTrue(server._pw_throttled(kind, key))
+        finally:
+            server._PW_FAILS.pop((kind, key), None)
 
 
 class AuditFixHarness(unittest.TestCase):
@@ -931,7 +1033,8 @@ class AuditFixHarness(unittest.TestCase):
     def test_98_factory_reset_revokes_v1_key(self):
         _, _, admin = self._login(MASTER)
         status, body, _ = self._req("POST", "/api/v1-access/generate",
-                                    {"name": "wave5probe"}, admin)
+                                    {"name": "wave5probe",
+                                     "master_pw": MASTER}, admin)
         self.assertEqual(status, 200, body)
         v1key = body["key"]
         hdr = {"Authorization": f"Bearer {v1key}"}
@@ -952,7 +1055,8 @@ class AuditFixHarness(unittest.TestCase):
         import server as srv
         _, _, admin = self._login(MASTER)
         status, body, _ = self._req("POST", "/api/v1-access/generate",
-                                    {"name": "wave5limits"}, admin)
+                                    {"name": "wave5limits",
+                                     "master_pw": MASTER}, admin)
         self.assertEqual(status, 200, body)
         hdr = {"Authorization": f"Bearer {body['key']}"}
         status, _, _ = self._req("GET", "/v1/models", headers=hdr)
@@ -1186,6 +1290,216 @@ class AuditFixHarness(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertEqual(usage.read_text(), "")
         self.assertFalse(tele.exists())
+
+    # -- run-6: /v1 key management needs the master proof -----------
+    def test_22_v1_access_requires_master_proof(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "nopw"}, admin)
+        self.assertEqual(status, 401, body)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "wrongpw",
+                                     "master_pw": "not-the-master"},
+                                    admin)
+        self.assertEqual(status, 401, body)
+        status, body, _ = self._req("POST", "/api/v1-access/generate",
+                                    {"name": "withpw",
+                                     "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        kid = body["id"]
+        status, body, _ = self._req("POST", "/api/v1-access/delete",
+                                    {"id": kid}, admin)
+        self.assertEqual(status, 401, body)
+        status, body, _ = self._req("POST", "/api/v1-access/delete",
+                                    {"id": kid, "master_pw": MASTER},
+                                    admin)
+        self.assertEqual(status, 200, body)
+
+    # -- run-6: parallel chat saves must all survive -----------------
+    def test_23_concurrent_chat_saves_all_survive(self):
+        import concurrent.futures as cf
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": FRIEND,
+                      "password": FRIEND_PW, "master_pw": MASTER}, admin)
+        _, _, friend = self._login(FRIEND_PW)
+        barrier = threading.Barrier(6)
+
+        def _save(i):
+            barrier.wait(timeout=10)
+            return self._req("POST", "/api/chats",
+                             {"action": "save",
+                              "messages": [{"r": "user",
+                                            "t": f"parallel chat {i}"}]},
+                             ck=friend)
+        with cf.ThreadPoolExecutor(6) as ex:
+            results = list(ex.map(_save, range(6)))
+        ids = set()
+        for status, body, _ in results:
+            self.assertEqual(status, 200, body)
+            ids.add(body["id"])
+        self.assertEqual(len(ids), 6)
+        status, body, _ = self._req("POST", "/api/chats",
+                                    {"action": "list"}, ck=friend)
+        self.assertEqual(status, 200, body)
+        have = {c["id"] for c in body["chats"]}
+        self.assertTrue(ids <= have,
+                        f"lost chats: {sorted(ids - have)}")
+
+    # -- run-6: parallel My Keys saves merge, not clobber ------------
+    def test_24_concurrent_mykeys_saves_both_survive(self):
+        import concurrent.futures as cf
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": FRIEND,
+                      "password": FRIEND_PW, "master_pw": MASTER}, admin)
+        _, _, friend = self._login(FRIEND_PW)
+        barrier = threading.Barrier(2)
+
+        def _save(keys):
+            barrier.wait(timeout=10)
+            return self._req("POST", "/api/mykeys",
+                             {"action": "save", "password": FRIEND_PW,
+                              "keys": keys}, ck=friend)
+        with cf.ThreadPoolExecutor(2) as ex:
+            results = list(ex.map(_save, [{"groq": "g-key-1"},
+                                          {"cohere": "c-key-2"}]))
+        for status, body, _ in results:
+            self.assertEqual(status, 200, body)
+        status, body, _ = self._req("POST", "/api/mykeys",
+                                    {"action": "view"}, ck=friend)
+        self.assertEqual(status, 200, body)
+        self.assertIn("groq", body["configured"])
+        self.assertIn("cohere", body["configured"])
+
+    # -- run-6: My Keys value length cap ------------------------------
+    def test_25_mykeys_value_too_long_refused(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": FRIEND,
+                      "password": FRIEND_PW, "master_pw": MASTER}, admin)
+        _, _, friend = self._login(FRIEND_PW)
+        status, body, _ = self._req(
+            "POST", "/api/mykeys",
+            {"action": "save", "password": FRIEND_PW,
+             "keys": {"groq": "x" * 600}}, ck=friend)
+        self.assertEqual(status, 400, body)
+
+    # -- run-6: settings validator survives hostile numbers ----------
+    def test_26_settings_validator_survives_nonfinite(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"provider_limits": {"groq": float("nan")}}}, admin)
+        self.assertNotEqual(status, 500, body)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"daily_cap": True}}, admin)
+        self.assertEqual(status, 400, body)
+        status, body, _ = self._access(
+            {"action": "settings_set", "master_pw": MASTER,
+             "patch": {"session_minutes": 60.0}}, admin)
+        self.assertEqual(status, 400, body)
+
+    # -- run-6: a moderator cannot revoke the owner's session ---------
+    def test_27_moderator_cannot_revoke_admin_session(self):
+        _, _, admin = self._login(MASTER)
+        self._access({"action": "add", "label": FRIEND,
+                      "password": FRIEND_PW, "master_pw": MASTER}, admin)
+        status, body, _ = self._access(
+            {"action": "friend_role_set", "label": FRIEND,
+             "role": "moderator", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        _, _, mod = self._login(FRIEND_PW)
+        status, body, _ = self._access({"action": "list"}, admin)
+        self.assertEqual(status, 200, body)
+        admin_sid = body["you"]["sid"]
+        status, body, _ = self._access(
+            {"action": "session_revoke", "sid": admin_sid}, mod)
+        self.assertEqual(status, 403, body)
+        # The owner's session is untouched.
+        status, body, _ = self._access({"action": "list"}, admin)
+        self.assertEqual(status, 200, body)
+        # Reset the role for the rest of the class.
+        self._access({"action": "friend_role_set", "label": FRIEND,
+                      "role": "friend", "master_pw": MASTER}, admin)
+
+    # -- run-6: HEAD must not mint a viewer session -------------------
+    def test_28_head_view_mints_nothing(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "viewpass_create", "name": "headprobe",
+             "hours": 1, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        url = body["url"]
+        status, _, cookie = self._req("HEAD", url)
+        self.assertEqual(status, 405)
+        self.assertIsNone(cookie)
+        # Control: the same link over GET still works exactly once.
+        status, _, cookie = self._req("GET", url)
+        self.assertEqual(status, 302)
+        self.assertIsNotNone(cookie)
+
+    # -- run-6: view grants die with a master rotation ----------------
+    def test_29_view_grant_dies_with_change_master(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "viewpass_create", "name": "rotprobe",
+             "hours": 1, "master_pw": MASTER}, admin)
+        self.assertEqual(status, 200, body)
+        url = body["url"]
+        status, _, cookie = self._req("GET", url)
+        self.assertEqual(status, 302)
+        self.assertIsNotNone(cookie)
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER,
+             "new_master_pw": MASTER_B}, admin)
+        self.assertEqual(status, 200, body)
+        # The pre-rotation link must not mint a session any more.
+        status, _, cookie = self._req("GET", url)
+        self.assertIsNone(cookie)
+        # Rotate back for the rest of the class.
+        _, _, admin_b = self._login(MASTER_B)
+        status, body, _ = self._access(
+            {"action": "change_master", "master_pw": MASTER_B,
+             "new_master_pw": MASTER}, admin_b)
+        self.assertEqual(status, 200, body)
+
+    # -- run-6: settings_get hides invite hashes; restore skips -------
+    def test_31_settings_get_redacts_and_restore_skips(self):
+        _, _, admin = self._login(MASTER)
+        status, body, _ = self._access(
+            {"action": "invite_create", "master_pw": MASTER,
+             "days": 7}, admin)
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._access({"action": "settings_get"}, admin)
+        self.assertEqual(status, 200, body)
+        invites = (body.get("settings") or {}).get("invites") or []
+        self.assertTrue(invites)
+        for inv in invites:
+            self.assertEqual(inv.get("h"), "")
+        backup = {"settings": {"daily_cap": 7,
+                                "invites": [{"h": "deadbeef"}],
+                                "roles": {"x": "viewer"}}}
+        status, body, _ = self._access(
+            {"action": "settings_restore_preview", "master_pw": MASTER,
+             "backup": backup}, admin)
+        self.assertEqual(status, 200, body)
+        self.assertIn("invites", body.get("skipped") or [])
+        self.assertTrue(any(d["key"] == "daily_cap"
+                            for d in body.get("diff") or []))
+
+    # -- run-6: password proofs share one failure budget --------------
+    # Named to sort last in this class: tripping the fixture server's
+    # master-proof budget must not starve any later master-gated call.
+    def test_zz_pw_proof_throttle(self):
+        _, _, admin = self._login(MASTER)
+        for i in range(10):
+            status, body, _ = self._access(
+                {"action": "2fa_status", "master_pw": f"wrong-{i}"},
+                admin)
+            self.assertEqual(status, 401, body)
+        # The CORRECT password is refused too while the budget is out.
+        status, body, _ = self._access(
+            {"action": "2fa_status", "master_pw": MASTER}, admin)
+        self.assertEqual(status, 401, body)
 
 
 if __name__ == "__main__":
