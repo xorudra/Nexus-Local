@@ -3240,11 +3240,34 @@ _BACKUP_DIVERGED_MEM = [None]
 #      rides the friend_blob sync via settings.enc.
 # Reads merge the channels by ts, newest wins (at boot via
 # _load_diverged_sidecar_boot, and on every _backup_diverged
-# read). A clear writes a ts'd TOMBSTONE to the sidecar and None
-# to _SETTINGS; a clear landing on only ONE channel still
-# converges, because (a) the tombstone is the newest record and
-# out-ranks the other channel's older raise at the next merged
-# read, and (b) the pre-note ordering (below) re-persists the
+# read).
+# Wave 21 (run-20 D20-DATA-1 + D20-DATA-2 — ONE combined patch,
+# prescribed by verify-data20): a clear writes ONE shared ts'd
+# TOMBSTONE dict to EVERY channel (memory, _SETTINGS and the
+# sidecar alike), and the merged read ranks settings/memory
+# tombstones as clear records exactly as it ranks the
+# sidecar's. Wave 20 stored bare None on the settings/memory
+# legs, which the merged read does not rank at all, so a clear
+# landing only on settings left a stale sidecar raise as the
+# ONLY record and it ruled unopposed (D20-DATA-1). And every
+# record is stamped by the single writer with a LOGICAL ts —
+# max(now, max_existing_ts_across_all_channels + 1), the max
+# read from the persisted channels at write time, so a
+# restart cannot reset the clock below a persisted future
+# ts — never raw int-second wall clock alone, so a logically
+# newer record can neither tie with nor be out-ranked by a
+# stale future stamp from the same writer lineage
+# (D20-DATA-2: clock step-backs and same-second ties).
+# INVARIANT: every channel holds either nothing, a raise
+# dict, or a tombstone dict, each with a writer-stamped
+# logical ts; the merged read's newest record — raise or
+# tombstone — is the truth, and a completed clear is
+# verifiably the newest record or the failure is loud (see
+# _clear_backup_diverged). A clear landing on only ONE
+# channel still converges, because (a) the tombstone is the
+# newest record and out-ranks the other channel's older raise
+# at the next merged read, and (b) the pre-note ordering
+# (below) re-persists the
 # newest intended set before any later users.enc write, so a
 # stale raise surviving on one channel is overwritten with a
 # set that caps nothing before it can rule a restore. Total
@@ -3296,11 +3319,13 @@ def _read_diverged_sidecar():
 
 
 def _write_diverged_sidecar(rec):
-    """Plain atomic write of the record (for None, a ts'd
-    tombstone). True only when it landed; never raises."""
+    """Plain atomic write of the record AS GIVEN — the caller
+    (_persist_diverged, the single writer) stamps the logical
+    ts, for raises and tombstones alike; this channel never
+    self-stamps (wave 21, D20-DATA-2). True only when it
+    landed; never raises."""
     try:
-        payload = rec if rec is not None else {
-            "ts": int(time.time()), "intended_labels": None}
+        payload = rec
         p = _diverged_sidecar_path()
         tmp = "%s.%d.tmp" % (p, threading.get_ident())
         with open(tmp, "w") as f:
@@ -3321,8 +3346,14 @@ def _load_diverged_sidecar_boot():
     record becomes the settings + in-memory state, so a
     divergence whose settings save died in a correlated IO
     fault survives the restart, and a tombstone that landed
-    only in the sidecar clears a stale settings raise."""
-    rec = _backup_diverged()
+    only in the sidecar clears a stale settings raise.
+    Wave 21: the fold-in installs the merged winning RECORD
+    (the raise dict or the tombstone dict, via
+    _backup_diverged_record) — folding in the raise-or-None
+    RESULT instead would erase a tombstone that reached only
+    the settings channel, leaving the stale sidecar raise it
+    out-ranked as the only record on the next merged read."""
+    rec = _backup_diverged_record()
     _BACKUP_DIVERGED_MEM[0] = rec
     try:
         _SETTINGS["access_backup_diverged"] = rec
@@ -3330,23 +3361,26 @@ def _load_diverged_sidecar_boot():
         pass
 
 
-def _backup_diverged():
+def _backup_diverged_record():
     # Wave 20 merged read: the NEWEST record across the
     # channels wins (settings copy, in-memory copy, plain
     # sidecar). Ties resolve sidecar > memory > settings:
     # within one _persist_diverged the sidecar is written
     # first, and memory is the in-process freshest copy by
-    # construction. A sidecar tombstone is a clear WITH a ts,
-    # so a clear that landed only there out-ranks an older
-    # raise surviving in settings.
-    best = [None]  # (ts, prio, rec-or-None)
+    # construction. A tombstone is a clear WITH a ts on EVERY
+    # channel (wave 21, D20-DATA-1: the settings/memory legs
+    # below rank their tombstone dicts exactly as the sidecar
+    # 'clear' kind is ranked), so a clear that landed on only
+    # one channel out-ranks an older raise surviving on
+    # another.
+    best = [None]  # (ts, prio, rec-or-None, raw record)
 
-    def _consider(ts, prio, rec):
+    def _consider(ts, prio, rec, raw=None):
         if not isinstance(ts, (int, float)):
             ts = 0
         if best[0] is None or (ts, prio) >= (best[0][0],
                                              best[0][1]):
-            best[0] = (ts, prio, rec)
+            best[0] = (ts, prio, rec, raw)
 
     v = None
     try:
@@ -3355,18 +3389,36 @@ def _backup_diverged():
         pass
     if isinstance(v, dict) \
             and isinstance(v.get("intended_labels"), list):
-        _consider(v.get("ts"), 1, v)
+        _consider(v.get("ts"), 1, v, v)
+    elif isinstance(v, dict) \
+            and "intended_labels" in v \
+            and v.get("intended_labels") is None \
+            and isinstance(v.get("ts"), (int, float)):
+        _consider(v.get("ts"), 1, None, v)
     m = _BACKUP_DIVERGED_MEM[0]
     if isinstance(m, dict) \
             and isinstance(m.get("intended_labels"), list):
-        _consider(m.get("ts"), 2, m)
+        _consider(m.get("ts"), 2, m, m)
+    elif isinstance(m, dict) \
+            and "intended_labels" in m \
+            and m.get("intended_labels") is None \
+            and isinstance(m.get("ts"), (int, float)):
+        _consider(m.get("ts"), 2, None, m)
     sc = _read_diverged_sidecar()
     if sc is not None:
         kind, rec = sc
-        _consider(rec["ts"], 3, rec if kind == "rec" else None)
+        _consider(rec["ts"], 3, rec if kind == "rec" else None,
+                  rec)
     if best[0] is None:
         return None
-    rec = best[0][2]
+    return best[0][3]
+
+
+def _backup_diverged():
+    """The merged read's public result: the ruling RAISE dict,
+    or None when the newest record is a tombstone (a completed
+    clear) or no record exists on any channel."""
+    rec = _backup_diverged_record()
     if isinstance(rec, dict) \
             and isinstance(rec.get("intended_labels"), list):
         return rec
@@ -3378,7 +3430,42 @@ def _persist_diverged(rec):
     clear). Updates both in-memory copies, persists to the
     plain sidecar FIRST and the settings mirror second, and
     returns True when at least one durable channel landed.
-    Total failure is loud and keeps the in-memory record."""
+    Total failure is loud and keeps the in-memory record.
+
+    Wave 21 (run-20 D20-DATA-1 + D20-DATA-2, ONE combined
+    patch): the record is stamped HERE with a logical ts —
+    max(int(time.time()), max_existing_ts_across_all_channels
+    + 1), the max read across settings + memory + sidecar at
+    persist time — so a record written later in logical order
+    out-ranks every record it supersedes on every channel,
+    under clock steps and within a single second alike.
+    Caller-supplied records are RE-STAMPED (the _note,
+    pre-note and _merge19 call sites build their own ts'd
+    dicts). A clear constructs ONE shared tombstone dict
+    {"ts": T, "intended_labels": None} and stores THAT SAME
+    dict in memory, _SETTINGS and the sidecar."""
+    now = int(time.time())
+    max_ts = 0
+    try:
+        for _v21 in (_SETTINGS.get("access_backup_diverged"),
+                     _BACKUP_DIVERGED_MEM[0]):
+            if isinstance(_v21, dict) \
+                    and isinstance(_v21.get("ts"), (int, float)):
+                max_ts = max(max_ts, int(_v21["ts"]))
+    except Exception:
+        pass
+    _sc21 = _read_diverged_sidecar()
+    if _sc21 is not None:
+        max_ts = max(max_ts, int(_sc21[1]["ts"]))
+    ts = max(now, max_ts + 1)
+    if rec is None:
+        rec = {"ts": ts, "intended_labels": None}
+    else:
+        _labels21 = rec.get("intended_labels")
+        rec = {"ts": ts,
+               "intended_labels": (list(_labels21)
+                                   if isinstance(_labels21, list)
+                                   else _labels21)}
     _BACKUP_DIVERGED_MEM[0] = rec
     try:
         _SETTINGS["access_backup_diverged"] = rec
@@ -3412,9 +3499,34 @@ def _note_backup_diverged(intended_labels):
 
 
 def _clear_backup_diverged():
+    """Clear the flag through the single writer, then VERIFY
+    the clear took (wave 21, AUTH20-1's prescription, merged
+    into D20-DATA-1): re-read the merged state — if a raise
+    still rules (a channel's clear failed while another
+    channel's older raise out-ranks), report the failure
+    through the same loud path as a total persist failure
+    and return False. Callers currently ignore the return by
+    design; the loud audit is the deliverable, plus honest
+    return semantics for future callers."""
     if _backup_diverged() is None:
-        return
-    _persist_diverged(None)
+        return True
+    ok = _persist_diverged(None)
+    if _backup_diverged() is not None:
+        try:
+            _audit("System",
+                   "access_backup_diverged_unpersisted: the "
+                   "users.enc divergence clear did not take "
+                   "— a raise still rules the merged record")
+        except Exception:
+            pass
+        try:
+            _log_event("error",
+                       "access_backup_diverged_unpersisted",
+                       intended=None)
+        except Exception:
+            pass
+        return False
+    return ok
 
 
 def _save_access(d, master_pw=None):

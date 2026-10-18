@@ -55,6 +55,29 @@ function findPython() {
 function parseEngineAdminCreds(envTxt) {
   let txt = envTxt || "";
   if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+  // Wave 21 (run-20 launcher L20-L1): the splitter's in-quote
+  // line-ending protection byte is a PER-PARSE sentinel
+  // VERIFIED ABSENT from this input (the first absent
+  // candidate wins; the \u0001 fallback fires only for a
+  // file containing every candidate — not a real shape —
+  // and is then no worse than wave 20). The restores below
+  // therefore only ever convert bytes the splitter itself
+  // inserted: with an absent-verified sentinel, no literal
+  // byte in the file can collide, so a literal control byte
+  // inside a credential value survives as data, exactly as
+  // dotenv reads it.
+  const SENT = (() => {
+    for (const cand of ["\u0001", "\u0002", "\u0003", "\u0004",
+                        "\u0005", "\u0006", "\u0007", "\u000B",
+                        "\u000C", "\u000E", "\u000F", "\u0010",
+                        "\u0011", "\u0012", "\u0013", "\u0014",
+                        "\u0015", "\u0016", "\u0017", "\u0018",
+                        "\u0019", "\u001A", "\u001C", "\u001D",
+                        "\u001E", "\u001F"]) {
+      if (!txt.includes(cand)) return cand;
+    }
+    return "\u0001";
+  })();
   const out = { hasEmail: false, hasPassword: false };
   // Wave 19 (run-18 launcher L18-L1): split on every line
   // ending dotenv accepts — /\r\n|\r|\n/ — not just /\r?\n/:
@@ -72,20 +95,30 @@ function parseEngineAdminCreds(envTxt) {
   // splits only OUTSIDE quotes (prototype-verified against
   // real dotenv 17.4.2 on 13/13 shapes): quote mode opens
   // ONLY when the quote char is the first char after the
-  // record's `=` (after optional space/tab) and closes at
+  // record's `=` (after optional whitespace — wave 21:
+  // the full /\s/ set minus \r and \n) and closes at
   // the matching quote preceded by an EVEN number of
   // backslashes (an odd count makes it data — dotenv's own
   // rule, the same one the closing-quote scan below uses).
-  // Line-ending bytes inside quotes are protected as \x01
-  // during the scan and restored to \n after the per-record
-  // parse (dotenv's normalisation). Stated limits: a quote
-  // appearing mid-value is not tracked (dotenv keys its
-  // multiline handling on the value-start quote too — this
-  // is what saves an apostrophe in an unquoted value and a
-  // quote in a trailing comment); an unterminated quote is
-  // NOT glued — the tail record falls back to the naive
-  // split, matching dotenv's fallback parse; a literal
-  // \x01 byte in the file would be read as \n.
+  // Line-ending bytes inside quotes are protected as SENT
+  // (the per-parse absent-verified sentinel above) during
+  // the scan and restored to \n after the per-record parse
+  // (dotenv's normalisation).
+  // Wave 21 (run-20 launcher L20-L2/L3/L4): quote mode arms
+  // ONLY on a record whose text before its first `=` is an
+  // assignment prefix (/^\s*(?:export\s+)?[\w.-]*\s*$/ —
+  // comments, commented-out/truncated example lines and
+  // invalid-key lines never arm, mirroring dotenv, which
+  // discards them before any value parsing); and the
+  // backtick is a third value-start quote, exactly as
+  // dotenv 17.4.2 has it, treated as single-quote downstream.
+  // Stated limits: a quote appearing mid-value is not
+  // tracked (dotenv keys its multiline handling on the
+  // value-start quote too — this is what saves an apostrophe
+  // in an unquoted value and a quote in a trailing comment);
+  // an unterminated quote is NOT glued — the tail record
+  // falls back to the naive split, matching dotenv's
+  // fallback parse.
   const _splitQuoted20 = (s) => {
     const out = [];
     let cur = "", q = null, seenEq = false, valBegun = false;
@@ -103,7 +136,7 @@ function parseEngineAdminCreds(envTxt) {
         }
         if (c === "\r" || c === "\n") {
           if (c === "\r" && s[i + 1] === "\n") i++;
-          cur += "\u0001"; i++; continue;
+          cur += SENT; i++; continue;
         }
         cur += c; i++; continue;
       }
@@ -113,13 +146,15 @@ function parseEngineAdminCreds(envTxt) {
         seenEq = false; valBegun = false;
         i++; recStart = i; continue;
       }
-      if (!seenEq && c === "=") {
+      if (!seenEq && c === "="
+          && /^\s*(?:export\s+)?[\w.-]*\s*$/.test(cur)) {
         seenEq = true; cur += c; i++; continue;
       }
-      if (seenEq && !valBegun && (c === " " || c === "\t")) {
+      if (seenEq && !valBegun && /\s/.test(c)
+          && c !== "\r" && c !== "\n") {
         cur += c; i++; continue;
       }
-      if (seenEq && !valBegun && (c === '"' || c === "'")) {
+      if (seenEq && !valBegun && (c === '"' || c === "'" || c === "`")) {
         q = c; valBegun = true; cur += c; i++; continue;
       }
       if (seenEq) valBegun = true;
@@ -150,7 +185,8 @@ function parseEngineAdminCreds(envTxt) {
     let raw = v;
     if (raw.length >= 2
         && ((raw[0] === '"' && raw[raw.length - 1] === '"')
-            || (raw[0] === "'" && raw[raw.length - 1] === "'"))) {
+            || (raw[0] === "'" && raw[raw.length - 1] === "'")
+            || (raw[0] === "`" && raw[raw.length - 1] === "`"))) {
       raw = raw.slice(1, -1);
     }
     // Wave 13 (run-12 launcher): dotenv's inline-comment rule —
@@ -170,7 +206,7 @@ function parseEngineAdminCreds(envTxt) {
     // through dotenv grammar), so a '#' inside it is data — while
     // `abc123 # comment` and `= # none yet` keep their run-12
     // behaviour.
-    const _quoted15 = v.startsWith('"') || v.startsWith("'");
+    const _quoted15 = v.startsWith('"') || v.startsWith("'") || v.startsWith("`");
     if (_quoted15) {
       const q = v[0];
       let end = -1;
@@ -195,7 +231,8 @@ function parseEngineAdminCreds(envTxt) {
     let _dqPre16 = null;
     if (v.length >= 2
         && ((v[0] === '"' && v[v.length - 1] === '"')
-            || (v[0] === "'" && v[v.length - 1] === "'"))) {
+            || (v[0] === "'" && v[v.length - 1] === "'")
+            || (v[0] === "`" && v[v.length - 1] === "`"))) {
       const _dq15 = v[0] === '"';
       v = v.slice(1, -1);
       // Wave 15 (run-14 launcher L14-1): dotenv 17 expands exactly
@@ -214,11 +251,14 @@ function parseEngineAdminCreds(envTxt) {
       }
     }
     // Wave 20 (L19-L1): hand back the real line-ending byte
-    // the quote-aware splitter protected as \x01 inside
-    // quoted values (dotenv normalises those bytes to \n).
-    v = v.replace(/\u0001/g, "\n");
-    raw = raw.replace(/\u0001/g, "\n");
-    if (_dqPre16) _dqPre16 = _dqPre16.replace(/\u0001/g, "\n");
+    // the quote-aware splitter protected inside quoted
+    // values (dotenv normalises those bytes to \n). Wave 21
+    // (L20-L1): the protection byte is SENT, the per-parse
+    // absent-verified sentinel — these restores only ever
+    // convert bytes the splitter itself inserted.
+    v = v.split(SENT).join("\n");
+    raw = raw.split(SENT).join("\n");
+    if (_dqPre16) _dqPre16 = _dqPre16.split(SENT).join("\n");
     if (!v) continue;  // empty = absent: fall through to a later line
     if (isEmail && out.email === undefined) out.email = v;
     if (!isEmail && out.password === undefined) {
@@ -554,10 +594,18 @@ async function main() {
       // content still names THIS pid — a successor's live
       // lock is never deleted by our exit. Unlike the
       // shrunken reclaim race, this leg IS eliminated by
-      // the guard (it also covers the manual-deletion
-      // composition: a user deleting a running launcher's
-      // lock, a successor acquiring, the old holder then
-      // exiting over the successor's lock).
+      // the guard for holders running wave-20+ code (it
+      // also covers the manual-deletion composition: a
+      // user deleting a running launcher's lock, a
+      // successor acquiring, the old holder then exiting
+      // over the successor's lock). Wave 21 (run-20
+      // L20-L5, comment-only): a PRE-wave-20 holder still
+      // running across an in-place upgrade unlinks the
+      // lock path unconditionally on exit, so during an
+      // upgrade the old launcher must be STOPPED, not
+      // lock-deleted, before its lock is removed; the
+      // mixed-version composition self-eliminates once no
+      // pre-wave-20 launcher process survives.
       try {
         const _own20 = fs.readFileSync(_lockPath19, "utf8")
           .trim().split(/\s+/)[0];

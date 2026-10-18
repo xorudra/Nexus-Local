@@ -232,8 +232,16 @@ class Wave19RestoreUnitTests(unittest.TestCase):
         self.assertNotIn("solo", backup)
         self.assertEqual(backup.get("friendone"), "hash-f1")
         self.assertIsNone(server._backup_diverged())
-        self.assertIsNone(
-            self._persisted_settings()["access_backup_diverged"])
+        # Wave 21 (D20-DATA-1): a clear is now ONE shared ts'd
+        # tombstone dict on EVERY channel, settings included —
+        # the persisted copy is that tombstone (a dict whose
+        # intended_labels is None), no longer a bare None. What
+        # this assertion guards is unchanged: no RAISE survives
+        # persisted after the restore.
+        _pf21 = self._persisted_settings()["access_backup_diverged"]
+        self.assertTrue(
+            _pf21 is None or _pf21.get("intended_labels") is None,
+            _pf21)
 
     def test_w19_successful_master_save_heals_and_clears_flag(self):
         both = {"friendone": "hash-f1", "solo": "hash-solo"}
