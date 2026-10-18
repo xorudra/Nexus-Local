@@ -733,6 +733,7 @@ def _boot_restore_settings():
                 merged.update({k: v for k, v in d.items()
                                if k in _SETTINGS_DEFAULTS})
                 _SETTINGS = merged
+                _load_diverged_sidecar_boot()
                 return
     except Exception:
         pass
@@ -746,6 +747,7 @@ def _boot_restore_settings():
                 _SETTINGS = merged
     except Exception:
         pass
+    _load_diverged_sidecar_boot()
 
 
 def _friend_blocked(label):
@@ -3223,48 +3225,196 @@ def _load_access():
 # idempotent login merge simply re-runs and re-clears it).
 _BACKUP_DIVERGED_MEM = [None]
 
+# Wave 20 (run-19 D19-1 + D19-2 — ONE unified patch, prescribed by
+# verify-data19): the flag's write side is a SINGLE writer,
+# _persist_diverged, with TWO durable channels:
+#  (1) a PLAIN sidecar (access_diverged.json in the app data dir,
+#      atomic tmp+replace) written FIRST — it does not share
+#      _save_settings' encrypt-abort failure mode (its settings.enc
+#      encrypt returns False BEFORE the plain settings.json write
+#      is attempted), and plain writes provably land in the very
+#      save where both encrypt paths fail (D19-2's correlated IO
+#      fault, which used to leave the flag only in the
+#      process-lifetime _BACKUP_DIVERGED_MEM, dead at restart);
+#  (2) the _SETTINGS copy via _save_settings, kept as today — it
+#      rides the friend_blob sync via settings.enc.
+# Reads merge the channels by ts, newest wins (at boot via
+# _load_diverged_sidecar_boot, and on every _backup_diverged
+# read). A clear writes a ts'd TOMBSTONE to the sidecar and None
+# to _SETTINGS; a clear landing on only ONE channel still
+# converges, because (a) the tombstone is the newest record and
+# out-ranks the other channel's older raise at the next merged
+# read, and (b) the pre-note ordering (below) re-persists the
+# newest intended set before any later users.enc write, so a
+# stale raise surviving on one channel is overwritten with a
+# set that caps nothing before it can rule a restore. Total
+# failure of BOTH channels is LOUD (_audit + _log_event), never
+# silent. Honest residual: a true full-disk fault defeats every
+# on-disk channel — visible after this fix, silent before it.
+# PRE-NOTE INVARIANT (D19-1): wherever a users.enc write is
+# about to happen while a flag exists (_save_access's backup
+# write, _merge19's convergence refresh), the NEW dict's
+# intended label set is persisted through _persist_diverged
+# BEFORE the write executes. The pre-note is best-effort
+# ordering, not a new failure mode: if its persist lands
+# nowhere the write still proceeds (the in-memory flag already
+# names the newest set, and the loud audit marks the episode).
+# After any completed _save_access, the persisted flag (if
+# any) names a label set that the current users.enc was
+# written from, or is absent with users.enc current — the
+# dangerous state (a persisted flag naming a set OLDER than
+# the last successful users.enc write) is unreachable: the
+# pre-note names the new set before the write lands, so a
+# later clear failure, or a kill inside the clear window,
+# leaves that pre-noted set persisted, which caps nothing.
 
-def _backup_diverged():
-    v = None
+
+def _diverged_sidecar_path():
+    # Beside the settings files (the app data dir); anything
+    # that relocates the settings files relocates the sidecar.
+    return SETTINGS_PATH.parent / "access_diverged.json"
+
+
+def _read_diverged_sidecar():
+    """The sidecar channel's record: ("rec", dict) for a raise,
+    ("clear", dict) for a ts'd tombstone, None when the file is
+    absent, unreadable or malformed (treated as no record)."""
     try:
-        v = _SETTINGS.get("access_backup_diverged")
+        d = json.loads(_diverged_sidecar_path().read_text())
+        if isinstance(d, dict) \
+                and isinstance(d.get("ts"), (int, float)):
+            if isinstance(d.get("intended_labels"), list):
+                return ("rec", {"ts": int(d["ts"]),
+                                "intended_labels":
+                                    list(d["intended_labels"])})
+            if d.get("intended_labels") is None:
+                return ("clear", {"ts": int(d["ts"]),
+                                  "intended_labels": None})
     except Exception:
         pass
-    if not (isinstance(v, dict)
-            and isinstance(v.get("intended_labels"), list)):
-        v = _BACKUP_DIVERGED_MEM[0]
-    if isinstance(v, dict) \
-            and isinstance(v.get("intended_labels"), list):
-        return v
     return None
 
 
-def _note_backup_diverged(intended_labels):
-    rec = {"ts": int(time.time()),
-           "intended_labels": sorted(intended_labels)}
+def _write_diverged_sidecar(rec):
+    """Plain atomic write of the record (for None, a ts'd
+    tombstone). True only when it landed; never raises."""
+    try:
+        payload = rec if rec is not None else {
+            "ts": int(time.time()), "intended_labels": None}
+        p = _diverged_sidecar_path()
+        tmp = "%s.%d.tmp" % (p, threading.get_ident())
+        with open(tmp, "w") as f:
+            f.write(json.dumps(payload))
+        try:
+            os.chmod(tmp, 0o600)
+        except Exception:
+            pass
+        os.replace(tmp, p)
+        return True
+    except Exception:
+        return False
+
+
+def _load_diverged_sidecar_boot():
+    """Wave 20: fold the sidecar channel in at boot (called at
+    the end of _boot_restore_settings): the merged newest-ts
+    record becomes the settings + in-memory state, so a
+    divergence whose settings save died in a correlated IO
+    fault survives the restart, and a tombstone that landed
+    only in the sidecar clears a stale settings raise."""
+    rec = _backup_diverged()
     _BACKUP_DIVERGED_MEM[0] = rec
     try:
         _SETTINGS["access_backup_diverged"] = rec
     except Exception:
         pass
+
+
+def _backup_diverged():
+    # Wave 20 merged read: the NEWEST record across the
+    # channels wins (settings copy, in-memory copy, plain
+    # sidecar). Ties resolve sidecar > memory > settings:
+    # within one _persist_diverged the sidecar is written
+    # first, and memory is the in-process freshest copy by
+    # construction. A sidecar tombstone is a clear WITH a ts,
+    # so a clear that landed only there out-ranks an older
+    # raise surviving in settings.
+    best = [None]  # (ts, prio, rec-or-None)
+
+    def _consider(ts, prio, rec):
+        if not isinstance(ts, (int, float)):
+            ts = 0
+        if best[0] is None or (ts, prio) >= (best[0][0],
+                                             best[0][1]):
+            best[0] = (ts, prio, rec)
+
+    v = None
     try:
-        _save_settings()
+        v = _SETTINGS.get("access_backup_diverged")
     except Exception:
         pass
+    if isinstance(v, dict) \
+            and isinstance(v.get("intended_labels"), list):
+        _consider(v.get("ts"), 1, v)
+    m = _BACKUP_DIVERGED_MEM[0]
+    if isinstance(m, dict) \
+            and isinstance(m.get("intended_labels"), list):
+        _consider(m.get("ts"), 2, m)
+    sc = _read_diverged_sidecar()
+    if sc is not None:
+        kind, rec = sc
+        _consider(rec["ts"], 3, rec if kind == "rec" else None)
+    if best[0] is None:
+        return None
+    rec = best[0][2]
+    if isinstance(rec, dict) \
+            and isinstance(rec.get("intended_labels"), list):
+        return rec
+    return None
+
+
+def _persist_diverged(rec):
+    """Wave 20: the flag's ONE writer (rec dict, or None to
+    clear). Updates both in-memory copies, persists to the
+    plain sidecar FIRST and the settings mirror second, and
+    returns True when at least one durable channel landed.
+    Total failure is loud and keeps the in-memory record."""
+    _BACKUP_DIVERGED_MEM[0] = rec
+    try:
+        _SETTINGS["access_backup_diverged"] = rec
+    except Exception:
+        pass
+    ok = _write_diverged_sidecar(rec)
+    try:
+        ok = _save_settings() or ok
+    except Exception:
+        pass
+    if not ok:
+        try:
+            _audit("System",
+                   "access_backup_diverged_unpersisted: the "
+                   "users.enc divergence record could not be "
+                   "persisted on any channel")
+        except Exception:
+            pass
+        try:
+            _log_event("error",
+                       "access_backup_diverged_unpersisted",
+                       intended=(rec or {}).get("intended_labels"))
+        except Exception:
+            pass
+    return ok
+
+
+def _note_backup_diverged(intended_labels):
+    _persist_diverged({"ts": int(time.time()),
+                       "intended_labels": sorted(intended_labels)})
 
 
 def _clear_backup_diverged():
     if _backup_diverged() is None:
         return
-    _BACKUP_DIVERGED_MEM[0] = None
-    try:
-        _SETTINGS["access_backup_diverged"] = None
-    except Exception:
-        pass
-    try:
-        _save_settings()
-    except Exception:
-        pass
+    _persist_diverged(None)
 
 
 def _save_access(d, master_pw=None):
@@ -3276,6 +3426,13 @@ def _save_access(d, master_pw=None):
     ACCESS_PATH.write_text(json.dumps(d, indent=2))
     # Persist encrypted backup so it survives redeploys (users.enc is tracked in git)
     if master_pw:
+        # Wave 20 pre-note (D19-1): a divergence flag exists, so
+        # persist THIS dict's intended set BEFORE the users.enc
+        # write below — see the invariant at _persist_diverged.
+        if _backup_diverged() is not None:
+            _persist_diverged(
+                {"ts": int(time.time()),
+                 "intended_labels": sorted(d.keys())})
         try:
             encrypt_keys(d, master_pw, USERS_PATH)
             os.chmod(USERS_PATH, 0o600)
@@ -3423,6 +3580,18 @@ def _restore_access(master_pw):
                 ACCESS_PATH.write_text(
                     json.dumps(merged19, indent=2))
                 try:
+                    # Wave 20 pre-note (D19-1): same ordering as
+                    # _save_access — persist the merged set as
+                    # the flag's intended set BEFORE the
+                    # convergence write, so a faulted or killed
+                    # clear below leaves a persisted cap that
+                    # names the just-written set, excluding
+                    # nothing.
+                    if flag19 is not None:
+                        _persist_diverged(
+                            {"ts": int(time.time()),
+                             "intended_labels":
+                                 sorted(merged19.keys())})
                     # Converge the backup too, or a second wipe
                     # episode re-loses the merged creation.
                     encrypt_keys(merged19, master_pw, USERS_PATH)

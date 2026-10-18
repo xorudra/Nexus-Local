@@ -30,3 +30,8 @@ app/access.json
 # plaintext working copy and the audit log stay off git)
 app/settings.json
 app/audit.jsonl
+
+# Wave 20 (run-19 D19-2): the plain users.enc divergence
+# sidecar is runtime state in the app data dir, never a
+# tracked file (the flag's sync channel is settings.enc)
+app/access_diverged.json

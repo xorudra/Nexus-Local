@@ -567,8 +567,13 @@ class Wave19LauncherTests(unittest.TestCase):
         log = (tmp / "startup.log").read_text(errors="replace")
         self.assertNotIn("already running", log)
         # The lock now names the live launcher, not the dead pid.
+        # Wave 20 (run-19 L19-L3): the lock content is now
+        # "<pid> <start-epoch-ms>", so the pid is the first
+        # token (the bare-pid equality this asserted in wave 19
+        # is the one assertion whose semantics the new content
+        # format genuinely changes).
         self.assertEqual(
-            (tmp / ".nexuslocal.lock").read_text().strip(),
+            (tmp / ".nexuslocal.lock").read_text().split()[0],
             str(proc.pid))
 
 

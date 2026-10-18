@@ -63,7 +63,82 @@ function parseEngineAdminCreds(envTxt) {
   // read as ABSENT to the launcher while the engine's dotenv
   // recovered them (a permanent false foreign-claim alarm,
   // and the claim was never verified).
-  for (const line of txt.split(/\r\n|\r|\n/)) {
+  // Wave 20 (run-19 launcher L19-L1): that split cut INSIDE
+  // quoted values — dotenv 17.4.2 treats a quoted value as
+  // multiline and normalises a literal CR/LF/CRLF inside
+  // quotes to \n, while the launcher read the truncated
+  // first piece, POSTed it, and the definitive 401 deleted
+  // every recorded credential line. The splitter below
+  // splits only OUTSIDE quotes (prototype-verified against
+  // real dotenv 17.4.2 on 13/13 shapes): quote mode opens
+  // ONLY when the quote char is the first char after the
+  // record's `=` (after optional space/tab) and closes at
+  // the matching quote preceded by an EVEN number of
+  // backslashes (an odd count makes it data — dotenv's own
+  // rule, the same one the closing-quote scan below uses).
+  // Line-ending bytes inside quotes are protected as \x01
+  // during the scan and restored to \n after the per-record
+  // parse (dotenv's normalisation). Stated limits: a quote
+  // appearing mid-value is not tracked (dotenv keys its
+  // multiline handling on the value-start quote too — this
+  // is what saves an apostrophe in an unquoted value and a
+  // quote in a trailing comment); an unterminated quote is
+  // NOT glued — the tail record falls back to the naive
+  // split, matching dotenv's fallback parse; a literal
+  // \x01 byte in the file would be read as \n.
+  const _splitQuoted20 = (s) => {
+    const out = [];
+    let cur = "", q = null, seenEq = false, valBegun = false;
+    let recStart = 0, i = 0;
+    const bsBefore = (pos) => {
+      let n = 0;
+      for (let j = pos - 1; j >= 0 && s[j] === "\\"; j--) n++;
+      return n;
+    };
+    while (i < s.length) {
+      const c = s[i];
+      if (q) {
+        if (c === q && bsBefore(i) % 2 === 0) {
+          q = null; cur += c; i++; continue;
+        }
+        if (c === "\r" || c === "\n") {
+          if (c === "\r" && s[i + 1] === "\n") i++;
+          cur += "\u0001"; i++; continue;
+        }
+        cur += c; i++; continue;
+      }
+      if (c === "\r" || c === "\n") {
+        if (c === "\r" && s[i + 1] === "\n") i++;
+        out.push(cur); cur = "";
+        seenEq = false; valBegun = false;
+        i++; recStart = i; continue;
+      }
+      if (!seenEq && c === "=") {
+        seenEq = true; cur += c; i++; continue;
+      }
+      if (seenEq && !valBegun && (c === " " || c === "\t")) {
+        cur += c; i++; continue;
+      }
+      if (seenEq && !valBegun && (c === '"' || c === "'")) {
+        q = c; valBegun = true; cur += c; i++; continue;
+      }
+      if (seenEq) valBegun = true;
+      cur += c; i++;
+    }
+    if (q) {
+      // Unterminated quote: dotenv fails the multiline
+      // match and falls back to per-line parsing — the
+      // tail record re-splits naively, exactly as before.
+      for (const piece of s.slice(recStart)
+             .split(/\r\n|\r|\n/)) {
+        out.push(piece);
+      }
+    } else {
+      out.push(cur);
+    }
+    return out;
+  };
+  for (const line of _splitQuoted20(txt)) {
     const m = line.match(/^\s*(?:export\s+)?(ENGINE_ADMIN_EMAIL|ENGINE_ADMIN_PASSWORD)\s*=\s*(.*)$/);
     if (!m) continue;
     const isEmail = m[1] === "ENGINE_ADMIN_EMAIL";
@@ -138,6 +213,12 @@ function parseEngineAdminCreds(envTxt) {
         if (v === _dqPre16) _dqPre16 = null;
       }
     }
+    // Wave 20 (L19-L1): hand back the real line-ending byte
+    // the quote-aware splitter protected as \x01 inside
+    // quoted values (dotenv normalises those bytes to \n).
+    v = v.replace(/\u0001/g, "\n");
+    raw = raw.replace(/\u0001/g, "\n");
+    if (_dqPre16) _dqPre16 = _dqPre16.replace(/\u0001/g, "\n");
     if (!v) continue;  // empty = absent: fall through to a later line
     if (isEmail && out.email === undefined) out.email = v;
     if (!isEmail && out.password === undefined) {
@@ -331,29 +412,159 @@ async function main() {
             + ((e && e.message) || e) + ") — exiting.");
         process.exit(1);
       }
-      let _pid19 = NaN;
+      // Wave 20 (run-19 launcher L19-L3): the lock content
+      // is "<pid> <start-epoch-ms>" (written at acquisition
+      // below); the pid is the first token, so bare-pid locks
+      // from older launchers still parse.
+      let _raw19 = "";
       try {
-        _pid19 = parseInt(
-          fs.readFileSync(_lockPath19, "utf8").trim(), 10);
+        _raw19 = fs.readFileSync(_lockPath19, "utf8");
       } catch (e2) {}
+      const _pid19 = parseInt(
+        (_raw19 || "").trim().split(/\s+/)[0], 10);
+      const _provable19 = Number.isFinite(_pid19) && _pid19 > 0;
       let _alive19 = true;
-      if (Number.isFinite(_pid19) && _pid19 > 0) {
+      let _mtime19 = null;
+      try {
+        _mtime19 = fs.statSync(_lockPath19).mtimeMs;
+      } catch (e5) {}
+      if (_provable19) {
         try { process.kill(_pid19, 0); }
         catch (e3) { _alive19 = !!(e3 && e3.code === "EPERM"); }
+        // Wave 20 (L19-L3, Linux): a RECYCLED pid is provably
+        // not the writer — a genuine holder's process starts
+        // BEFORE its lock write; a recycled pid's process
+        // necessarily started AFTER it. /proc/<pid> start
+        // time (stat field 22, clock ticks since boot, via
+        // btime in /proc/stat at USER_HZ 100) against the
+        // lock's mtime decides. Every read is guarded: any
+        // error, or a non-Linux host, falls back to the
+        // liveness-only verdict above. Windows residual,
+        // stated honestly: no equivalent check is made
+        // there, so a recycled pid can wedge the install
+        // until the lock file — named in the refusal below —
+        // is deleted by hand.
+        if (_alive19 && _mtime19 !== null
+            && process.platform === "linux") {
+          try {
+            const _stat20 = fs.readFileSync(
+              "/proc/" + _pid19 + "/stat", "utf8");
+            const _bt20 = /btime (\d+)/.exec(
+              fs.readFileSync("/proc/stat", "utf8"));
+            if (_bt20) {
+              const _after20 = _stat20.slice(
+                _stat20.lastIndexOf(")") + 2).split(" ");
+              const _startMs20 =
+                (parseInt(_bt20[1], 10)
+                 + parseInt(_after20[19], 10) / 100) * 1000;
+              if (_startMs20 > _mtime19 + 2000) {
+                _alive19 = false;
+              }
+            }
+          } catch (e6) {}
+        }
+      } else if (_mtime19 !== null
+                 && Date.now() - _mtime19 > 60000) {
+        // Wave 20 (L19-L3): UNPARSEABLE content (empty or
+        // garbage — a crash in the create->write window,
+        // foreign matter, a directory) older than 60s is a
+        // corpse, never a holder being born: a genuine
+        // holder writes its pid within milliseconds of
+        // creating the file. 60s or younger stays
+        // fail-closed, exactly as wave 19 left it.
+        _alive19 = false;
       }
       if (_alive19 || _att19 === 1) {
-        log("nexuslocal is already running — exiting.");
+        // Wave 20 (L19-L3): the refusal NAMES the lock
+        // file — hand-deleting it is the trivial recovery,
+        // and it must be discoverable from what the
+        // product itself says.
+        if (_provable19) {
+          log("nexuslocal is already running — exiting. "
+              + "(lock file " + _lockPath19 + ")");
+        } else {
+          log("nexuslocal is already running — exiting. "
+              + "(lock file " + _lockPath19 + " has no "
+              + "readable pid; if no launcher is running, "
+              + "delete it and retry)");
+        }
         process.exit(0);
       }
-      try { fs.unlinkSync(_lockPath19); } catch (e4) {}
+      // Wave 20 (run-19 launcher L19-L2): re-read the lock
+      // immediately before unlinking and delete ONLY the
+      // instance just judged — if the content changed (a
+      // successor's fresh lock), do not unlink; treat it as
+      // held and exit already-running. This SHRINKS the
+      // reclaim race to the re-read->unlink gap; it cannot
+      // eliminate that sub-syscall window (the fully atomic
+      // fix is fd-based locking — a larger cross-platform
+      // change, not prescribed).
+      let _still19 = false;
+      try {
+        const _againRaw20 = fs.readFileSync(
+          _lockPath19, "utf8");
+        const _againPid20 = parseInt(
+          (_againRaw20 || "").trim().split(/\s+/)[0], 10);
+        if (_provable19) {
+          _still19 = _againPid20 === _pid19;
+        } else {
+          const _againMt20 = fs.statSync(
+            _lockPath19).mtimeMs;
+          _still19 = !(Number.isFinite(_againPid20)
+                       && _againPid20 > 0)
+                     && Date.now() - _againMt20 > 60000;
+        }
+      } catch (e7) {
+        // A throwing re-read (the lock path is a
+        // directory) cannot resurrect content: in the
+        // unparseable case the stat verdict that judged
+        // the lock stale stands on its own.
+        if (!_provable19) {
+          try {
+            _still19 = Date.now()
+              - fs.statSync(_lockPath19).mtimeMs > 60000;
+          } catch (e9) {}
+        }
+      }
+      if (!_still19) {
+        log("nexuslocal is already running — exiting. "
+            + "(lock file " + _lockPath19 + ")");
+        process.exit(0);
+      }
+      try { fs.unlinkSync(_lockPath19); } catch (e4) {
+        // A directory at the lock path cannot be unlinked:
+        // remove it only if it is an (empty) directory;
+        // otherwise the next attempt refuses, naming the
+        // path (L19-L3).
+        try { fs.rmdirSync(_lockPath19); } catch (e8) {}
+      }
     }
   }
   if (_lockFd19 !== null) {
-    try { fs.writeSync(_lockFd19, String(process.pid)); }
-    catch (e) {}
+    // Wave 20 (L19-L3): corroborated content — the pid plus
+    // the writer's start epoch (Date.now() at acquisition),
+    // the corroborator the recycled-pid check above reads.
+    try {
+      fs.writeSync(_lockFd19,
+                   String(process.pid) + " " + Date.now());
+    } catch (e) {}
     process.on("exit", () => {
       try { fs.closeSync(_lockFd19); } catch (e) {}
-      try { fs.unlinkSync(_lockPath19); } catch (e) {}
+      // Wave 20 (L19-L2): unlink ONLY while the file's
+      // content still names THIS pid — a successor's live
+      // lock is never deleted by our exit. Unlike the
+      // shrunken reclaim race, this leg IS eliminated by
+      // the guard (it also covers the manual-deletion
+      // composition: a user deleting a running launcher's
+      // lock, a successor acquiring, the old holder then
+      // exiting over the successor's lock).
+      try {
+        const _own20 = fs.readFileSync(_lockPath19, "utf8")
+          .trim().split(/\s+/)[0];
+        if (_own20 === String(process.pid)) {
+          fs.unlinkSync(_lockPath19);
+        }
+      } catch (e) {}
     });
   }
   console.log("============================================");
