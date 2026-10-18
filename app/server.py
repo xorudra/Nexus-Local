@@ -3855,7 +3855,29 @@ def _restore_access(master_pw):
                 # in the intended set but missing from the backup
                 # are recovered from the live store via the
                 # current-wins update below.
-                flag19 = _backup_diverged()
+                # Wave 24 (run-23 AUTH23-1, merged with
+                # D23-DATA-1 + CAPS23-X1(b)): merge-local
+                # re-judge — the cap's record and the
+                # sidecar-state judgement come from ONE
+                # snapshot, so a fault onset in the
+                # guard->cap window (one full decrypt wide)
+                # cannot make this merge run blind. On
+                # unknown/corrupt, abort loudly and return
+                # the current live dict WITHOUT merging:
+                # no writes, no trailing clear (the deferred
+                # restore still needs the flag), the flag is
+                # preserved, live and users.enc untouched.
+                flag19, _sc19 = _backup_diverged_and_state()
+                if _sc19 == ("unknown", None) \
+                        or _sc19 == ("corrupt", None):
+                    _audit_diverged_unpersisted(
+                        "the users.enc restore merge was "
+                        "aborted — the divergence sidecar "
+                        "became unreadable before the merge, "
+                        "so the merged record cannot be "
+                        "trusted", None)
+                    _cur19 = _load_access()
+                    return _cur19 if isinstance(_cur19, dict) else {}
                 if flag19 is not None:
                     keep19 = set(flag19.get("intended_labels")
                                  or [])

@@ -91,9 +91,16 @@ function parseEngineAdminCreds(envTxt) {
   // the plain absent shape and does not set it (claimStep's
   // own read of the file already fails that case into
   // retry("env write failed")).
-  if (SENT === null) return { hasEmail: false,
-                              hasPassword: false,
-                              exhausted: true };
+  if (SENT === null) {
+    // Wave 24 (run-23 L23-L1, verifier-validated): gate the flag on a
+    // naive line census using the parser's own record-start grammar.
+    const _cenV23 = txt.split(/\r\n|\r|\n/).some((l) =>
+      /^\s*(?:export\s+)?ENGINE_ADMIN_(?:EMAIL|PASSWORD)\s*=/.test(l));
+    if (_cenV23) return { hasEmail: false,
+                          hasPassword: false,
+                          exhausted: true };
+    return { hasEmail: false, hasPassword: false };
+  }
   const out = { hasEmail: false, hasPassword: false };
   // Wave 19 (run-18 launcher L18-L1): split on every line
   // ending dotenv accepts — /\r\n|\r|\n/ — not just /\r?\n/:
@@ -227,12 +234,40 @@ function parseEngineAdminCreds(envTxt) {
       cur += c; i++;
     }
     if (q) {
-      // Unterminated quote: dotenv fails the multiline
-      // match and falls back to per-line parsing — the
-      // tail record re-splits naively, exactly as before.
-      for (const piece of s.slice(recStart)
-             .split(/\r\n|\r|\n/)) {
-        out.push(piece);
+      // Wave 24 (run-23 L23-L3, verifier-validated): before the
+      // unterminated naive fallback, re-test the span's
+      // odd-backslash quote candidates LAST-to-FIRST as the close
+      // (dotenv backtracking); a candidate counts only when its
+      // closing-line remainder is whitespace/comment, exactly the
+      // wave-22 remainder test. On a hit, emit the span as ONE
+      // record (in-quote line endings protected as SENT) and
+      // re-split the remainder after the closing line.
+      let _doneV23 = false;
+      const _candS23 = [];
+      for (let p = recStart; p < s.length; p++) {
+        if (s[p] !== q) continue;
+        let bs = 0;
+        for (let j = p - 1; j >= 0 && s[j] === "\\"; j--) bs++;
+        if (bs % 2 === 1) _candS23.push(p);
+      }
+      for (let ci = _candS23.length - 1; ci >= 0 && !_doneV23; ci--) {
+        const p = _candS23[ci];
+        let eol = p + 1;
+        while (eol < s.length && s[eol] !== "\r" && s[eol] !== "\n") eol++;
+        if (!/^\s*(#.*)?$/.test(s.slice(p + 1, eol))) continue;
+        out.push(s.slice(recStart, p + 1).replace(/\r\n|\r|\n/g, SENT));
+        const _nxS23 = eol >= s.length ? s.length
+          : eol + (s[eol] === "\r" && s[eol + 1] === "\n" ? 2 : 1);
+        if (_nxS23 < s.length) {
+          for (const piece of _splitQuoted20(s.slice(_nxS23))) out.push(piece);
+        }
+        _doneV23 = true;
+      }
+      if (!_doneV23) {
+        for (const piece of s.slice(recStart)
+               .split(/\r\n|\r|\n/)) {
+          out.push(piece);
+        }
       }
     } else {
       out.push(cur);
@@ -313,6 +348,41 @@ function parseEngineAdminCreds(envTxt) {
             if (_found23 >= 0) {
               v = _parts23.join("\n");
               _li22 = _found23;
+            }
+          }
+          if (v === "") {
+            // Wave 24 (run-23 L23-L2, verifier-validated): dotenv
+            // backtracking fallback. Collect odd-backslash quote
+            // candidates in span order, stopping at the first
+            // even-backslash quote (it bounds the span); re-test
+            // them LAST-to-FIRST with the existing remainder test.
+            const _candV23 = [];
+            const _scanV23 = (s, li, from) => {
+              for (let k = from; k < s.length; k++) {
+                if (s[k] !== _nq23) continue;
+                let bs = 0;
+                for (let j = k - 1; j >= 0 && s[j] === "\\"; j--) bs++;
+                if (bs % 2 === 0) return true;
+                _candV23.push([li, k, s]);
+              }
+              return false;
+            };
+            let _bndV23 = _scanV23(_op23, _ai23, 1);
+            let _wiV23 = _ai23;
+            while (!_bndV23 && ++_wiV23 < _lines22.length) {
+              _bndV23 = _scanV23(_lines22[_wiV23], _wiV23, 0);
+            }
+            for (let ci = _candV23.length - 1; ci >= 0; ci--) {
+              const _cv23 = _candV23[ci];
+              if (!/^\s*(#.*)?$/.test(_cv23[2].slice(_cv23[1] + 1))) continue;
+              const _partsV23 = [];
+              for (let r = _ai23; r < _cv23[0]; r++) {
+                _partsV23.push(r === _ai23 ? _op23 : _lines22[r]);
+              }
+              _partsV23.push(_cv23[2].slice(0, _cv23[1] + 1));
+              v = _partsV23.join("\n");
+              _li22 = _cv23[0];
+              break;
             }
           }
         }
