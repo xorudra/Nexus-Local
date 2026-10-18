@@ -58,7 +58,7 @@ _login_attempts = {}
 # Stops a single session (friend or hijacked) from burning provider quota.
 _RL = {}
 _RL_LOCK = threading.Lock()
-_RL_MAX_WINDOW = 900  # largest window any bucket uses (oauth/invite)
+_RL_MAX_WINDOW = 900  # largest window any bucket uses (invite)
 
 def _rl_ok(bucket, token, limit, window=60):
     now = time.time()
@@ -218,8 +218,6 @@ _SETTINGS_DEFAULTS = {
     "log_prompts": False,       # keep a short prompt snippet in usage rows
     "friends_byok": True,       # friends may keep their own key vaults
     "auto_backup": "off",       # off | daily | weekly config snapshots
-    "oauth_admin_emails": [],   # verified OAuth emails that sign in as owner
-    "oauth_links": [],          # [{email, label}] OAuth email -> friend label
     # Internal state (never patchable through settings_set):
     "roles": {},                # label -> moderator | viewer (default friend)
     "invites": [],              # {h, role, created, expires, used_by}
@@ -572,15 +570,12 @@ def _settings_outcome(sv, pred, rollback=None):
 def _label_settings_absent(s, label):
     """The clean-slate predicate over a settings document (live or
     persisted): the label carries NO per-user entry in any of the
-    six containers the creation clear governs."""
+    five containers the creation clear governs."""
     return (label not in (s.get("roles") or {})
             and label not in (s.get("user_caps") or {})
             and label not in (s.get("vault_meta") or {})
             and label not in (s.get("suspended") or [])
-            and label not in (s.get("terms_seen") or [])
-            and not any(
-                isinstance(e, dict) and e.get("label") == label
-                for e in (s.get("oauth_links") or [])))
+            and label not in (s.get("terms_seen") or []))
 
 
 # Wave 17 (run-16 settings D16-2): the settings generation
@@ -595,7 +590,7 @@ def _clear_stranded_label(label):
     for account creation. A label that provably has NO account can
     still carry per-user settings stranded by a faulted revoke
     cleanup + restart (roles / user_caps / vault_meta dicts,
-    suspended / terms_seen lists, oauth_links label-keyed entries);
+    suspended / terms_seen lists);
     left in place they become the next account's effective state at
     creation. Both creation paths (console add, invite redeem /
     open signup) call this BEFORE the account exists and abort on a
@@ -657,12 +652,6 @@ def _clear_stranded_label(label):
                 if _l15 != (_SETTINGS.get(_k15) or []):
                     _SETTINGS[_k15] = _l15
                     _cl15 = True
-            _ol15 = [e for e in (_SETTINGS.get("oauth_links") or [])
-                     if not (isinstance(e, dict)
-                             and e.get("label") == label)]
-            if _ol15 != (_SETTINGS.get("oauth_links") or []):
-                _SETTINGS["oauth_links"] = _ol15
-                _cl15 = True
         if not _cl15:
             # Wave 16 (run-15 settings): the fast path must judge the
             # PERSISTED store, not live memory alone. After a faulted
@@ -2088,33 +2077,6 @@ def _validate_settings_patch(patch):
             if isinstance(v, bool) or not isinstance(v, int) or v not in (80, 90, 95):
                 return None, "quota_alert_pct must be 80, 90 or 95"
             clean[k] = v
-        elif k == "oauth_admin_emails":
-            if not isinstance(v, list) or len(v) > 10:
-                return None, "oauth_admin_emails must be a list of up to 10 emails"
-            out = []
-            for x in v:
-                if not isinstance(x, str):
-                    return None, "oauth_admin_emails entries must be emails"
-                e = x.strip().lower()
-                if len(e) > 120 or not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", e):
-                    return None, f"invalid email: {x}"
-                out.append(e)
-            clean[k] = out
-        elif k == "oauth_links":
-            if not isinstance(v, list) or len(v) > 50:
-                return None, "oauth_links must be a list of up to 50 entries"
-            out = []
-            for x in v:
-                if not isinstance(x, dict):
-                    return None, "oauth_links entries must be {email, label}"
-                e = str(x.get("email") or "").strip().lower()
-                lab = str(x.get("label") or "").strip()
-                if len(e) > 120 or not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", e):
-                    return None, f"invalid email in oauth_links: {e}"
-                if not _LABEL_RE.match(lab):
-                    return None, f"invalid label in oauth_links: {lab}"
-                out.append({"email": e, "label": lab})
-            clean[k] = out
         elif k in ("skip_failing", "login_lockout", "audit_ips",
                    "log_prompts", "friends_byok"):
             if not isinstance(v, bool):
@@ -4577,28 +4539,10 @@ def _trim_messages(messages, budget=SHARED_MEMORY_MAX_CHARS):
     return systems + [note] + keep
 
 # ---------------------------------------------------------------------------
-# OAuth sign-in (owner order 2026-10-15): "Sign in with Google / GitHub"
-# as an alternative login for Nexus itself. Credentials come from the
-# server environment ONLY (NEXUS_OAUTH_GOOGLE_ID/SECRET,
-# NEXUS_OAUTH_GITHUB_ID/SECRET) — never from the repo or settings.
-# An OAuth identity is only an identity: the provider's VERIFIED email
-# is resolved against admin-configured mappings — oauth_admin_emails
-# (owner) and oauth_links (email -> existing friend label). An unlinked
-# email gets NO account and NO session: OAuth never creates accounts,
-# never unlocks the key vault (that still needs the master password),
-# and a friend OAuth session has no password, so password-encrypted
-# saved chats and BYOK vaults stay unavailable in it — chat itself
-# works on the shared lanes exactly like a pre-unlock friend session.
+# Shared helper for the workspace-tools integrations OAuth
+# callbacks (Gmail/Meet via Google, Zoom): the public origin
+# of this request.
 # ---------------------------------------------------------------------------
-_OAUTH_PROVIDERS = ("google", "github")
-
-
-def _oauth_creds(provider):
-    cid = os.environ.get(f"NEXUS_OAUTH_{provider.upper()}_ID", "").strip()
-    sec = os.environ.get(f"NEXUS_OAUTH_{provider.upper()}_SECRET", "").strip()
-    return (cid, sec) if cid and sec else None
-
-
 def _oauth_public_base(headers):
     host = (headers.get("Host", "") if headers else "").strip()
     proto = ""
@@ -4607,70 +4551,6 @@ def _oauth_public_base(headers):
     if not proto:
         proto = "http" if host.startswith(("127.", "localhost")) else "https"
     return f"{proto}://{host}"
-
-
-def _oauth_http_json(url, data=None, headers=None, timeout=20):
-    req = Request(url, data=data, headers=headers or {},
-                  method="POST" if data is not None else "GET")
-    with _open_cred(req, timeout) as resp:
-        return json.loads(_read_capped(resp))
-
-
-def _oauth_fetch_email(provider, code, redirect_uri):
-    """Exchange an auth code for the account's VERIFIED email.
-    Returns (email, display_name); raises on any failure."""
-    cid, sec = _oauth_creds(provider)
-    form = urllib.parse.urlencode({
-        "client_id": cid, "client_secret": sec, "code": code,
-        "redirect_uri": redirect_uri,
-        **({"grant_type": "authorization_code"} if provider == "google" else {}),
-    }).encode()
-    tok = _oauth_http_json(
-        "https://oauth2.googleapis.com/token" if provider == "google"
-        else "https://github.com/login/oauth/access_token",
-        data=form,
-        headers={"Content-Type": "application/x-www-form-urlencoded",
-                 "Accept": "application/json"})
-    at = tok.get("access_token")
-    if not at:
-        raise ValueError("no access token")
-    if provider == "google":
-        info = _oauth_http_json(
-            "https://openidconnect.googleapis.com/v1/userinfo",
-            headers={"Authorization": f"Bearer {at}"})
-        if info.get("email_verified") not in (True, "true") or not info.get("email"):
-            raise ValueError("email not verified")
-        return info["email"].strip().lower(), str(info.get("name") or "")
-    emails = _oauth_http_json(
-        "https://api.github.com/user/emails",
-        headers={"Authorization": f"Bearer {at}",
-                 "Accept": "application/vnd.github+json",
-                 "User-Agent": "NexusLocal"})
-    verified = [e for e in emails if isinstance(e, dict) and e.get("verified")
-                and isinstance(e.get("email"), str)]
-    if not verified:
-        raise ValueError("no verified email")
-    pick = next((e for e in verified if e.get("primary")), verified[0])
-    return pick["email"].strip().lower(), ""
-
-
-def _oauth_resolve(email):
-    """Map a verified OAuth email to ('admin', 'Rudra') or
-    ('friend', label) via the admin-configured mappings, else None."""
-    email = (email or "").strip().lower()
-    if not email:
-        return None
-    if email in [str(e).lower() for e in (_SETTINGS.get("oauth_admin_emails") or [])]:
-        return ("admin", "Rudra")
-    access = None
-    for link in (_SETTINGS.get("oauth_links") or []):
-        if isinstance(link, dict) and str(link.get("email") or "").lower() == email:
-            label = link.get("label")
-            if access is None:
-                access = _load_access()
-            if isinstance(label, str) and label in access:
-                return ("friend", label)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -5804,7 +5684,7 @@ class Handler(BaseHTTPRequestHandler):
         # (uptime monitors use HEAD; without this BaseHTTPRequestHandler
         # answers 501 Not Implemented).
         _hp = urlparse(self.path).path
-        if _hp.startswith("/view/") or _hp.startswith("/api/oauth/") \
+        if _hp.startswith("/view/") \
                 or (_hp.startswith("/api/integrations/")
                     and (_hp.endswith("/start")
                          or _hp.endswith("/callback"))):
@@ -6340,101 +6220,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", f"/integrations?connected={_iprov}")
             self.send_header("Set-Cookie", "intg_state=; Max-Age=0; Secure; Path=/")
-            self.end_headers()
-            return
-        if parsed.path == "/api/oauth/providers":
-            self._set_json_headers()
-            self._send_body(json.dumps(
-                {p: bool(_oauth_creds(p)) for p in _OAUTH_PROVIDERS}).encode())
-            return
-        if parsed.path.startswith("/api/oauth/"):
-            _oparts = parsed.path.strip("/").split("/")
-            _oprov = _oparts[2] if len(_oparts) > 2 else ""
-            _oaction = _oparts[3] if len(_oparts) > 3 else ""
-            _ocreds = _oauth_creds(_oprov) if _oprov in _OAUTH_PROVIDERS else None
-            if not _ocreds or _oaction not in ("start", "callback"):
-                self._set_json_headers(404)
-                self._send_body(json.dumps({"error": "oauth not available"}).encode())
-                return
-            if not _rl_ok("oauth", _client_ip(self.headers, self.client_address[0]), 30, 900):
-                self._set_json_headers(429)
-                self._send_body(json.dumps({"error": "too many attempts, try again later"}).encode())
-                return
-            if not self._ip_gate():
-                # Audit run-6: every other session-minting route
-                # honors the IP allowlist; the (dormant) login OAuth
-                # mint skipped it.
-                return
-            _obase = _oauth_public_base(self.headers)
-            _ocb = f"{_obase}/api/oauth/{_oprov}/callback"
-            if _oaction == "start":
-                _ostate = secrets.token_urlsafe(24)
-                if _oprov == "google":
-                    _op = {"client_id": _ocreds[0], "redirect_uri": _ocb,
-                           "response_type": "code", "scope": "openid email profile",
-                           "state": _ostate, "access_type": "online",
-                           "prompt": "select_account"}
-                    _ourl = "https://accounts.google.com/o/oauth2/v2/auth?" + _urlencode(_op)
-                else:
-                    _op = {"client_id": _ocreds[0], "redirect_uri": _ocb,
-                           "scope": "read:user user:email", "state": _ostate}
-                    _ourl = "https://github.com/login/oauth/authorize?" + _urlencode(_op)
-                self.send_response(302)
-                self.send_header("Location", _ourl)
-                self.send_header("Set-Cookie",
-                                 f"oauth_state={_ostate}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600")
-                self.end_headers()
-                return
-            # callback
-            _oq = parse_qs(parsed.query or "")
-            _ocode = (_oq.get("code") or [""])[0]
-            _ostate_q = (_oq.get("state") or [""])[0]
-            _ock = SimpleCookie(self.headers.get("Cookie", ""))
-            _ostate_c = _ock.get("oauth_state").value if _ock.get("oauth_state") else ""
-
-            def _oauth_fail(msg):
-                self.send_response(302)
-                self.send_header("Location", "/login?oauth_error=" + _urlquote(msg))
-                self.send_header("Set-Cookie", "oauth_state=; Max-Age=0; Secure; Path=/")
-                self.end_headers()
-            if not _ocode or not _ostate_q or not _ostate_c \
-                    or not secrets.compare_digest(_ostate_q, _ostate_c):
-                _oauth_fail("Sign-in didn't complete — try again.")
-                return
-            try:
-                _oemail, _oname = _oauth_fetch_email(_oprov, _ocode, _ocb)
-            except Exception:
-                _oauth_fail("That provider couldn't verify your account — try again.")
-                return
-            _ores = _oauth_resolve(_oemail)
-            if not _ores:
-                _audit("System", f"OAuth sign-in refused (unlinked email) via {_oprov}",
-                       ip=_client_ip(self.headers, self.client_address[0]))
-                _oauth_fail("That account isn't linked to a Nexus user — "
-                            "ask the admin to link your email first.")
-                return
-            _okind, _olabel = _ores
-            _ois_admin = _okind == "admin"
-            if not _ois_admin:
-                _blocked = _friend_blocked(_olabel)
-                if _blocked:
-                    _oauth_fail("Maintenance mode is on — try again later."
-                                if _blocked == "maintenance"
-                                else "This account is suspended.")
-                    return
-            _otoken = secrets.token_hex(32)
-            _osess = {"ts": time.time(), "label": _olabel,
-                      "admin": _ois_admin, "oauth": _oprov}
-            _osess.update(_session_meta(self.headers, self.client_address[0]))
-            SESSIONS[_otoken] = _osess
-            _audit("System", f"Signed in via OAuth ({_oprov}): {_olabel} "
-                             f"({'admin' if _ois_admin else 'friend'})",
-                   ip=_client_ip(self.headers, self.client_address[0]))
-            self.send_response(302)
-            self.send_header("Location", "/dashboard")
-            self.send_header("Set-Cookie",
-                             f"session={_otoken}; HttpOnly; Secure; SameSite=Lax; Path=/")
-            self.send_header("Set-Cookie", "oauth_state=; Max-Age=0; Secure; Path=/")
             self.end_headers()
             return
         # Public invite signup page (the redeem POST does the real work).
@@ -9780,7 +9565,7 @@ class Handler(BaseHTTPRequestHandler):
             # verdict, immediately before the claim persists (the
             # wave-15 shape ran and persisted it before ANY
             # validation, so one unauthenticated bogus-code POST
-            # wiped a stranded label, oauth pre-links included, at
+            # wiped a stranded label's settings, at
             # no budget cost) — and BEFORE _ACCESS_LOCK, so its
             # save + outcome settle no longer stalls every
             # concurrent creation behind a slow store. On a non-ok
@@ -11626,25 +11411,19 @@ class Handler(BaseHTTPRequestHandler):
                         if _still_gone:
                             # Settings-resident per-user state goes too: a
                             # re-created label must not inherit the previous
-                            # holder's cap, suspension, OAuth email link or
-                            # terms-seen flag.
+                            # holder's cap, suspension or terms-seen flag.
                             _w10_dirty = False
                             with _SETTINGS_LOCK:
                                 _caps = dict(_SETTINGS.get("user_caps") or {})
                                 _susp = [x for x in (_SETTINGS.get("suspended") or [])
                                          if x != label]
-                                _links = [e for e in (_SETTINGS.get("oauth_links") or [])
-                                          if not (isinstance(e, dict)
-                                                  and e.get("label") == label)]
                                 _seen = [x for x in (_SETTINGS.get("terms_seen") or [])
                                          if x != label]
                                 if (_caps.pop(label, None) is not None
                                         or _susp != (_SETTINGS.get("suspended") or [])
-                                        or _links != (_SETTINGS.get("oauth_links") or [])
                                         or _seen != (_SETTINGS.get("terms_seen") or [])):
                                     _SETTINGS["user_caps"] = _caps
                                     _SETTINGS["suspended"] = _susp
-                                    _SETTINGS["oauth_links"] = _links
                                     _SETTINGS["terms_seen"] = _seen
                                     _w10_dirty = True
                                 # Drop their console role + vault metadata too
@@ -11675,13 +11454,7 @@ class Handler(BaseHTTPRequestHandler):
                                     and label not in (
                                         s.get("suspended") or [])
                                     and label not in (
-                                        s.get("terms_seen") or [])
-                                    and not any(
-                                        isinstance(e, dict)
-                                        and e.get("label") == label
-                                        for e in (
-                                            s.get("oauth_links")
-                                            or [])))
+                                        s.get("terms_seen") or []))
                             # Delete their personal key vault too
                             try:
                                 vp = _userkey_path(label)

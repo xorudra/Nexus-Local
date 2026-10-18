@@ -462,7 +462,6 @@ var SERVICES = [
  {id:'notion', key:'notion', name:'Notion', kind:'apikey', site:'https://www.notion.so', desc:'Capture, organize, and tackle your to-dos from anywhere.', search:'notion notes docs workspace pages', fields:[['token','Integration token','At notion.so/my-integrations create an integration, copy its secret, then share the pages it should reach with that integration.']]},
  {id:'trello', key:'trello', name:'Trello', kind:'apikey', site:'https://trello.com', desc:'Capture, organize, and tackle your to-dos from anywhere.', search:'trello boards cards tasks kanban', fields:[['api_key','API key','From trello.com/app-key \u2014 the key shown for your account.'],['token','Token','From the same app-key page, generate a token and paste it here.']]},
  {id:'jira', key:'jira', name:'Jira', kind:'apikey', site:'https://www.atlassian.com/software/jira', desc:'Track issues and manage projects with ease and full team visibility.', search:'jira atlassian issues projects tickets', fields:[['site','Site','Your Atlassian site, e.g. yourteam.atlassian.net'],['email','Account email','The email address on your Atlassian account.'],['token','API token','At id.atlassian.com \u2192 Security \u2192 API tokens.']]},
- {id:'oauth', key:'oauth', name:'OAuth Sign-in', kind:'nexusoauth', site:'/admin', desc:'Sign in to Nexus with a Google or GitHub account instead of a password \u2014 the account\u2019s verified email is matched to an owner or friend account the admin has linked.', search:'oauth sign-in login google github sso passwordless account'}
 ];
 var AI_SERVICES = [
  {id:'openai', kind:'ai', name:'ChatGPT (OpenAI)', mono:'GPT', site:'https://platform.openai.com', desc:'Connect your OpenAI account \u2014 sign in with your ChatGPT subscription (via Codex) or use your own API key.', search:'chatgpt openai gpt chat gpt-5 sign in codex', help:'At platform.openai.com \u2192 API keys. Usage is billed by OpenAI to your account.', signin:'codex', signname:'ChatGPT account', signbtn:'ChatGPT', toolname:'Codex', signhelp:'After you approve, your browser tries to open a localhost page that cannot load \u2014 that is expected. Copy the FULL address from the address bar and paste it here.'},
@@ -483,7 +482,6 @@ var AI_SERVICES = [
  {id:'aihorde', kind:'ai', name:'AI Horde', mono:'Ho', site:'https://aihorde.net', desc:'Community-powered generation \u2014 keyless, works out of the box.', search:'ai horde keyless community', help:''}
 ];
 var state = {unlocked:false, services:{}, ai:{}, google_configured:false, zoom_configured:false, admin:false};
-var oauthState = null;
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function def(id){ for (var i=0;i<SERVICES.length;i++) if (SERVICES[i].id===id) return SERVICES[i]; for (var j=0;j<AI_SERVICES.length;j++) if (AI_SERVICES[j].id===id) return AI_SERVICES[j]; return null; }
 function api(body){
@@ -492,13 +490,6 @@ function api(body){
 }
 function svcState(d){
   if (d.kind === 'none') return {cls:'', text:'No public API'};
-  if (d.kind === 'nexusoauth'){
-    if (!oauthState) return {cls:'', text:'Checking\u2026'};
-    var on = [];
-    if (oauthState.google) on.push('Google');
-    if (oauthState.github) on.push('GitHub');
-    return on.length ? {cls:'ok', text:on.join(' + ') + ' enabled'} : {cls:'', text:'Not configured'};
-  }
   if (!state.unlocked) return {cls:'', text:'Vault locked'};
   var s = state.services[d.key];
   if (d.kind === 'google' && !state.google_configured)
@@ -634,10 +625,6 @@ function openPanel(id, focus){
   if (d.kind === 'none'){
     h += '<p><b style="color:#fde68a">Honest status:</b> Loom doesn\u2019t offer a public API for connecting a workspace on standard plans, so there is nothing real for Nexus to connect to yet. The moment Loom opens one, this card gets a working connect flow like the others.</p>' +
       '<div class="row"><a class="btng" href="' + d.site + '" target="_blank" rel="noopener">Open Loom \u2197</a></div>';
-  } else if (d.kind === 'nexusoauth'){
-    var st = svcState(d);
-    h += '<p>Status: <b>' + esc(st.text) + '</b>. Which emails may sign in, and which Nexus account each one lands on, is set by the admin — OAuth never creates accounts and never unlocks the key vault.</p>' +
-      '<div class="row">' + (state.admin ? '<a class="btnw" href="/admin">Open Admin console</a>' : '<span class="hint">Owner-managed \u2014 ask the admin to link your email.</span>') + '</div>';
   } else if (d.kind === 'ai' || d.kind === 'link'){
     var a = state.ai[d.id] || {};
     if (d.kind === 'link'){
@@ -938,9 +925,6 @@ if (qs.get('connected')){
   setTimeout(function(){ openPanel(qs.get('connected') === 'google' ? 'gmail' : 'zoom'); }, 600);
 }
 api({action:'status'}).then(function(r){ applyState(r.j); });
-fetch('/api/oauth/providers').then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
-  oauthState = j; renderCards();
-}).catch(function(){ oauthState = {}; renderCards(); });
 renderCards();
 renderAiCards();
 })();

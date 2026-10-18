@@ -1401,9 +1401,7 @@ class AuditFixHarness(unittest.TestCase):
         status, body, _ = self._access(
             {"action": "settings_set", "master_pw": MASTER,
              "patch": {"user_caps": {"scrubme": 5},
-                       "suspended": ["scrubme"],
-                       "oauth_links": [{"email": "scrub@example.co",
-                                        "label": "scrubme"}]}}, admin)
+                       "suspended": ["scrubme"]}}, admin)
         self.assertEqual(status, 200, body)
         status, body, _ = self._access(
             {"action": "revoke", "label": "scrubme",
@@ -1413,10 +1411,6 @@ class AuditFixHarness(unittest.TestCase):
         self.assertNotIn("scrubme", saved.get("user_caps") or {})
         self.assertNotIn("scrubme", saved.get("suspended") or [])
         self.assertNotIn("scrubme", saved.get("terms_seen") or [])
-        self.assertFalse(any(
-            e.get("label") == "scrubme"
-            for e in (saved.get("oauth_links") or [])
-            if isinstance(e, dict)))
         # A re-created label starts clean.
         status, body, _ = self._access(
             {"action": "add", "label": "scrubme",

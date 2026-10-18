@@ -4,7 +4,7 @@ owner at AI account connections): GET /integrations is session-gated
 like /connections and renders two sections — AI accounts (ChatGPT,
 Claude, Gemini and the rest of the provider roster to connect) and
 Workspace tools (Gmail, Meet, Linear, Loom, Zoom, Mailchimp, Notion,
-Trello, Jira plus the preserved OAuth Sign-in card) — wired to
+Trello, Jira) — wired to
 POST /api/integrations. Endpoint behaviour lives in
 test_integrations_connect.py.
 
@@ -140,11 +140,12 @@ class IntegrationsPage(unittest.TestCase):
                        "Claude (Anthropic)", "Gemini (Google)",
                        "AI_SERVICES", "/api/integrations"):
             self.assertIn(marker, raw, marker)
-        # Workspace tools below, snapshot catalogue intact, OAuth
-        # Sign-in card preserved from ce772de.
+        # Workspace tools below, snapshot catalogue intact. (The
+        # ce772de OAuth Sign-in card was removed 2026-10-18 with the
+        # dormant login OAuth itself — owner's Decision 4.)
         for marker in ("Workspace tools", "Gmail", "Google Meet",
                        "Linear", "Loom", "Zoom", "Mailchimp", "Notion",
-                       "Trello", "Jira", "OAuth Sign-in",
+                       "Trello", "Jira",
                        "Add New Integration"):
             self.assertIn(marker, raw, marker)
 
