@@ -174,6 +174,42 @@ function parseEngineAdminCreds(envTxt) {
           if (/^\s*(#.*)?$/.test(s.slice(i + 1, _eol22))) {
             q = null; cur += c; i++; continue;
           }
+          // Wave 25 (run-24 L24-L1, verifier prototype): the span
+          // may still hold an odd-backslash candidate on an
+          // EARLIER line (dotenv backtracking — the wave-24 EOF
+          // retest, hoisted into the in-scan junk branch):
+          // re-test those candidates LAST-to-FIRST with the same
+          // closing-line remainder test before the naive re-split;
+          // on a hit, emit the span up to that candidate as ONE
+          // record (line endings protected as SENT) and resume
+          // scanning AFTER its closing line, so the following
+          // record parses normally. No passing candidate: fall
+          // through to the existing re-split, unchanged.
+          {
+            const _candS24 = [];
+            for (let p = recStart; p < i; p++) {
+              if (s[p] === q && bsBefore(p) % 2 === 1) _candS24.push(p);
+            }
+            let _hitS24 = -1, _eolS24 = -1;
+            for (let ci = _candS24.length - 1; ci >= 0; ci--) {
+              const p = _candS24[ci];
+              let e = p + 1;
+              while (e < s.length && s[e] !== "\r" && s[e] !== "\n") e++;
+              if (/^\s*(#.*)?$/.test(s.slice(p + 1, e))) {
+                _hitS24 = p; _eolS24 = e; break;
+              }
+            }
+            if (_hitS24 >= 0) {
+              out.push(s.slice(recStart, _hitS24 + 1)
+                .replace(/\r\n|\r|\n/g, SENT));
+              if (_eolS24 >= s.length) return out;
+              i = _eolS24 + (s[_eolS24] === "\r"
+                             && s[_eolS24 + 1] === "\n" ? 2 : 1);
+              recStart = i; cur = ""; q = null;
+              seenEq = false; valBegun = false;
+              continue;
+            }
+          }
           // The span was never a valid multiline. Re-split
           // naively from recStart up to the closing line, then
           // resume quote-aware scanning AT the closing line as
