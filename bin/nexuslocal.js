@@ -58,9 +58,13 @@ function parseEngineAdminCreds(envTxt) {
   // Wave 21 (run-20 launcher L20-L1): the splitter's in-quote
   // line-ending protection byte is a PER-PARSE sentinel
   // VERIFIED ABSENT from this input (the first absent
-  // candidate wins; the \u0001 fallback fires only for a
-  // file containing every candidate — not a real shape —
-  // and is then no worse than wave 20). The restores below
+  // candidate wins). Wave 22 (run-21 L21-L1): on candidate
+  // EXHAUSTION there is no fallback byte — a byte known
+  // present would revive the L20-L1 mangling verbatim, and a
+  // naive split would re-open the L19-L1 truncation — so the
+  // selection returns null and this parse fails CLOSED as
+  // absent (the designed no-credentials path). The restores
+  // below
   // therefore only ever convert bytes the splitter itself
   // inserted: with an absent-verified sentinel, no literal
   // byte in the file can collide, so a literal control byte
@@ -68,16 +72,18 @@ function parseEngineAdminCreds(envTxt) {
   // dotenv reads it.
   const SENT = (() => {
     for (const cand of ["\u0001", "\u0002", "\u0003", "\u0004",
-                        "\u0005", "\u0006", "\u0007", "\u000B",
-                        "\u000C", "\u000E", "\u000F", "\u0010",
-                        "\u0011", "\u0012", "\u0013", "\u0014",
-                        "\u0015", "\u0016", "\u0017", "\u0018",
-                        "\u0019", "\u001A", "\u001C", "\u001D",
-                        "\u001E", "\u001F"]) {
+                        "\u0005", "\u0006", "\u0007", "\u0008",
+                        "\u000B", "\u000C", "\u000E", "\u000F",
+                        "\u0010", "\u0011", "\u0012", "\u0013",
+                        "\u0014", "\u0015", "\u0016", "\u0017",
+                        "\u0018", "\u0019", "\u001A", "\u001B",
+                        "\u001C", "\u001D", "\u001E", "\u001F"]) {
       if (!txt.includes(cand)) return cand;
     }
-    return "\u0001";
+    return null;
   })();
+  if (SENT === null) return { hasEmail: false,
+                              hasPassword: false };
   const out = { hasEmail: false, hasPassword: false };
   // Wave 19 (run-18 launcher L18-L1): split on every line
   // ending dotenv accepts — /\r\n|\r|\n/ — not just /\r?\n/:
@@ -106,7 +112,10 @@ function parseEngineAdminCreds(envTxt) {
   // (dotenv's normalisation).
   // Wave 21 (run-20 launcher L20-L2/L3/L4): quote mode arms
   // ONLY on a record whose text before its first `=` is an
-  // assignment prefix (/^\s*(?:export\s+)?[\w.-]*\s*$/ —
+  // assignment prefix (/^\s*(?:export\s+)?[\w.-]+\s*$/ —
+  // wave 22, run-21 L21-L2: the key class is + not * — a
+  // keyless record is not an assignment (dotenv requires
+  // [\w.-]+) and must never arm quote mode —
   // comments, commented-out/truncated example lines and
   // invalid-key lines never arm, mirroring dotenv, which
   // discards them before any value parsing); and the
@@ -132,7 +141,54 @@ function parseEngineAdminCreds(envTxt) {
       const c = s[i];
       if (q) {
         if (c === q && bsBefore(i) % 2 === 0) {
-          q = null; cur += c; i++; continue;
+          // Wave 22 (run-21 L21-L3+L21-L4, merged): dotenv's
+          // quoted alternative counts as a multiline ONLY when
+          // the rest of the CLOSING physical line is whitespace
+          // or a comment; anything else throws the record back
+          // to the unquoted per-line parse. Mirror that: peek
+          // at the closing line's remainder — if it is not
+          // /^\s*(#.*)?$/, the record was never a valid
+          // multiline (see the re-split below). Properly
+          // closed multilines are untouched. One path for all
+          // three quote chars — no backtick-specific code.
+          let _eol22 = i + 1;
+          while (_eol22 < s.length && s[_eol22] !== "\r"
+                 && s[_eol22] !== "\n") _eol22++;
+          if (/^\s*(#.*)?$/.test(s.slice(i + 1, _eol22))) {
+            q = null; cur += c; i++; continue;
+          }
+          // The span was never a valid multiline. Re-split
+          // naively from recStart up to the closing line, then
+          // resume quote-aware scanning AT the closing line as
+          // a fresh record start — the credential record
+          // swallowed inside the span becomes its own record
+          // again, and if the closing line itself opens a
+          // legitimate multiline it still parses as one (this
+          // same check applies at its close). A close on the
+          // record's OWN line is the degenerate case: the
+          // whole line is the span, re-split it and move on.
+          const _ls22 = Math.max(
+            s.lastIndexOf("\n", i - 1),
+            s.lastIndexOf("\r", i - 1)) + 1;
+          if (_ls22 > recStart) {
+            const _pre22 = s.slice(recStart, _ls22)
+              .split(/\r\n|\r|\n/);
+            if (_pre22[_pre22.length - 1] === "") _pre22.pop();
+            for (const piece of _pre22) out.push(piece);
+            i = _ls22; recStart = i; cur = ""; q = null;
+            seenEq = false; valBegun = false;
+            continue;
+          }
+          for (const piece of s.slice(recStart, _eol22)
+                 .split(/\r\n|\r|\n/)) {
+            out.push(piece);
+          }
+          if (_eol22 >= s.length) return out;
+          i = _eol22 + (s[_eol22] === "\r"
+                        && s[_eol22 + 1] === "\n" ? 2 : 1);
+          recStart = i; cur = ""; q = null;
+          seenEq = false; valBegun = false;
+          continue;
         }
         if (c === "\r" || c === "\n") {
           if (c === "\r" && s[i + 1] === "\n") i++;
@@ -147,7 +203,7 @@ function parseEngineAdminCreds(envTxt) {
         i++; recStart = i; continue;
       }
       if (!seenEq && c === "="
-          && /^\s*(?:export\s+)?[\w.-]*\s*$/.test(cur)) {
+          && /^\s*(?:export\s+)?[\w.-]+\s*$/.test(cur)) {
         seenEq = true; cur += c; i++; continue;
       }
       if (seenEq && !valBegun && /\s/.test(c)
@@ -173,12 +229,42 @@ function parseEngineAdminCreds(envTxt) {
     }
     return out;
   };
-  for (const line of _splitQuoted20(txt)) {
+  const _lines22 = _splitQuoted20(txt);
+  for (let _li22 = 0; _li22 < _lines22.length; _li22++) {
+    const line = _lines22[_li22];
     const m = line.match(/^\s*(?:export\s+)?(ENGINE_ADMIN_EMAIL|ENGINE_ADMIN_PASSWORD)\s*=\s*(.*)$/);
     if (!m) continue;
     const isEmail = m[1] === "ENGINE_ADMIN_EMAIL";
     if (isEmail) out.hasEmail = true; else out.hasPassword = true;
     let v = m[2].trim();
+    // Wave 22 (run-21 L21-L5, the verifier's narrower fix):
+    // a credential record with an EMPTY value adopts a
+    // following record consisting SOLELY of a quoted string
+    // — dotenv reads KEY=<EOL>"v" as KEY="v". The adoption
+    // is parse-local (a splitter-level join would leave the
+    // sentinel byte leading the value and mangle it); the
+    // adopted text flows through the quoted-value parse
+    // below exactly as an on-line quoted value does.
+    if (v === "" && _li22 + 1 < _lines22.length) {
+      const _nx22 = _lines22[_li22 + 1].trim();
+      if (_nx22.length >= 2
+          && (_nx22[0] === '"' || _nx22[0] === "'"
+              || _nx22[0] === "`")) {
+        const _nq22 = _nx22[0];
+        let _end22 = -1;
+        for (let _k22 = 1; _k22 < _nx22.length; _k22++) {
+          if (_nx22[_k22] !== _nq22) continue;
+          let _bs22 = 0;
+          for (let _j22 = _k22 - 1; _j22 >= 0
+               && _nx22[_j22] === "\\"; _j22--) _bs22++;
+          if (_bs22 % 2 === 0) { _end22 = _k22; break; }
+        }
+        if (_end22 === _nx22.length - 1) {
+          v = _nx22;
+          _li22++;
+        }
+      }
+    }
     // The value with NO comment handling at all (quote-strip only):
     // the alternate form verifyClaim retries with before it may
     // declare a foreign claim (wave 14, run-13 launcher L13-2).

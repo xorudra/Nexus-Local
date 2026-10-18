@@ -35,6 +35,7 @@ import shutil
 import time
 import threading
 import ipaddress
+import math
 import socket
 import http.client
 import urllib.parse
@@ -3298,24 +3299,70 @@ def _diverged_sidecar_path():
     return SETTINGS_PATH.parent / "access_diverged.json"
 
 
+def _diverged_ts_ok(ts):
+    """Wave 22 (run-21 D21-DATA-2): the ONE ts-validity
+    predicate shared by both readers (_backup_diverged_record
+    and _persist_diverged's max-read) — a ts counts only when
+    it is an int/float, not a bool, and finite; anything else
+    coerces to 0 like a non-numeric ts. Ints are finite by
+    construction (math.isfinite would overflow on huge ints,
+    which round-trip exactly and must keep ranking)."""
+    if isinstance(ts, bool):
+        return False
+    if isinstance(ts, int):
+        return True
+    if isinstance(ts, float):
+        return math.isfinite(ts)
+    return False
+
+
 def _read_diverged_sidecar():
     """The sidecar channel's record: ("rec", dict) for a raise,
     ("clear", dict) for a ts'd tombstone, None when the file is
-    absent, unreadable or malformed (treated as no record)."""
+    absent or holds no valid record, and ("unknown", None)
+    when the file EXISTS but its read or parse failed
+    (wave 22, run-21 D21-DATA-1: an unreadable-but-present
+    channel must never be mistaken for an empty one by the
+    clear verification, the logical-clock max-read, or the
+    boot fold)."""
     try:
         d = json.loads(_diverged_sidecar_path().read_text())
-        if isinstance(d, dict) \
-                and isinstance(d.get("ts"), (int, float)):
-            if isinstance(d.get("intended_labels"), list):
-                return ("rec", {"ts": int(d["ts"]),
-                                "intended_labels":
-                                    list(d["intended_labels"])})
-            if d.get("intended_labels") is None:
-                return ("clear", {"ts": int(d["ts"]),
-                                  "intended_labels": None})
+    except Exception:
+        try:
+            if _diverged_sidecar_path().exists():
+                return ("unknown", None)
+        except Exception:
+            pass
+        return None
+    if isinstance(d, dict) and _diverged_ts_ok(d.get("ts")):
+        if isinstance(d.get("intended_labels"), list):
+            return ("rec", {"ts": int(d["ts"]),
+                            "intended_labels":
+                                list(d["intended_labels"])})
+        if d.get("intended_labels") is None:
+            return ("clear", {"ts": int(d["ts"]),
+                              "intended_labels": None})
+    return None
+
+
+def _diverged_sidecar_unknown():
+    return _read_diverged_sidecar() == ("unknown", None)
+
+
+def _audit_diverged_unpersisted(detail, intended):
+    """The existing loud path for divergence persist failures
+    (wave 22: shared by the unreadable-sidecar routes)."""
+    try:
+        _audit("System",
+               "access_backup_diverged_unpersisted: " + detail)
     except Exception:
         pass
-    return None
+    try:
+        _log_event("error",
+                   "access_backup_diverged_unpersisted",
+                   intended=intended)
+    except Exception:
+        pass
 
 
 def _write_diverged_sidecar(rec):
@@ -3353,6 +3400,16 @@ def _load_diverged_sidecar_boot():
     RESULT instead would erase a tombstone that reached only
     the settings channel, leaving the stale sidecar raise it
     out-ranked as the only record on the next merged read."""
+    if _diverged_sidecar_unknown():
+        # Wave 22 (run-21 D21-DATA-1, arm b): the sidecar is
+        # present but unreadable — say so loudly and fold
+        # NOTHING: folding the merged None here could erase a
+        # RAM/settings record the blind channel cannot see.
+        _audit_diverged_unpersisted(
+            "the users.enc divergence sidecar is present but "
+            "unreadable at boot; the boot fold was skipped",
+            None)
+        return
     rec = _backup_diverged_record()
     _BACKUP_DIVERGED_MEM[0] = rec
     try:
@@ -3376,7 +3433,7 @@ def _backup_diverged_record():
     best = [None]  # (ts, prio, rec-or-None, raw record)
 
     def _consider(ts, prio, rec, raw=None):
-        if not isinstance(ts, (int, float)):
+        if not _diverged_ts_ok(ts):
             ts = 0
         if best[0] is None or (ts, prio) >= (best[0][0],
                                              best[0][1]):
@@ -3405,7 +3462,7 @@ def _backup_diverged_record():
             and isinstance(m.get("ts"), (int, float)):
         _consider(m.get("ts"), 2, None, m)
     sc = _read_diverged_sidecar()
-    if sc is not None:
+    if sc is not None and sc[1] is not None:
         kind, rec = sc
         _consider(rec["ts"], 3, rec if kind == "rec" else None,
                   rec)
@@ -3444,18 +3501,31 @@ def _persist_diverged(rec):
     dicts). A clear constructs ONE shared tombstone dict
     {"ts": T, "intended_labels": None} and stores THAT SAME
     dict in memory, _SETTINGS and the sidecar."""
+    if _diverged_sidecar_unknown():
+        # Wave 22 (run-21 D21-DATA-1): never stamp a logical
+        # ts from a max-read taken while a present sidecar is
+        # unreadable — the unseen record could out-rank the
+        # stamp. Route to the loud path, exactly as a total
+        # persist failure is treated, and return False.
+        _audit_diverged_unpersisted(
+            "the users.enc divergence record could not be "
+            "persisted — the sidecar channel is present but "
+            "unreadable, so no logical ts was stamped",
+            rec.get("intended_labels")
+            if isinstance(rec, dict) else None)
+        return False
     now = int(time.time())
     max_ts = 0
     try:
         for _v21 in (_SETTINGS.get("access_backup_diverged"),
                      _BACKUP_DIVERGED_MEM[0]):
             if isinstance(_v21, dict) \
-                    and isinstance(_v21.get("ts"), (int, float)):
+                    and _diverged_ts_ok(_v21.get("ts")):
                 max_ts = max(max_ts, int(_v21["ts"]))
     except Exception:
         pass
     _sc21 = _read_diverged_sidecar()
-    if _sc21 is not None:
+    if _sc21 is not None and _sc21[1] is not None:
         max_ts = max(max_ts, int(_sc21[1]["ts"]))
     ts = max(now, max_ts + 1)
     if rec is None:
@@ -3509,6 +3579,17 @@ def _clear_backup_diverged():
     design; the loud audit is the deliverable, plus honest
     return semantics for future callers."""
     if _backup_diverged() is None:
+        if _diverged_sidecar_unknown():
+            # Wave 22 (run-21 D21-DATA-1, arm A): the merged
+            # read is blind, not empty — a raise may sit on
+            # the unreadable sidecar. Never early-return a
+            # silent True; the failure is loud, the return
+            # an honest False.
+            _audit_diverged_unpersisted(
+                "the users.enc divergence clear could not be "
+                "verified — the sidecar channel is present "
+                "but unreadable", None)
+            return False
         return True
     ok = _persist_diverged(None)
     if _backup_diverged() is not None:
