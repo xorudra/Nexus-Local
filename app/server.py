@@ -3319,21 +3319,35 @@ def _diverged_ts_ok(ts):
 def _read_diverged_sidecar():
     """The sidecar channel's record: ("rec", dict) for a raise,
     ("clear", dict) for a ts'd tombstone, None when the file is
-    absent or holds no valid record, and ("unknown", None)
-    when the file EXISTS but its read or parse failed
-    (wave 22, run-21 D21-DATA-1: an unreadable-but-present
-    channel must never be mistaken for an empty one by the
-    clear verification, the logical-clock max-read, or the
-    boot fold)."""
+    absent or holds no valid record, ("unknown", None) when
+    the file EXISTS but the READ itself failed, and
+    ("corrupt", None) when bytes were read but decode/parse
+    failed. Wave 23 (run-22 D22-DATA-1): the read is STAGED —
+    read_bytes first, then decode+parse of the in-hand bytes —
+    because the two failure families are disjoint (byte
+    acquisition raises the OSError family only; decode/parse
+    of in-hand bytes raises the ValueError family:
+    UnicodeDecodeError / JSONDecodeError). An IO-fault file's
+    content is genuinely unknown and keeps wave 22's block;
+    a parse-fault file provably holds no readable record, so
+    persist may stamp over it and heal it. (Wave 22, run-21
+    D21-DATA-1: an unreadable-but-present channel must never
+    be mistaken for an empty one by the clear verification,
+    the logical-clock max-read, or the boot fold.)"""
+    _p23 = _diverged_sidecar_path()
     try:
-        d = json.loads(_diverged_sidecar_path().read_text())
+        _raw23 = _p23.read_bytes()
     except Exception:
         try:
-            if _diverged_sidecar_path().exists():
+            if _p23.exists():
                 return ("unknown", None)
         except Exception:
             pass
         return None
+    try:
+        d = json.loads(_raw23.decode("utf-8"))
+    except Exception:
+        return ("corrupt", None)
     if isinstance(d, dict) and _diverged_ts_ok(d.get("ts")):
         if isinstance(d.get("intended_labels"), list):
             return ("rec", {"ts": int(d["ts"]),
@@ -3400,7 +3414,8 @@ def _load_diverged_sidecar_boot():
     RESULT instead would erase a tombstone that reached only
     the settings channel, leaving the stale sidecar raise it
     out-ranked as the only record on the next merged read."""
-    if _diverged_sidecar_unknown():
+    _sc23 = _read_diverged_sidecar()
+    if _sc23 == ("unknown", None):
         # Wave 22 (run-21 D21-DATA-1, arm b): the sidecar is
         # present but unreadable — say so loudly and fold
         # NOTHING: folding the merged None here could erase a
@@ -3410,6 +3425,16 @@ def _load_diverged_sidecar_boot():
             "unreadable at boot; the boot fold was skipped",
             None)
         return
+    if _sc23 == ("corrupt", None):
+        # Wave 23 (run-22 D22-DATA-1): a parse-fault sidecar
+        # provably holds no readable record — treat it as
+        # absent, fold the merged record from the other
+        # channels normally, with this one loud note.
+        _audit_diverged_unpersisted(
+            "the users.enc divergence sidecar is corrupt "
+            "(its bytes hold no readable record) at boot; "
+            "the boot fold used the other channels only",
+            None)
     rec = _backup_diverged_record()
     _BACKUP_DIVERGED_MEM[0] = rec
     try:
@@ -3418,7 +3443,7 @@ def _load_diverged_sidecar_boot():
         pass
 
 
-def _backup_diverged_record():
+def _backup_diverged_record_and_state():
     # Wave 20 merged read: the NEWEST record across the
     # channels wins (settings copy, in-memory copy, plain
     # sidecar). Ties resolve sidecar > memory > settings:
@@ -3467,8 +3492,24 @@ def _backup_diverged_record():
         _consider(rec["ts"], 3, rec if kind == "rec" else None,
                   rec)
     if best[0] is None:
-        return None
-    return best[0][3]
+        return None, sc
+    return best[0][3], sc
+
+
+def _backup_diverged_record():
+    return _backup_diverged_record_and_state()[0]
+
+
+def _backup_diverged_and_state():
+    """Wave 23 (run-22 D22-DATA-3): the merged raise AND the
+    sidecar state from the SAME single sidecar read, so a
+    consumer judging both can never be fooled by two reads
+    that disagree (a transient fault clearing between them)."""
+    rec, sc = _backup_diverged_record_and_state()
+    if isinstance(rec, dict) \
+            and isinstance(rec.get("intended_labels"), list):
+        return rec, sc
+    return None, sc
 
 
 def _backup_diverged():
@@ -3501,7 +3542,15 @@ def _persist_diverged(rec):
     dicts). A clear constructs ONE shared tombstone dict
     {"ts": T, "intended_labels": None} and stores THAT SAME
     dict in memory, _SETTINGS and the sidecar."""
-    if _diverged_sidecar_unknown():
+    # Wave 23 (run-22 D22-DATA-3 rider): ONE sidecar read
+    # feeds both the unknown decision here and the logical-
+    # clock max-read below — the entry read used to be
+    # discarded and re-read, so a fault starting between the
+    # two reads (plus a failed sidecar write in the same
+    # call) could mint a stamp below an unseen future raise
+    # and still return a silent True.
+    _sc23 = _read_diverged_sidecar()
+    if _sc23 == ("unknown", None):
         # Wave 22 (run-21 D21-DATA-1): never stamp a logical
         # ts from a max-read taken while a present sidecar is
         # unreadable — the unseen record could out-rank the
@@ -3514,6 +3563,19 @@ def _persist_diverged(rec):
             rec.get("intended_labels")
             if isinstance(rec, dict) else None)
         return False
+    if _sc23 == ("corrupt", None):
+        # Wave 23 (run-22 D22-DATA-1): the sidecar's bytes
+        # were read but do not parse — the file provably
+        # holds no readable record, so stamping over it
+        # loses nothing and the atomic sidecar write below
+        # heals the file. One loud note, then proceed (the
+        # max-read simply has no sidecar leg).
+        _audit_diverged_unpersisted(
+            "the users.enc divergence sidecar is corrupt "
+            "(its bytes hold no readable record); the "
+            "persist replaced it",
+            rec.get("intended_labels")
+            if isinstance(rec, dict) else None)
     now = int(time.time())
     max_ts = 0
     try:
@@ -3524,7 +3586,7 @@ def _persist_diverged(rec):
                 max_ts = max(max_ts, int(_v21["ts"]))
     except Exception:
         pass
-    _sc21 = _read_diverged_sidecar()
+    _sc21 = _sc23
     if _sc21 is not None and _sc21[1] is not None:
         max_ts = max(max_ts, int(_sc21[1]["ts"]))
     ts = max(now, max_ts + 1)
@@ -3578,8 +3640,14 @@ def _clear_backup_diverged():
     and return False. Callers currently ignore the return by
     design; the loud audit is the deliverable, plus honest
     return semantics for future callers."""
-    if _backup_diverged() is None:
-        if _diverged_sidecar_unknown():
+    # Wave 23 (run-22 D22-DATA-3): the merged read and the
+    # sidecar-state judgement come from ONE read snapshot —
+    # wave 22 made two independent reads here, and a
+    # transient fault clearing between them early-returned
+    # a silent True while a readable raise still ruled.
+    _merged23, _sc23 = _backup_diverged_and_state()
+    if _merged23 is None:
+        if _sc23 == ("unknown", None):
             # Wave 22 (run-21 D21-DATA-1, arm A): the merged
             # read is blind, not empty — a raise may sit on
             # the unreadable sidecar. Never early-return a
@@ -3590,7 +3658,13 @@ def _clear_backup_diverged():
                 "verified — the sidecar channel is present "
                 "but unreadable", None)
             return False
-        return True
+        if _sc23 != ("corrupt", None):
+            return True
+        # Wave 23 (run-22 D22-DATA-1): a corrupt sidecar is
+        # absent for clearing purposes — fall through to the
+        # persist below, whose tombstone stamp replaces the
+        # corrupt file (with its loud note) and is verified
+        # like any other clear.
     ok = _persist_diverged(None)
     if _backup_diverged() is not None:
         try:
@@ -3729,6 +3803,29 @@ def _restore_access(master_pw):
         if _backup_diverged() is not None:
             needs = True
         if needs and USERS_PATH.exists():
+            # Wave 23 (run-22 AUTH22-1, merged with D22-DATA-2):
+            # fail closed when the sidecar channel is present
+            # but holds no readable record (the IO-fault
+            # "unknown" state, or the parse-fault "corrupt"
+            # state — at wave 22 both classified unknown, and
+            # the garbage arm is the same defect) — the merged
+            # read is blind, so a merge decided now would run
+            # UNCAPPED and could resurrect a revoked label
+            # from the stale backup into the live store and
+            # users.enc itself. Skip the merge loudly; the
+            # restore is deferred until the fault clears (the
+            # accepted fail-closed cost). Placed after the
+            # USERS_PATH existence decision, inside the try,
+            # so a no-backup boot stays silent.
+            _sc23 = _read_diverged_sidecar()
+            if _sc23 == ("unknown", None) \
+                    or _sc23 == ("corrupt", None):
+                _audit_diverged_unpersisted(
+                    "the users.enc restore was skipped — the "
+                    "divergence sidecar is present but "
+                    "unreadable, so the merged record cannot "
+                    "be trusted", None)
+                return
             # Wave 18 (run-17 AUTH17-1): decrypt OUTSIDE the lock
             # (the ~0.7s PBKDF2 must not stall creations), then
             # MERGE under _ACCESS_LOCK — the old blind whole-store

@@ -134,6 +134,21 @@ class Wave22DataTests(unittest.TestCase):
         # read-fault episode's observable state at the reader.
         self._sidecar_path().write_bytes(b"\xff\xfe not json {{{")
 
+    def _iofault_sidecar(self):
+        # Wave 23: an IO-fault sidecar — a directory at the
+        # sidecar path, whose read raises OSError — is the
+        # "unknown" exemplar from wave 23 on. Garbage bytes
+        # are the separate parse-fault ("corrupt") class,
+        # which wave 23's persist stamps over and heals
+        # (run-22 D22-DATA-1); the unknown-arm expectations
+        # below are the IO-fault contract, preserved exactly.
+        p = self._sidecar_path()
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+        p.mkdir()
+
     def _persisted_settings_flag(self):
         d = decrypt_keys(server.SETTINGS_ENC_PATH, RKEY)
         return d.get("access_backup_diverged")
@@ -180,7 +195,7 @@ class Wave22DataTests(unittest.TestCase):
     # -- DATA-1 arm A: clear must not early-return silent True --
     def test_w22_data1_armA_clear_loud_false_unreadable_sidecar(self):
         self._sole_sidecar_raise()
-        self._garbage_sidecar()
+        self._iofault_sidecar()
         log_events = []
         orig_log_event = server._log_event
         server._log_event = lambda *a, **k: log_events.append((a, k))
@@ -240,7 +255,7 @@ class Wave22DataTests(unittest.TestCase):
         server._SETTINGS["access_backup_diverged"] = old
         server._BACKUP_DIVERGED_MEM[0] = None
         self.assertTrue(server._save_settings())
-        self._garbage_sidecar()
+        self._iofault_sidecar()
         ret = server._persist_diverged(
             {"ts": int(time.time()), "intended_labels": None})
         # Pre-fix: reads the blind sidecar as empty, stamps and
@@ -253,8 +268,7 @@ class Wave22DataTests(unittest.TestCase):
         # untouched and the sidecar was not overwritten.
         self.assertEqual(
             server._SETTINGS["access_backup_diverged"], old)
-        self.assertEqual(self._sidecar_path().read_bytes(),
-                         b"\xff\xfe not json {{{")
+        self.assertTrue(self._sidecar_path().is_dir())
 
     # -- DATA-1 arm (b): boot fold on unreadable sidecar is loud
     #    and folds nothing over the RAM/settings record ---------
@@ -393,8 +407,13 @@ class Wave22LauncherTests(unittest.TestCase):
         out = self._parse(tmp, "l1exhausted", text)
         # Pre-fix: fell back to the present \u0001 and mangled
         # the password to 'a\nb' (hasPassword True).
+        # Wave 23 (run-22 L22-L1): the exhaustion return also
+        # carries the `exhausted` flag — claimStep must be
+        # able to tell it apart from a genuinely unrecorded
+        # file; the has* absent contract is unchanged.
         self.assertEqual(out, {"hasEmail": False,
-                               "hasPassword": False}, out)
+                               "hasPassword": False,
+                               "exhausted": True}, out)
         # Widening control: all 26 ORIGINAL candidates but not
         # U+0008 — the parse now succeeds on the widened list
         # and the literal \u0001 survives as data.

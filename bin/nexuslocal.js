@@ -82,8 +82,18 @@ function parseEngineAdminCreds(envTxt) {
     }
     return null;
   })();
+  // Wave 23 (run-22 L22-L1): the exhaustion return carries a
+  // distinct flag — it must not be indistinguishable from a
+  // genuinely unrecorded file at the parse->claimStep
+  // interface, because claimStep's absent branch WRITES (it
+  // appends a fresh pair). The flag is set ONLY here: the
+  // unreadable-file catch in readEngineAdminCreds returns
+  // the plain absent shape and does not set it (claimStep's
+  // own read of the file already fails that case into
+  // retry("env write failed")).
   if (SENT === null) return { hasEmail: false,
-                              hasPassword: false };
+                              hasPassword: false,
+                              exhausted: true };
   const out = { hasEmail: false, hasPassword: false };
   // Wave 19 (run-18 launcher L18-L1): split on every line
   // ending dotenv accepts — /\r\n|\r|\n/ — not just /\r?\n/:
@@ -246,22 +256,65 @@ function parseEngineAdminCreds(envTxt) {
     // adopted text flows through the quoted-value parse
     // below exactly as an on-line quoted value does.
     if (v === "" && _li22 + 1 < _lines22.length) {
-      const _nx22 = _lines22[_li22 + 1].trim();
-      if (_nx22.length >= 2
-          && (_nx22[0] === '"' || _nx22[0] === "'"
-              || _nx22[0] === "`")) {
-        const _nq22 = _nx22[0];
-        let _end22 = -1;
-        for (let _k22 = 1; _k22 < _nx22.length; _k22++) {
-          if (_nx22[_k22] !== _nq22) continue;
-          let _bs22 = 0;
-          for (let _j22 = _k22 - 1; _j22 >= 0
-               && _nx22[_j22] === "\\"; _j22--) _bs22++;
-          if (_bs22 % 2 === 0) { _end22 = _k22; break; }
-        }
-        if (_end22 === _nx22.length - 1) {
-          v = _nx22;
-          _li22++;
+      // Wave 23 (run-22 L22-L2, widening the wave-22 L21-L5
+      // adoption to dotenv's full next-line grammar):
+      // (a) whitespace-only records between `=` and the
+      // quoted line are skipped — dotenv's pre-quote \s*
+      // crosses them, and \s* cannot cross a `#` or an
+      // assignment, so a comment record or an OTHER record
+      // still refuses adoption; (b) the remainder test
+      // (/^\s*(#.*)?$/, the same test the on-line quoted
+      // parse already uses) is applied at the close
+      // wherever it lands — a next-line value with a
+      // trailing comment adopts, junk after the close does
+      // not; (c) further records are consumed ONLY when
+      // the opening record has no unescaped close — a
+      // multiline next-line value adopts joined with \n
+      // (dotenv's in-quote line-ending normalisation) —
+      // and no close anywhere means no adoption. The
+      // adopted text flows through the quoted-value parse
+      // below exactly as before (passwordAlt included).
+      let _ai23 = _li22 + 1;
+      while (_ai23 < _lines22.length
+             && _lines22[_ai23].trim() === "") _ai23++;
+      if (_ai23 < _lines22.length) {
+        const _op23 = _lines22[_ai23].replace(/^\s+/, "");
+        if (_op23[0] === '"' || _op23[0] === "'"
+            || _op23[0] === "`") {
+          const _nq23 = _op23[0];
+          const _close23 = (s, from) => {
+            for (let k = from; k < s.length; k++) {
+              if (s[k] !== _nq23) continue;
+              let bs = 0;
+              for (let j = k - 1; j >= 0 && s[j] === "\\"; j--) bs++;
+              if (bs % 2 === 0) return k;
+            }
+            return -1;
+          };
+          const _end23 = _close23(_op23, 1);
+          if (_end23 >= 0) {
+            if (/^\s*(#.*)?$/.test(_op23.slice(_end23 + 1))) {
+              v = _op23.slice(0, _end23 + 1);
+              _li22 = _ai23;
+            }
+          } else {
+            const _parts23 = [_op23];
+            let _ci23 = _ai23, _found23 = -1;
+            while (++_ci23 < _lines22.length) {
+              const _rec23 = _lines22[_ci23];
+              const _e23 = _close23(_rec23, 0);
+              if (_e23 < 0) { _parts23.push(_rec23); continue; }
+              if (/^\s*(#.*)?$/.test(_rec23.slice(_e23 + 1))) {
+                _parts23.push(_rec23.slice(0, _e23 + 1));
+                _found23 = _ci23;
+              }
+              break;
+            }
+            if (_found23 >= 0) {
+              v = _parts23.join("\n");
+              _li22 = _found23;
+            }
+          }
         }
       }
     }
@@ -1145,6 +1198,20 @@ async function main() {
             // therefore REWRITTEN IN PLACE with the value being
             // recorded, never duplicated by an append.
             const _creds = parseEngineAdminCreds(envTxt);
+            // Wave 23 (run-22 L22-L1): an exhaustion-flagged
+            // parse is NOT an unrecorded file — credential
+            // lines exist but this parse refused to read
+            // them, so claiming fresh would use the default
+            // email and APPEND a duplicate pair that the
+            // still-exhausted file can never verify. Fail
+            // closed through the existing retry mechanism,
+            // with a why string that names the cause.
+            // Genuinely unrecorded files (and other
+            // false-absent shapes, e.g. colon separators,
+            // which carry no flag) claim exactly as before.
+            if (_creds.exhausted) {
+              return retry("env credentials unreadable (sentinel exhaustion)");
+            }
             if (_creds.email) email = _creds.email;
             if (_creds.password) pw = _creds.password;
             const emEmpty = _creds.hasEmail && !_creds.email;
