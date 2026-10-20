@@ -2,7 +2,7 @@
 
 Your personal AI dashboard — 19 providers, one login. Runs locally, or as a hosted instance for you and your friends.
 
-**Live demo:** https://nexus.130-210-56-74.sslip.io
+**Live demo:** https://nexusos.dpdns.org
 
 Want to try it without installing? Open the link above. For the full local version with your own keys, follow the setup below.
 
