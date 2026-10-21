@@ -4566,15 +4566,15 @@ def _oauth_public_base(headers):
 # ---------------------------------------------------------------------------
 _V1_LANES = [
     ("relay_gemini", "gemini-3.5-flash-lite"),
-    ("relay_openrouter", "nvidia/nemotron-3-super-120b-a12b:free"),
+    ("relay_openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free"),
     ("relay_groq", "openai/gpt-oss-20b"),
-    ("relay_nvidia", "google/gemma-3-12b-it"),
+    ("relay_nvidia", "nvidia/nemotron-3-ultra-550b-a55b"),
     # FreeLLMAPI provider key set (owner order 2026-10-09: "in supply lane
     # also add FreeLLMAPI providers") — same relay, the vault's plain slots.
     ("google", "gemini-3.5-flash-lite"),
-    ("openrouter", "nvidia/nemotron-3-super-120b-a12b:free"),
+    ("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free"),
     ("groq", "openai/gpt-oss-20b"),
-    ("nvidia", "google/gemma-3-12b-it"),
+    ("nvidia", "nvidia/nemotron-3-ultra-550b-a55b"),
     ("relay_pollinations", "openai"),
 ]
 _V1_MODELS_CACHE = {"at": 0.0, "ids": []}
@@ -8503,10 +8503,10 @@ class Handler(BaseHTTPRequestHandler):
                 "relay_groq": "openai/gpt-oss-20b",
                 "google": "gemini-3.5-flash-lite",
                 "relay_gemini": "gemini-3.5-flash-lite",
-                "openrouter": "nvidia/nemotron-3-super-120b-a12b:free",
-                "relay_openrouter": "nvidia/nemotron-3-super-120b-a12b:free",
-                "nvidia": "google/gemma-3-12b-it",
-                "relay_nvidia": "google/gemma-3-12b-it",
+                "openrouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
+                "relay_openrouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
+                "nvidia": "nvidia/nemotron-3-ultra-550b-a55b",
+                "relay_nvidia": "nvidia/nemotron-3-ultra-550b-a55b",
                 "mistral": "mistral-small-latest",
                 "cohere": "command-a-03-2025",
                 "openai": "gpt-5-mini",
@@ -8515,7 +8515,7 @@ class Handler(BaseHTTPRequestHandler):
                 "claude_oauth": "claude-sonnet-4-5-20250929",
                 "gemini_cli": "gemini-2.5-pro",
                 "zhipu": "glm-4.5",
-                "ovh": "Meta-Llama-3.3-70B-Instruct",
+                "ovh": "Meta-Llama-3_3-70B-Instruct",
                 "pollinations": "openai",
                 "relay_pollinations": "openai",
             }
@@ -9301,8 +9301,12 @@ class Handler(BaseHTTPRequestHandler):
                 # prompts), every spend is reserved first via
                 # _lane_spend_reserve and metered by _attempt itself,
                 # and the daily caps are re-checked between stages.
-                _team_pool = [(p, m) for (p, m) in _attempts[:_max_att]
-                              if p != "cohere"] or _attempts[:_max_att]
+                # Pool = the FULL candidate list, not the failover cap:
+                # with the cap, a few dead defaults at the head of the
+                # queue killed the whole chain even with healthy lanes
+                # behind them (owner's live Team failure 2026-10-21).
+                _team_pool = [(p, m) for (p, m) in _attempts
+                              if p != "cohere"] or list(_attempts)
                 _ROLE_PREFS = {
                     "planner": ("anthropic", "claude_oauth", "google",
                                 "gemini_cli", "openai", "codex"),

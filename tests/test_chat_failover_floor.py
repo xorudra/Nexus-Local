@@ -6,8 +6,9 @@ the Gemini default (gemini-3.8-flash) hung to the timeout — and
 never reached a keyless lane. Fixes pinned here:
 
 - the retired/hanging defaults are gone from the trace a live
-  request produces (OpenRouter -> nemotron-3-super free, Gemini
-  -> gemini-3.5-flash-lite, both live-proven 2026-10-15);
+  request produces (OpenRouter -> nemotron-3-ultra free — rotated
+  2026-10-21 after nemotron-3-super was retired upstream, Gemini
+  -> gemini-3.5-flash-lite, both live-proven on their dates);
 - the attempt slice always contains a keyless lane: with every
   keyed lane holding a fake key, Auto quality must swap its last
   slot to Pollinations instead of failing outright.
@@ -161,7 +162,7 @@ class FailoverFloor(unittest.TestCase):
         self.assertGreaterEqual(len(tr), 2, str(j)[:300])
         # Quality order leads, with the LIVE default models.
         self.assertEqual(tr[0]["p"], "relay_openrouter")
-        self.assertEqual(tr[0]["m"], "nvidia/nemotron-3-super-120b-a12b:free")
+        self.assertEqual(tr[0]["m"], "nvidia/nemotron-3-ultra-550b-a55b:free")
         for step in tr:
             self.assertNotIn("apodex", step.get("m") or "")
             self.assertNotIn("gemini-3.8", step.get("m") or "")
