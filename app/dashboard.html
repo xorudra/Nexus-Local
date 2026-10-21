@@ -815,6 +815,7 @@ try{ if(sessionStorage.getItem('nexus_terms_notice')==='1'){ var _tn=document.ge
                 <option value="voice">Voice</option>
                 <option value="video">Video</option>
                 <option value="agent">Agentic</option>
+                <option value="team">Team</option>
                 <option value="auto">Auto</option>
             </select>
                 <select id="routing-mode" class="picker" aria-label="Routing mode" title="Routing mode" onchange="setRouting(this.value)">
@@ -1122,9 +1123,10 @@ function traceStepRow(st,title,desc,detail){
 function traceName(p){ return p === 'auto' ? 'Auto routing' : friendlyName(p || ''); }
 function finalStepRow(s){
   const desc = (s.m || '') + (typeof s.ms === 'number' ? (s.m ? ' · ' : '') + (s.ms / 1000).toFixed(1) + 's' : '');
+  const role = s.role ? (s.role.charAt(0).toUpperCase() + s.role.slice(1)) + ' · ' : '';
   return s.ok
-    ? traceStepRow('done', 'Answered by ' + traceName(s.p), desc, '')
-    : traceStepRow('error', 'Failed on ' + traceName(s.p), desc, s.e || '');
+    ? traceStepRow('done', role + 'Answered by ' + traceName(s.p), desc, '')
+    : traceStepRow('error', role + 'Failed on ' + traceName(s.p), desc, s.e || '');
 }
 function buildTrace(steps){
   const el = document.createElement('div');

@@ -9291,6 +9291,138 @@ class Handler(BaseHTTPRequestHandler):
                                              "trace": [{"p": _ap2, "m": _am2, "ok": True}],
                                              "memory_turns": len(_shared_hist)}).encode())
                 return
+            if mode == "team":
+                # Team mode (owner order 2026-10-21): the request runs
+                # down a fixed chain of role-assigned lanes — Planner,
+                # Researcher, Analyst, Finisher — each stage's output
+                # feeds the next, and the Finisher's text is the reply.
+                # Same admission discipline as Agent: cohere is excluded
+                # (its lane answers the ambient message, not chained
+                # prompts), every spend is reserved first via
+                # _lane_spend_reserve and metered by _attempt itself,
+                # and the daily caps are re-checked between stages.
+                _team_pool = [(p, m) for (p, m) in _attempts[:_max_att]
+                              if p != "cohere"] or _attempts[:_max_att]
+                _ROLE_PREFS = {
+                    "planner": ("anthropic", "claude_oauth", "google",
+                                "gemini_cli", "openai", "codex"),
+                    "researcher": ("google", "gemini_cli", "openrouter",
+                                   "freellmapi", "mistral"),
+                    "analyst": ("openai", "codex", "anthropic",
+                                "claude_oauth", "openrouter"),
+                    "finisher": ("groq", "google", "gemini_cli",
+                                 "openrouter", "freellmapi",
+                                 "pollinations"),
+                }
+                _ROLE_SYS = {
+                    "planner": "You are the Planner in a team of AIs. Break the user's task into a short numbered plan (at most 6 steps). Be concrete. Output only the plan.",
+                    "researcher": "You are the Researcher in a team of AIs. Given the task and the plan, gather the key facts, options and material the final answer needs. You cannot browse; use your knowledge and mark anything uncertain. Output concise bullet notes.",
+                    "analyst": "You are the Analyst in a team of AIs. Review the plan and the research notes: spot errors, gaps and risks, and state the best approach for the final answer. Output concise notes.",
+                    "finisher": "You are the Finisher in a team of AIs. Using the plan, research notes and analyst review provided, write the final answer to the user's task. Be complete and clear. Do not describe the internal process.",
+                }
+
+                def _role_pool(role):
+                    prefs = _ROLE_PREFS[role]
+
+                    def _rank(pm):
+                        base = pm[0][6:] if pm[0].startswith("relay_") else pm[0]
+                        return prefs.index(base) if base in prefs else len(prefs)
+                    return sorted(_team_pool, key=_rank)
+
+                _thist = [{"role": h["role"], "content": h["content"]}
+                          for h in _shared_hist]
+                _ttrace = []
+                _team_done = {}
+
+                def _team_stage(role, user_text):
+                    for (_cp, _cm) in _role_pool(role)[:3]:
+                        if not _lane_ok(_cp):
+                            continue
+                        _ares = _lane_spend_reserve(_cp)
+                        if _ares is None:
+                            continue
+                        _ta = time.time()
+                        try:
+                            _res = _attempt(_cp, _cm, 60,
+                                            [{"role": "system",
+                                              "content": _ROLE_SYS[role]}]
+                                            + _thist
+                                            + [{"role": "user",
+                                                "content": user_text}])
+                        finally:
+                            _inflight_drop(_ares)
+                        _ms = int((time.time() - _ta) * 1000)
+                        if _res[0]:
+                            _note_success(_cp)
+                            _ttrace.append({"p": _cp, "m": _cm, "ok": True,
+                                            "ms": _ms, "role": role})
+                            _team_done[role] = (_cp, _cm)
+                            return _res[1]
+                        _note_failure(_cp)
+                        _ttrace.append({"p": _cp, "m": _cm, "ok": False,
+                                        "ms": _ms, "role": role,
+                                        "e": str(_res[2])[:160]})
+                    return None
+
+                def _team_capped():
+                    if _sinfo.get("admin") or not _chat_label:
+                        return False
+                    _uc = (_SETTINGS.get("user_caps") or {}).get(
+                        _chat_label, _SETTINGS.get("daily_cap", 200))
+                    return bool((_uc and _today_counts(fresh=True)["users"].get(
+                        _chat_label, 0) >= int(_uc))
+                        or _instance_cap_reached())
+
+                def _team_stop(status, error):
+                    self._set_json_headers(status)
+                    self.wfile.write(json.dumps({"error": error,
+                                                 "trace": _ttrace}).encode())
+
+                _plan = _team_stage("planner", message)
+                if _plan is None:
+                    _team_stop(502, "team could not reach a model, try again")
+                    return
+                if _team_capped():
+                    _team_stop(429, "daily limit reached — the team stopped here")
+                    return
+                _notes = _team_stage(
+                    "researcher",
+                    f"Task: {message}\n\nPlan from the Planner:\n{_plan[:4000]}\n\nGather the key material for the final answer.")
+                if _notes is None:
+                    _notes = "(The Researcher could not be reached; continue without research notes.)"
+                if _team_capped():
+                    _team_stop(429, "daily limit reached — the team stopped here")
+                    return
+                _review = _team_stage(
+                    "analyst",
+                    f"Task: {message}\n\nPlan:\n{_plan[:4000]}\n\nResearch notes:\n{_notes[:6000]}\n\nReview and state the best approach.")
+                if _review is None:
+                    _review = "(The Analyst could not be reached; follow the plan and notes as they are.)"
+                if _team_capped():
+                    _team_stop(429, "daily limit reached — the team stopped here")
+                    return
+                _final = _team_stage(
+                    "finisher",
+                    f"Task: {message}\n\nPlan:\n{_plan[:4000]}\n\nResearch notes:\n{_notes[:6000]}\n\nAnalyst review:\n{_review[:4000]}\n\nWrite the final answer now.")
+                if _final is None:
+                    _team_stop(502, "team could not reach a model, try again")
+                    return
+                _fp, _fm = _team_done["finisher"]
+
+                def _who(role):
+                    if role in _team_done:
+                        return f"{role.capitalize()} {_team_done[role][0]} · {_team_done[role][1]}"
+                    return f"{role.capitalize()} skipped"
+                _final += ("\n\n---\n\U0001F465 Team: " + " · ".join(
+                    _who(r) for r in ("planner", "researcher",
+                                      "analyst", "finisher")))
+                self._set_json_headers(200)
+                self.wfile.write(json.dumps({"reply": _final,
+                                             "used_provider": _fp,
+                                             "used_model": _fm,
+                                             "trace": _ttrace,
+                                             "memory_turns": len(_shared_hist)}).encode())
+                return
             _last = (502, "Could not reach the provider.")
             _answered = None
             _handover_from = None
@@ -11864,6 +11996,9 @@ class Handler(BaseHTTPRequestHandler):
                                   "ok": bool(_s.get("ok"))}
                             if isinstance(_s.get("ms"), (int, float)) and _s["ms"] >= 0:
                                 _e["ms"] = min(int(_s["ms"]), 3600000)
+                            if isinstance(_s.get("role"), str) and _s["role"]:
+                                _e["role"] = _re2.sub(r"[^a-z0-9_]", "",
+                                                      _s["role"].lower())[:20]
                             if isinstance(_s.get("e"), str) and _s["e"]:
                                 _e["e"] = _s["e"][:160]
                             _tr.append(_e)
