@@ -8516,6 +8516,8 @@ class Handler(BaseHTTPRequestHandler):
                 "gemini_cli": "gemini-2.5-pro",
                 "zhipu": "glm-4.5",
                 "ovh": "Meta-Llama-3_3-70B-Instruct",
+                "cloudflare": "@cf/openai/gpt-oss-120b",
+                "kilo": "kilo-auto/free",
                 "pollinations": "openai",
                 "relay_pollinations": "openai",
             }
@@ -9307,6 +9309,23 @@ class Handler(BaseHTTPRequestHandler):
                 # behind them (owner's live Team failure 2026-10-21).
                 _team_pool = [(p, m) for (p, m) in _attempts
                               if p != "cohere"] or list(_attempts)
+                # Widen past the chat routing shortlist too: the Auto
+                # pref lists name ~10 lanes, so with the vault locked
+                # the pool shrank to the two Pollinations lanes, which
+                # flake under Team's rapid multi-call load. Any lane
+                # with a default model that this caller can actually
+                # run (a key on file, or keyless) joins the pool.
+                # Account lanes (openai/anthropic/codex/oauth) stay
+                # out — their tokens live outside _ekeys.
+                _team_have = {p for (p, _m) in _team_pool}
+                for _cand, _cm in _DEFAULT_MODELS.items():
+                    if (_cand == "cohere" or _cand in _team_have
+                            or _cand in ("openai", "anthropic", "codex",
+                                         "claude_oauth", "gemini_cli")):
+                        continue
+                    if (_ekeys or {}).get(_cand) or _cand in RELAY_KEYLESS:
+                        _team_pool.append((_cand, _cm))
+                        _team_have.add(_cand)
                 _ROLE_PREFS = {
                     "planner": ("anthropic", "claude_oauth", "google",
                                 "gemini_cli", "openai", "codex"),
