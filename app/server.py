@@ -9339,7 +9339,12 @@ class Handler(BaseHTTPRequestHandler):
                 _team_done = {}
 
                 def _team_stage(role, user_text):
-                    for (_cp, _cm) in _role_pool(role)[:3]:
+                    # 6 tries per stage (was 3): the role-preferred
+                    # lanes are mostly account/key lanes that cannot
+                    # answer for every user, and with the vault locked
+                    # only the keyless tail of the pool can answer at
+                    # all — 3 tries died before ever reaching it.
+                    for (_cp, _cm) in _role_pool(role)[:6]:
                         if not _lane_ok(_cp):
                             continue
                         _ares = _lane_spend_reserve(_cp)
