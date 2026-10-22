@@ -1,10 +1,8 @@
-# Nexus-Local
+# Nexus
 
-Your personal AI dashboard — 19 providers, one login. Runs locally, or as a hosted instance for you and your friends.
+Chat with every AI, from one Nexus — **23 provider lanes, one login, one shared memory.** Runs locally, or as a hosted instance for you and your friends.
 
-**Live demo:** https://nexusos.dpdns.org
-
-Want to try it without installing? Open the link above. For the full local version with your own keys, follow the setup below.
+**Live:** https://nexusos.dpdns.org — a private instance. Anyone can see the home page; accounts are created by the admin for friends (no public sign-up). For your own instance with your own keys, follow the setup below.
 
 ## 🧊 3D Architecture
 
@@ -13,6 +11,17 @@ Want to try it without installing? Open the link above. For the full local versi
 You sign in through Caddy over HTTPS and land on the one Nexus app. The app holds the chat with its shared memory, your encrypted vault and your integrations, calls the AI providers, keeps an encrypted backup on GitHub, and serves the /v1 API that powers DSRclone's copilot.
 
 **Interactive:** open [`docs/3d/index.html`](docs/3d/index.html) in a browser — drag to orbit, scroll to zoom.
+
+## What it does
+
+- **One login, 23 lanes** — Gemini, ChatGPT-class and Claude-class models, Groq, OpenRouter free models, NVIDIA, Mistral, Cohere and more, all behind a single account. Pick a lane yourself, or let Auto route (Quality first / Save tokens).
+- **One shared memory** — every model reads the same conversation. Switch providers mid-chat and the next AI continues where the previous one stopped, with a handover note. Long chats compress older turns instead of dropping them.
+- **Chat modes** — Text, Code, Web search, Image, Voice, Video, **Agentic** (one AI with tools: web search, page fetching, calculator, working step by step), and **Team** (four AIs in a line — Planner → Researcher → Analyst → Finisher — each stage can run on a different provider, and the Finisher's answer is the reply).
+- **Honest failover** — if the lane you picked is down, rate-limited, or its model was retired upstream, Nexus tries the next lane and shows a trace of what was tried. A hand-picked lane that can't deliver says so — it never silently substitutes a different model in single-lane modes.
+- **Connect your own AI accounts** — paste your own provider API keys, or sign in with your ChatGPT, Claude, or Gemini account (OAuth, the same flows their own CLI tools use). Your keys live in your own encrypted vault; chat prefers them when present.
+- **Workspace integrations** — connect Gmail, Google Calendar/Meet, Zoom, Linear, Notion, Trello, Jira, and Mailchimp, verified live on save.
+- **Friends, properly private** — friend accounts get everything above. A friend's saved chats and key vault are encrypted with that friend's own login password: the admin cannot read them.
+- **A real API** — an OpenAI-compatible `/v1` endpoint (below) supplies other projects, e.g. DSRclone's AI copilot runs on Nexus.
 
 ## Setup
 
@@ -43,42 +52,36 @@ To use your own keys instead, delete `keys.enc` from the install folder and use 
 
 ## Pages
 
-- **Dashboard** (`/`) — task composer with provider/model picker, image attachments, usage overview
-- **Connections** (`/connections`) — all providers grouped in expanders (Direct, Relay, FreeLLMAPI) with key status and usage
-- **Integrations** (`/integrations`) — everything Nexus is connected to: the external `/v1` API and its DSRclone consumer, webhook + email alert channels, provider lanes, and the encrypted GitHub backup mirror — each with its live status (owner-only data shows as "Owner-managed" for friends)
-- **Update Keys** (`/settings`) — update API keys after login (shows last 4 chars, blank = keep current)
-- **API Access** (`/api-access`, admin only) — status of the external `/v1` API: endpoint, service-key hint, supply-lane readiness, live self-test
-
-Use the ☰ menu (top-left) to navigate between pages.
-
-## Features
-
-- **Task Composer** — pick a provider (shown as "Relay: Groq" or "FreeLLMAPI: Groq"), get model autocomplete, attach images (JPG/PNG/WebP up to 8MB), send
-- **Provider Groups** — 14 direct providers, 5 relay providers, unified gateway — all with live key status
-- **Image Attachments** — vision-capable providers accept images alongside text
-- **Encrypted Storage** — all keys AES-256-GCM encrypted, PBKDF2 600k iterations, never stored as plaintext
+- **Home** (`/`) — public landing page
+- **Chat** (`/dashboard`) — composer with provider/model pickers, 10 modes, image attachments, saved chats, per-reply trace
+- **Connections** (`/connections`) — every provider lane with live key status and usage
+- **Integrations** (`/integrations`) — AI account connections (API keys + ChatGPT/Claude/Gemini sign-ins) and workspace tools (Gmail, Calendar, Zoom, Linear, Notion, Trello, Jira, Mailchimp)
+- **My Keys** (`/mykeys`, friends) — your own encrypted key vault
+- **API Access** (`/api-access`, admin only) — the external `/v1` API: named service keys (create, disable/enable, rotate, delete), supply-lane readiness, live self-test
+- **Update Keys** (`/settings`, admin only) — the shared provider vault (shows last 4 chars, blank = keep current)
 
 ## External API (`/v1`)
 
-Nexus can supply other projects (e.g. DSRclone's AI service) through an
+Nexus can supply other projects (e.g. DSRclone's AI copilot) through an
 OpenAI-compatible endpoint:
 
 - `GET /v1/models` — `nexus-auto`, per-lane `lane/model` ids, and live lane catalogs
 - `POST /v1/chat/completions` — standard OpenAI request/response shape
 
-**Off by default.** Set the `NEXUS_V1_API_KEY` environment variable to enable
-it; clients send it as `Authorization: Bearer <key>`. Without the variable the
-routes answer 404. The key is a service credential — it can also be generated
-from the admin console (stored encrypted and mirrored like the other console
-secrets; the env var stays as fallback). The API Access page shows the admin
-the full key; everyone else only ever sees its last 4 characters.
+Access is key-based: named service keys are created and managed on the
+**API Access** page (stored encrypted, mirrored like the other console
+secrets). Clients send a key as `Authorization: Bearer <key>`; a disabled
+key stops working immediately, and rotating a key kills the old secret on
+the spot. While no keys are stored, the `NEXUS_V1_API_KEY` environment
+variable works as a fallback; with no keys and no variable, the routes
+answer 404. The API Access page shows the admin the full keys; everyone
+else only ever sees the last 4 characters.
 
-Ask for model `nexus-auto` and Nexus tries its relay lanes in order
-(Gemini → OpenRouter → Groq → NVIDIA → Pollinations) until one answers,
-honouring the same circuit breaker as dashboard chat; usage is logged as
-`v1:<lane>`. While the provider vault is locked (no admin login since the
-last restart) only keyless lanes answer — the same rule dashboard chat
-follows before unlock.
+Ask for model `nexus-auto` and Nexus tries its supply lanes in order until
+one answers, honouring the same circuit breaker as dashboard chat; usage
+is logged as `v1:<lane>`. While the provider vault is locked (no admin
+login since the last restart) only keyless lanes answer — the same rule
+dashboard chat follows before unlock.
 
 ## Uninstall
 
@@ -93,25 +96,26 @@ npm uninstall -g nexuslocal
 ├── package.json  ← `npm install -g` entry (bin: nexuslocal)
 ├── bin/          ← nexuslocal CLI launcher
 ├── app/          ← dashboard + engine code
-└── deploy/       ← Render deployment config
+├── tests/        ← 466-test suite (python3 -m unittest discover -s tests)
+└── deploy/       ← deployment notes/config (live instance: Oracle Cloud)
 ```
 
-## Providers (19)
+## Providers (23 lanes)
 
-**14 Direct** (HuggingFace, SiliconFlow, Zhipu, Cohere, Mistral, Cloudflare, Google, OpenRouter, Groq, NVIDIA, Pollinations, Kilo, OVH, AI Horde) + **5 Relay** (OpenRouter, Gemini, Groq, NVIDIA, Pollinations keyless).
+**18 direct** — Google, Groq, OpenRouter, NVIDIA, Mistral, Cohere, HuggingFace, Cloudflare, Zhipu, OpenAI, Anthropic, Pollinations, Kilo, OVH, AI Horde, plus the account sign-in lanes Codex (ChatGPT), Claude OAuth, and Gemini CLI — and **5 relay** lanes (OpenRouter, Gemini, Groq, NVIDIA, Pollinations) served through a local relay.
 
-FreeLLMAPI is the built-in engine (127.0.0.1:3001) that powers the 14 direct providers — it's the infrastructure, not a provider itself.
+Direct chat lanes ride the built-in FreeLLMAPI gateway (127.0.0.1:3001) — it's the infrastructure, not a provider itself.
 
-Keyless providers (Pollinations, AI Horde, Kilo, OVH) work with no setup.
+Keyless providers (Pollinations, AI Horde, Kilo, OVH) work with no setup. Everything else runs on free/free-tier accounts — no lane can charge money.
 
 ## Security
 
 Nexus runs in two shapes, and this section describes both honestly: locally
 via the CLI above (bound to your machine), and as a hosted instance — the
-live demo linked at the top is a real multi-user deployment on Oracle Cloud,
-reached over HTTPS, where the owner and invited friends sign in. The hosted
-instance is not localhost-only, and AI requests always leave the server for
-the provider you picked.
+live site linked at the top is a real multi-user deployment on Oracle
+Cloud, reached over HTTPS, where the owner and invited friends sign in.
+The hosted instance is not localhost-only, and AI requests always leave
+the server for the provider you picked.
 
 - Provider keys are stored AES-256-GCM encrypted (PBKDF2 600,000
   iterations) and decrypted only in memory after an admin login. After a
@@ -121,8 +125,14 @@ the provider you picked.
   where no lockout applies, so the master password's strength is what
   protects it. Pick a long one.
 - The admin can enable TOTP two-factor sign-in. Friend accounts use
-  PBKDF2-HMAC-SHA256 password hashes, and friends' personal key vaults
-  are encrypted under their own passwords — the admin cannot read them.
+  PBKDF2-HMAC-SHA256 password hashes. Friends' saved chats and personal
+  key vaults are encrypted under their own passwords — the admin cannot
+  read them.
 - Friend data, console settings, and usage/audit history are mirrored
   back to GitHub as encrypted files so they survive the host's
   ephemeral disk. The mirrors are ciphertext only.
+- **Independently audited:** Nexus went through a 25-round security
+  audit program (map → hunt per attack surface → independent
+  verification of every candidate finding). Final ledger: 292 confirmed
+  findings, 285 fixed, 6 accepted residuals, 0 surviving — closed with
+  the owner's signed sign-off on 2026-10-19.
