@@ -10,6 +10,8 @@
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://nexus-local.onrender.com/apple-touch-icon.png">
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#050505">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
 /* Global */
@@ -427,6 +429,12 @@ padding:10px 14px;font-size:14px;line-height:1.55;word-wrap:break-word}
 .msg-system .msg-body{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.3);color:#ff9a9a;
 border-radius:10px;padding:8px 14px;font-size:13px}
 .msg-meta{font-size:11px;color:#f2f2f2;margin-bottom:4px;letter-spacing:.08em;font-family:'Space Grotesk',sans-serif}
+.msg-failover{font-size:11.5px;color:#fbbf24;margin:2px 0 6px;font-family:'Space Grotesk',sans-serif}
+#lane-strip{display:flex;flex-wrap:wrap;align-items:center;gap:7px;background:#050505;border:1px solid #17171a;border-top:none;padding:6px 12px;cursor:pointer;font-family:'Space Grotesk',sans-serif}
+#lane-dots{display:inline-flex;gap:3px;flex-wrap:wrap}
+.lane-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+#lane-summary{font-size:11px;color:#a1a1aa;letter-spacing:.04em}
+#lane-detail{flex-basis:100%;font-size:11.5px;color:#d4d4d8;line-height:1.7;padding-top:2px}
 /* Trace — the steps behind a reply (shadcn Trace design, owner-
    pasted 2026-10-15): a rail timeline between the provider label
    and the answer. One row per attempt: status icon on the rail,
@@ -785,6 +793,11 @@ try{ if(sessionStorage.getItem('nexus_terms_notice')==='1'){ var _tn=document.ge
             <svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#f2f2f2"/></svg>
             <p>Pick a provider below and say hello.<br>Your chats stay in this session.</p>
         </div>
+    </div>
+    <div id="lane-strip" title="Provider lane health — tap for details">
+        <span id="lane-dots" aria-hidden="true"></span>
+        <span id="lane-summary">Checking lanes…</span>
+        <div id="lane-detail" hidden></div>
     </div>
     <div class="composer-box">
         <div class="input-pill">
@@ -1154,11 +1167,28 @@ function startLiveTrace(provider, model){
     stop(){ clearInterval(timer); },
     finish(steps){ clearInterval(timer); const fresh = buildTrace(steps); el.replaceWith(fresh); return fresh; } };
 }
+// Plain-language failover line (MiroFish wave, 2026-10-23): when any
+// lane in the trace failed before the answer arrived, say so in words.
+// Derived from the trace alone, so saved chats re-render it identically.
+function failoverNotice(trace){
+  const failed = [...new Set(trace.filter(t => t && t.ok === false && t.p).map(t => t.p))];
+  if (!failed.length) return null;
+  const okLast = [...trace].reverse().find(t => t && t.ok === true && t.p);
+  const el = document.createElement('div');
+  el.className = 'msg-failover';
+  const names = failed.map(friendlyName).join(', ');
+  if (okLast && failed.length === 1 && failed[0] === okLast.p) el.textContent = '⚠ ' + names + ' hiccuped — it answered on a retry.';
+  else if (okLast) el.textContent = '⚠ ' + names + ' couldn\u2019t answer — ' + friendlyName(okLast.p) + ' answered instead.';
+  else el.textContent = '⚠ ' + names + ' couldn\u2019t answer.';
+  return el;
+}
 function addMsg(kind,text,meta,trace){
   const div=document.createElement('div');div.className='msg msg-'+kind;
   const bodyHtml = kind === 'ai' ? md(text) : esc(text).replace(/\n/g,'<br>');
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body">'+bodyHtml+'</div>';
   if (kind === 'ai' && Array.isArray(trace) && trace.length){
+    const fnEl = failoverNotice(trace);
+    if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body'));
     div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
   }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
@@ -1166,13 +1196,13 @@ function addMsg(kind,text,meta,trace){
 function addAudioMsg(src,meta,trace){
   const div=document.createElement('div');div.className='msg msg-ai';
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><audio controls src="'+src+'" style="width:100%;max-width:340px"></audio></div>';
-  if (Array.isArray(trace) && trace.length) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
+  if (Array.isArray(trace) && trace.length){ const fnEl = failoverNotice(trace); if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body')); div.insertBefore(buildTrace(trace), div.querySelector('.msg-body')); }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addVideoMsg(src,meta,trace){
   const div=document.createElement('div');div.className='msg msg-ai';
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><video controls src="'+src+'" style="width:100%;max-width:420px;border-radius:12px"></video></div>';
-  if (Array.isArray(trace) && trace.length) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
+  if (Array.isArray(trace) && trace.length){ const fnEl = failoverNotice(trace); if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body')); div.insertBefore(buildTrace(trace), div.querySelector('.msg-body')); }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addTyping(){
@@ -1223,8 +1253,18 @@ async function populateComposer() {
                 composerProviders.appendChild(opt);
             }
         });
-        // Load models for first provider
-        if (composerProviders.value) loadModels(composerProviders.value);
+        // Load models for the selected provider — restoring the saved
+        // favourite lane + model from this device when there is one
+        // (MiroFish wave, 2026-10-23).
+        let favModel = '';
+        try {
+            const fp = localStorage.getItem('nexus-fav-provider');
+            if (fp && [...composerProviders.options].some(o => o.value === fp)) {
+                composerProviders.value = fp;
+                favModel = localStorage.getItem('nexus-fav-model') || '';
+            }
+        } catch (e) {}
+        if (composerProviders.value) loadModels(composerProviders.value, favModel || undefined);
         // Load current routing mode
         try {
             const rr = await fetch('/api/routing');
@@ -1236,6 +1276,62 @@ async function populateComposer() {
     }
 }
 
+// ---- MiroFish wave (2026-10-23): favourites, lane health, PWA ----
+// Favourites: remember this device's last picked lane + model and
+// pre-select them next visit (restored in populateComposer above).
+composerProviders.addEventListener('change', () => {
+    try {
+        localStorage.setItem('nexus-fav-provider', composerProviders.value);
+        localStorage.removeItem('nexus-fav-model');
+    } catch (e) {}
+});
+document.getElementById('composer-model').addEventListener('change', (ev) => {
+    try { if (ev.target.value) localStorage.setItem('nexus-fav-model', ev.target.value); } catch (e) {}
+});
+
+// Lane health strip: live per-lane state from /api/lane-health
+// (up / rate-limited / down / off / locked), refreshed every minute
+// and after every send. Tap toggles the per-lane detail list.
+const LANE_STATE_WORD = {up: 'up', limited: 'rate-limited', down: 'down', off: 'off', locked: 'locked'};
+const LANE_STATE_COLOR = {up: '#4ade80', limited: '#fbbf24', down: '#f87171', off: '#52525b', locked: '#a78bfa'};
+async function refreshLaneHealth() {
+    const sum = document.getElementById('lane-summary');
+    if (!sum) return;
+    try {
+        const r = await fetch('/api/lane-health');
+        if (!r.ok) return;
+        const j = await r.json();
+        const lanes = j.lanes || [];
+        const counts = {};
+        lanes.forEach(l => { counts[l.state] = (counts[l.state] || 0) + 1; });
+        document.getElementById('lane-dots').innerHTML = lanes.map(l =>
+            '<span class="lane-dot" style="background:' + (LANE_STATE_COLOR[l.state] || '#52525b') + '"></span>').join('');
+        const parts = [lanes.length + ' lanes'];
+        if (counts.up) parts.push(counts.up + ' up');
+        if (counts.limited) parts.push(counts.limited + ' rate-limited');
+        if (counts.down) parts.push(counts.down + ' down');
+        if (counts.locked) parts.push(counts.locked + ' locked');
+        if (counts.off) parts.push(counts.off + ' off');
+        sum.textContent = parts.join(' · ');
+        const bad = lanes.filter(l => l.state !== 'up');
+        document.getElementById('lane-detail').innerHTML = bad.length
+            ? bad.map(l => '<div>' + esc(friendlyName(l.provider)) + ' — ' + (LANE_STATE_WORD[l.state] || l.state) + '</div>').join('')
+            : '<div>All lanes up.</div>';
+    } catch (e) {}
+}
+document.getElementById('lane-strip').addEventListener('click', () => {
+    const d = document.getElementById('lane-detail');
+    d.hidden = !d.hidden;
+});
+refreshLaneHealth();
+setInterval(refreshLaneHealth, 60000);
+
+// PWA: registering the pass-through worker is what makes Nexus
+// installable; the worker itself caches nothing (see sw.js).
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 async function setRouting(mode) {
     try {
         await fetch('/api/routing', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({set: mode})});
@@ -1244,7 +1340,7 @@ async function setRouting(mode) {
     }
 }
 
-async function loadModels(provider) {
+async function loadModels(provider, preselect) {
     const modelSel = document.getElementById('composer-model');
     if (provider === 'auto') {
         modelSel.innerHTML = '<option value="">Auto-select model</option>';
@@ -1272,6 +1368,7 @@ async function loadModels(provider) {
             opt.value = m; opt.textContent = m;
             modelSel.appendChild(opt);
         });
+        if (preselect && [...modelSel.options].some(o => o.value === preselect)) modelSel.value = preselect;
     } catch (e) {
         console.error('Model load', e);
         modelSel.innerHTML = '<option value="">Could not load models</option>';
@@ -1574,6 +1671,7 @@ composerSend.addEventListener('click', async () => {
     } finally {
         composerSend.disabled = false;
         clearAttachment();
+        refreshLaneHealth();
     }
 });
 

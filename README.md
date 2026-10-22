@@ -96,7 +96,7 @@ npm uninstall -g nexuslocal
 ├── package.json  ← `npm install -g` entry (bin: nexuslocal)
 ├── bin/          ← nexuslocal CLI launcher
 ├── app/          ← dashboard + engine code
-├── tests/        ← 466-test suite (python3 -m unittest discover -s tests)
+├── tests/        ← 472-test suite (python3 -m unittest discover -s tests)
 └── deploy/       ← deployment notes/config (live instance: Oracle Cloud)
 ```
 

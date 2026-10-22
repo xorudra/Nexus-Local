@@ -5729,16 +5729,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(json.dumps({"ok": True}).encode())
             return
         if parsed.path in ("/favicon.ico", "/favicon.svg",
-                           "/favicon-32.png", "/apple-touch-icon.png"):
+                           "/favicon-32.png", "/apple-touch-icon.png",
+                           "/manifest.json", "/sw.js",
+                           "/icon-192.png", "/icon-512.png"):
             # Public brand icons — browsers fetch them before login.
             # Small sizes use a zoomed bat so the silhouette survives
             # at tab size; the SVG and touch icon carry the full mark.
+            # The PWA manifest + service worker ride the same route
+            # (MiroFish wave, 2026-10-23); the worker itself is a
+            # no-cache pass-through, so it must never be cached either.
             _icons = {
                 "/favicon.ico": ("favicon.ico", "image/x-icon"),
                 "/favicon.svg": ("favicon.svg", "image/svg+xml"),
                 "/favicon-32.png": ("favicon-32.png", "image/png"),
                 "/apple-touch-icon.png": ("apple-touch-icon.png",
                                           "image/png"),
+                "/manifest.json": ("manifest.json",
+                                   "application/manifest+json"),
+                "/sw.js": ("sw.js", "text/javascript"),
+                "/icon-192.png": ("icon-192.png", "image/png"),
+                "/icon-512.png": ("icon-512.png", "image/png"),
             }
             _fname, _ctype = _icons[parsed.path]
             try:
@@ -5748,7 +5758,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_response(200)
             self.send_header("Content-Type", _ctype)
-            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Cache-Control",
+                             "no-cache" if _fname == "sw.js"
+                             else "public, max-age=86400")
             self.send_header("Content-Length", str(len(_data)))
             self.end_headers()
             self._send_body(_data)
@@ -6449,6 +6461,43 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._set_json_headers(200)
             self._send_body(json.dumps({"ok": True}).encode())
+            return
+        if parsed.path == "/api/lane-health":
+            # Light per-lane state for the chat page's health strip
+            # (MiroFish wave, 2026-10-23): up / limited (latest event
+            # was a rate limit) / down (circuit breaker) / off (no key
+            # or admin-disabled) / locked (vault locked, lane needs a
+            # key). Derived only from state the server already keeps —
+            # no provider calls — so polling it is cheap and honest.
+            if not self._require_session():
+                return
+            _ekeys_lh = self._effective_keys()
+            _locked_lh = Handler.keys is None
+            _dis_lh = _disabled_providers()
+            _lanes_lh = []
+            for _n in _ordered_provider_names():
+                _keyless_lh = _n in RELAY_KEYLESS
+                if _n in _dis_lh:
+                    _st_lh = "off"
+                elif _locked_lh and not _keyless_lh:
+                    _st_lh = "locked"
+                elif not (bool(_ekeys_lh.get(_n)) or _keyless_lh):
+                    _st_lh = "off"
+                elif _provider_down(_n):
+                    _st_lh = "down"
+                else:
+                    _h_lh = _PROVIDER_HEALTH.get(_n) or {}
+                    _lo_lh = _h_lh.get("last_ok") or 0
+                    _lf_lh = _h_lh.get("last_fail") or 0
+                    _le_lh = (_h_lh.get("last_error") or "").lower()
+                    _st_lh = ("limited" if (_lf_lh > _lo_lh
+                                            and "rate" in _le_lh)
+                              else "up")
+                _lanes_lh.append({"provider": _n, "state": _st_lh})
+            self._set_json_headers(200)
+            self._send_body(json.dumps(
+                {"lanes": _lanes_lh,
+                 "vault_locked": _locked_lh}).encode())
             return
         if parsed.path == "/api/friend_blob":
             # Returns every encrypted store (friend blob, personal key
