@@ -6,6 +6,14 @@ Your personal AI dashboard — 19 providers, one login. Runs locally, or as a ho
 
 Want to try it without installing? Open the link above. For the full local version with your own keys, follow the setup below.
 
+## 🧊 3D Architecture
+
+![Nexus architecture in 3D](docs/3d/architecture.gif)
+
+You sign in through Caddy over HTTPS and land on the one Nexus app. The app holds the chat with its shared memory, your encrypted vault and your integrations, calls the AI providers, keeps an encrypted backup on GitHub, and serves the /v1 API that powers DSRclone's copilot.
+
+**Interactive:** open [`docs/3d/index.html`](docs/3d/index.html) in a browser — drag to orbit, scroll to zoom.
+
 ## Setup
 
 **Prerequisite:** Install Node.js (includes npm).
