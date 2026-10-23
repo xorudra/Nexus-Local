@@ -97,6 +97,15 @@ overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .code-slots__wash{clip-path:none;opacity:0;transition:opacity 200ms ease}
 .code-slots__row[data-status='success'] .code-slots__wash{opacity:1}
 .code-slots__row[data-status='success'] .code-slots__check{opacity:1}}
+
+/* Apple-feel: instant press feedback (fires on press, not release) */
+button,.btn{transition:transform .15s ease-out,background-color .2s,color .2s,border-color .2s}
+button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition:transform .1s ease-out}
+
+/* Apple-feel: reduced motion = gentle cross-fades/static, never springs or loops */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>

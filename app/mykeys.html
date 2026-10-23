@@ -89,6 +89,15 @@ details.exp .cnt{font-size:11px;color:#8e8e8e;font-weight:400;margin-left:8px}
   .nexus-burger{display:flex}
   .nexus-toggle{display:none}
 }
+
+/* Apple-feel: instant press feedback (fires on press, not release) */
+button,.btn{transition:transform .15s ease-out,background-color .2s,color .2s,border-color .2s}
+button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition:transform .1s ease-out}
+
+/* Apple-feel: reduced motion = gentle cross-fades/static, never springs or loops */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>

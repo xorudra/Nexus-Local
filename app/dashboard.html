@@ -515,7 +515,7 @@ select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.
 background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;cursor:pointer}
 .picker:focus{outline:none;border-color:#f2f2f2;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
 .picker::placeholder{color:#9a9aa6}
-.input-pill{display:flex;flex-direction:column;background:#101012;border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:8px;transition:border-color .2s,box-shadow .2s}
+.input-pill{display:flex;flex-direction:column;background:rgba(16,16,18,.9);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:8px;transition:border-color .2s,box-shadow .2s}
 .input-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:6px;align-items:center;width:100%;min-height:50px}
 .pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;width:100%;border-top:1px solid #17171a;margin-top:6px;padding-top:8px}
 .pill-pickers .picker{padding:7px 24px 7px 10px;font-size:12px;border-radius:9px;background-position:right 8px center}
@@ -527,9 +527,9 @@ background-repeat:no-repeat;background-position:right 12px center;padding-right:
 .cs-btn .cs-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
 .cs-btn .cs-chev{flex:none;color:#f2f2f2;font-size:10px;transition:transform .15s}
 .cs.open .cs-chev{transform:rotate(180deg)}
-.cs-menu{position:absolute;left:0;bottom:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(80vw,340px);max-height:46vh;overflow:auto;background:#101014;border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:6px;z-index:90;box-shadow:0 14px 44px rgba(0,0,0,.65);display:none}
-.pill-pickers .cs:nth-child(even) .cs-menu{left:auto;right:0}
-.cs.open .cs-menu{display:block}
+.cs-menu{transform-origin:bottom left;position:absolute;left:0;bottom:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(80vw,340px);max-height:46vh;overflow:auto;background:#101014;border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:6px;z-index:90;box-shadow:0 14px 44px rgba(0,0,0,.65);display:none}
+.pill-pickers .cs:nth-child(even) .cs-menu{left:auto;right:0}.pill-pickers .cs:nth-child(even) .cs-menu{transform-origin:bottom right}
+.cs.open .cs-menu{display:block}@keyframes csIn{from{opacity:0;transform:scale(.96) translateY(4px)}to{opacity:1;transform:none}}.cs.open .cs-menu{animation:csIn .18s cubic-bezier(.2,.9,.25,1)}
 .cs-opt{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;color:#f2f2f2;font-size:13px;cursor:pointer;white-space:nowrap}
 .cs-opt:hover{background:rgba(255,255,255,.1)}
 .cs-opt.sel{background:rgba(255,255,255,.14);color:#fff}
@@ -552,7 +552,7 @@ background-repeat:no-repeat;background-position:right 12px center;padding-right:
 #attach-plus{width:40px;height:40px;border-radius:50%;background:transparent;border:none;color:#8a8a92;
 font-size:26px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
 #attach-plus:hover{color:#f2f2f2;background:rgba(255,255,255,.1)}
-#attach-menu{position:absolute;left:0;bottom:50px;background:#101014;border:1px solid rgba(255,255,255,.18);
+#attach-menu{transform-origin:bottom left;position:absolute;left:0;bottom:50px;background:#101014;border:1px solid rgba(255,255,255,.18);
 border-radius:12px;padding:8px;z-index:100;min-width:280px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
 .attach-title{padding:10px 14px 6px;color:#f2f2f2;font-weight:600;font-size:14px}
 .attach-opt{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:#f2f2f2;
@@ -594,10 +594,8 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 #chat-new:hover{background:#56c8f9;border-color:transparent}
 .picker:focus{border-color:rgba(56,189,248,.55);outline:none}
 #chat-title{flex:1;text-align:center;color:#8e8e8e;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#chats-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .2s;z-index:1500}
-#chats-backdrop.open{opacity:1;pointer-events:auto}
-#chats-panel{position:fixed;top:0;left:0;bottom:0;width:min(320px,86vw);background:#0c0c10;border-right:1px solid #17171a;z-index:1501;transform:translateX(-105%);transition:transform .22s ease;display:flex;flex-direction:column;padding:16px;gap:10px}
-#chats-panel.open{transform:translateX(0)}
+#chats-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;z-index:1500}
+#chats-panel{position:fixed;top:0;left:0;bottom:0;width:min(320px,86vw);background:rgba(12,12,16,.88);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);border-right:1px solid rgba(255,255,255,.09);z-index:1501;transform:translateX(-105%);will-change:transform;display:flex;flex-direction:column;padding:16px;gap:10px}
 .chats-head{display:flex;justify-content:space-between;align-items:center;color:#fff;font-weight:600;font-size:16px}
 #chats-close{background:none;border:none;color:#8e8e8e;font-size:16px;cursor:pointer;width:auto}
 .chats-new{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.4);color:#d9d9de;border-radius:9px;padding:10px;font-size:14px;cursor:pointer;font-family:inherit;width:100%}
@@ -690,6 +688,18 @@ try{ if(sessionStorage.getItem('nexus_terms_notice')==='1'){ var _tn=document.ge
   .nexus-burger{display:flex}
   .nexus-toggle{display:none}
 }
+
+/* Apple-feel: instant press feedback (fires on press, not release) */
+button,.btn{transition:transform .15s ease-out,background-color .2s,color .2s,border-color .2s}
+button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition:transform .1s ease-out}
+
+/* Apple-feel: reduced motion = gentle cross-fades/static, never springs or loops */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+
+@media (prefers-reduced-transparency: reduce){#chats-panel,.input-pill,.cs-menu,#attach-menu{backdrop-filter:none;-webkit-backdrop-filter:none;background:#0c0c10}}
+@media (prefers-contrast: more){#chats-panel,.input-pill,.cs-menu,#attach-menu{border-color:rgba(255,255,255,.55)!important}}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>
@@ -956,15 +966,72 @@ function newChat(fromDelete){
     if (!fromDelete) closeChats();
     refreshChatList();
 }
-function openChats(){
-    document.getElementById('chats-panel').classList.add('open');
-    document.getElementById('chats-backdrop').classList.add('open');
-    refreshChatList();
+// ===== Chats panel: spring-driven, interruptible, drag-to-dismiss =====
+// Motion starts from the live on-screen value and carries velocity through
+// re-targets, so the panel can be grabbed and reversed mid-flight.
+const chatsPanelEl = document.getElementById('chats-panel');
+const chatsBackdropEl = document.getElementById('chats-backdrop');
+let _px = null, _pv = 0, _pTarget = null, _pRaf = null, _pLast = 0;
+function _pClosed(){ return -(chatsPanelEl.offsetWidth * 1.05 + 4); }
+function _pApply(){
+    chatsPanelEl.style.transform = 'translateX(' + _px + 'px)';
+    const prog = Math.min(1, Math.max(0, 1 - _px / _pClosed()));
+    chatsBackdropEl.style.opacity = prog.toFixed(3);
+    chatsBackdropEl.style.pointerEvents = prog > 0.03 ? 'auto' : 'none';
 }
-function closeChats(){
-    document.getElementById('chats-panel').classList.remove('open');
-    document.getElementById('chats-backdrop').classList.remove('open');
+function _pStep(ts){
+    if (_pTarget === null){ _pRaf = null; return; }
+    const dt = Math.min(0.032, _pLast ? (ts - _pLast) / 1000 : 0.016); _pLast = ts;
+    const a = -210 * (_px - _pTarget) - 27 * _pv; // spring: ~0.3s response, near-critical damping
+    _pv += a * dt; _px += _pv * dt; _pApply();
+    if (Math.abs(_px - _pTarget) < 0.5 && Math.abs(_pv) < 12){
+        _px = _pTarget; _pv = 0; _pApply(); _pTarget = null; _pRaf = null; return;
+    }
+    _pRaf = requestAnimationFrame(_pStep);
 }
+function _pSpringTo(target, v){
+    if (_px === null) _px = _pClosed();
+    if (typeof v === 'number') _pv = v;
+    _pTarget = target; _pLast = 0;
+    if (!_pRaf) _pRaf = requestAnimationFrame(_pStep);
+}
+function openChats(){ _pSpringTo(0); refreshChatList(); }
+function closeChats(){ _pSpringTo(_pClosed()); }
+(function(){
+    const head = chatsPanelEl.querySelector('.chats-head');
+    if (!head) return;
+    head.style.touchAction = 'none'; head.style.cursor = 'grab';
+    let drag = null;
+    head.addEventListener('pointerdown', e => {
+        if (e.target.closest('button')) return;
+        if (_px === null) _px = 0;
+        _pTarget = null;
+        if (_pRaf){ cancelAnimationFrame(_pRaf); _pRaf = null; }
+        drag = { id: e.pointerId, startX: e.clientX, startPx: _px, hist: [{x: e.clientX, t: performance.now()}] };
+        head.setPointerCapture(e.pointerId);
+    });
+    head.addEventListener('pointermove', e => {
+        if (!drag || e.pointerId !== drag.id) return;
+        let x = drag.startPx + (e.clientX - drag.startX);
+        if (x > 0){ const dim = chatsPanelEl.offsetWidth; x = (x * dim * 0.55) / (dim + 0.55 * x); } // rubber-band
+        const closed = _pClosed();
+        if (x < closed) x = closed + (x - closed) * 0.35;
+        _px = x; _pApply();
+        drag.hist.push({x: e.clientX, t: performance.now()});
+        if (drag.hist.length > 6) drag.hist.shift();
+    });
+    function endDrag(e){
+        if (!drag || e.pointerId !== drag.id) return;
+        const h = drag.hist, n = h.length;
+        let v = 0;
+        if (n > 1){ const dt = (h[n-1].t - h[0].t) / 1000; if (dt > 0) v = (h[n-1].x - h[0].x) / dt; }
+        drag = null;
+        const projected = _px + v * 0.499; // momentum projection (Apple's exponential-decay form)
+        _pSpringTo(projected < _pClosed() / 2 ? _pClosed() : 0, v); // velocity handoff
+    }
+    head.addEventListener('pointerup', endDrag);
+    head.addEventListener('pointercancel', endDrag);
+})();
 document.getElementById('chats-open').addEventListener('click', openChats);
 document.getElementById('chats-close').addEventListener('click', closeChats);
 document.getElementById('chats-backdrop').addEventListener('click', closeChats);

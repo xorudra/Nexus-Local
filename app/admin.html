@@ -117,6 +117,18 @@ button:focus-visible,.ib:focus-visible,.tl:focus-visible{outline:2px solid var(-
 .msg{min-height:20px;font-size:13px;margin-top:8px}
 .okc{color:#3fae6a}body[data-theme="dark"] .okc{color:#7dff9a}
 .badc{color:#d33}body[data-theme="dark"] .badc{color:#ff9a9a}
+
+/* Apple-feel: instant press feedback (fires on press, not release) */
+button,.btn{transition:transform .15s ease-out,background-color .2s,color .2s,border-color .2s}
+button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition:transform .1s ease-out}
+
+/* Apple-feel: reduced motion = gentle cross-fades/static, never springs or loops */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+
+@media (prefers-reduced-transparency: reduce){:root{--panel:rgba(14,14,14,.97)}.p::before,.side,.mbar{backdrop-filter:none;-webkit-backdrop-filter:none}}
+@media (prefers-contrast: more){:root{--line:rgba(255,255,255,.42)}}
 </style>
 </head>
 <body>

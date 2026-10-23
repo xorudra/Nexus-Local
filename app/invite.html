@@ -40,6 +40,15 @@ color:#e9d5ff;font-size:13px;border-radius:6px;padding:10px 12px;margin-bottom:.
 .link{margin-top:1rem;font-size:.85rem;color:#888}
 .link a{color:#fff;text-decoration:none;font-weight:500}
 code{font-family:ui-monospace,Menlo,monospace;letter-spacing:.12em}
+
+/* Apple-feel: instant press feedback (fires on press, not release) */
+button,.btn{transition:transform .15s ease-out,background-color .2s,color .2s,border-color .2s}
+button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition:transform .1s ease-out}
+
+/* Apple-feel: reduced motion = gentle cross-fades/static, never springs or loops */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>

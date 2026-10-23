@@ -140,6 +140,18 @@ footer{border-top:1px solid rgba(255,255,255,.08);margin-top:24px}
 .js .rv.in{opacity:1;transform:none}
 @media(max-width:900px){.bento{grid-template-columns:1fr 1fr}.bcard.wide{grid-column:span 2}.tools-grid{grid-template-columns:1fr 1fr}.api-card{grid-template-columns:1fr;padding:28px}}
 @media(max-width:640px){.nav{gap:16px;padding:12px 16px}.nav-links{display:none}.hero{padding:64px 18px 20px}.section{padding:76px 16px 0}.bento{grid-template-columns:1fr}.bento.two{grid-template-columns:1fr}.bcard.wide{grid-column:span 1}.tools-grid{grid-template-columns:1fr}.strip{margin-top:48px}footer{padding:24px 16px}}
+
+/* Apple-feel: instant press feedback (fires on press, not release) */
+button,.btn{transition:transform .15s ease-out,background-color .2s,color .2s,border-color .2s}
+button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition:transform .1s ease-out}
+
+/* Apple-feel: reduced motion = gentle cross-fades/static, never springs or loops */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+
+@media (prefers-reduced-transparency: reduce){.nav{background:#0a0a0a;backdrop-filter:none;-webkit-backdrop-filter:none}}
+@media (prefers-contrast: more){.nav{border-bottom-color:rgba(255,255,255,.45)}}
 </style>
 </head>
 <body>
