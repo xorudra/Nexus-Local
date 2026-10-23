@@ -178,12 +178,23 @@ class MiroFishWave(unittest.TestCase):
         self.assertIn('id="lane-strip"', html)
         self.assertIn("function failoverNotice", html)
         self.assertIn("nexus-fav-provider", html)
+        # Wave-2 fixes (2026-10-23): calm lane summary, failover framed
+        # as an automatic switch, favourite guard against resting lanes.
+        self.assertIn("answered — Nexus switched automatically", html)
+        self.assertIn("your usual lane is resting, so Auto is on", html)
+        self.assertIn("Ready — ", html)
+        self.assertNotIn("couldn\u2019t answer — ", html)
         st, _, raw, _ = self._call("GET", "/", cookie=cookie)
         self.assertEqual(st, 200)
         landing = raw.decode()
         self.assertIn('href="/Nexus.apk"', landing)
         self.assertNotIn("beforeinstallprompt", landing)
         self.assertNotIn('rel="manifest"', landing)
+        # Install-gate fix: a guided install + an equal no-install path.
+        self.assertIn('id="app"', landing)
+        self.assertIn("No install needed", landing)
+        self.assertIn("Add to Home screen", landing)
+        self.assertIn("unknown apps", landing)
 
 
 if __name__ == "__main__":

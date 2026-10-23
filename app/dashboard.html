@@ -428,9 +428,9 @@ padding:10px 14px;font-size:14px;line-height:1.55;word-wrap:break-word}
 .msg-system .msg-body{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.3);color:#ff9a9a;
 border-radius:10px;padding:8px 14px;font-size:13px}
 .msg-meta{font-size:11px;color:#f2f2f2;margin-bottom:4px;letter-spacing:.08em;font-family:'Space Grotesk',sans-serif}
-.msg-failover{font-size:11.5px;color:#fbbf24;margin:2px 0 6px;font-family:'Space Grotesk',sans-serif}
+.msg-failover{font-size:11.5px;color:#a1a1aa;margin:2px 0 6px;font-family:'Space Grotesk',sans-serif}
 #lane-strip{display:flex;flex-wrap:wrap;align-items:center;gap:7px;background:#050505;border:1px solid #17171a;border-top:none;padding:6px 12px;cursor:pointer;font-family:'Space Grotesk',sans-serif}
-#lane-dots{display:inline-flex;gap:3px;flex-wrap:wrap}
+#lane-dots{display:none}
 .lane-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
 #lane-summary{font-size:11px;color:#a1a1aa;letter-spacing:.04em}
 #lane-detail{flex-basis:100%;font-size:11.5px;color:#d4d4d8;line-height:1.7;padding-top:2px}
@@ -1166,9 +1166,13 @@ function startLiveTrace(provider, model){
     stop(){ clearInterval(timer); },
     finish(steps){ clearInterval(timer); const fresh = buildTrace(steps); el.replaceWith(fresh); return fresh; } };
 }
-// Plain-language failover line (MiroFish wave, 2026-10-23): when any
-// lane in the trace failed before the answer arrived, say so in words.
-// Derived from the trace alone, so saved chats re-render it identically.
+// Plain-language failover line (MiroFish wave, 2026-10-23; reframed
+// wave-2 fix, same day: the sim showed a warning-style "X couldn't
+// answer" line makes Nexus feel fragile even when the switch worked —
+// so the line now leads with the answer and frames the switch as the
+// system doing its job. The full trace below keeps every failure
+// visible; nothing is hidden. Derived from the trace alone, so saved
+// chats re-render it identically.
 function failoverNotice(trace){
   const failed = [...new Set(trace.filter(t => t && t.ok === false && t.p).map(t => t.p))];
   if (!failed.length) return null;
@@ -1176,9 +1180,9 @@ function failoverNotice(trace){
   const el = document.createElement('div');
   el.className = 'msg-failover';
   const names = failed.map(friendlyName).join(', ');
-  if (okLast && failed.length === 1 && failed[0] === okLast.p) el.textContent = '⚠ ' + names + ' hiccuped — it answered on a retry.';
-  else if (okLast) el.textContent = '⚠ ' + names + ' couldn\u2019t answer — ' + friendlyName(okLast.p) + ' answered instead.';
-  else el.textContent = '⚠ ' + names + ' couldn\u2019t answer.';
+  if (okLast && failed.length === 1 && failed[0] === okLast.p) el.textContent = '\u2713 ' + names + ' answered on a retry.';
+  else if (okLast) el.textContent = '\u2713 ' + friendlyName(okLast.p) + ' answered — Nexus switched automatically (' + names + (failed.length > 1 ? ' were' : ' was') + ' busy).';
+  else el.textContent = names + (failed.length > 1 ? ' were' : ' was') + ' busy — no lane could answer this time.';
   return el;
 }
 function addMsg(kind,text,meta,trace){
@@ -1278,7 +1282,9 @@ async function populateComposer() {
 // ---- MiroFish wave (2026-10-23): favourites, lane health, PWA ----
 // Favourites: remember this device's last picked lane + model and
 // pre-select them next visit (restored in populateComposer above).
+let composerTouched = false;
 composerProviders.addEventListener('change', () => {
+    composerTouched = true;
     try {
         localStorage.setItem('nexus-fav-provider', composerProviders.value);
         localStorage.removeItem('nexus-fav-model');
@@ -1288,11 +1294,15 @@ document.getElementById('composer-model').addEventListener('change', (ev) => {
     try { if (ev.target.value) localStorage.setItem('nexus-fav-model', ev.target.value); } catch (e) {}
 });
 
-// Lane health strip: live per-lane state from /api/lane-health
-// (up / rate-limited / down / off / locked), refreshed every minute
-// and after every send. Tap toggles the per-lane detail list.
-const LANE_STATE_WORD = {up: 'up', limited: 'rate-limited', down: 'down', off: 'off', locked: 'locked'};
+// Lane health strip: live per-lane state from /api/lane-health,
+// refreshed every minute and after every send. Wave-2 fix (same day,
+// from the second MiroFish sim): the always-visible wall of red/purple
+// dots made Nexus feel broken even while failover worked — so the
+// strip now leads with one calm readiness line, and the dots + per-lane
+// states live in the tap-for-details view, in plainer words.
+const LANE_STATE_WORD = {up: 'available', limited: 'busy right now — rate limit, recovers on its own', down: 'resting — Nexus routes around it', off: 'not set up', locked: 'unlocks after admin sign-in'};
 const LANE_STATE_COLOR = {up: '#4ade80', limited: '#fbbf24', down: '#f87171', off: '#52525b', locked: '#a78bfa'};
+let laneFavGuardDone = false;
 async function refreshLaneHealth() {
     const sum = document.getElementById('lane-summary');
     if (!sum) return;
@@ -1303,19 +1313,33 @@ async function refreshLaneHealth() {
         const lanes = j.lanes || [];
         const counts = {};
         lanes.forEach(l => { counts[l.state] = (counts[l.state] || 0) + 1; });
-        document.getElementById('lane-dots').innerHTML = lanes.map(l =>
-            '<span class="lane-dot" style="background:' + (LANE_STATE_COLOR[l.state] || '#52525b') + '"></span>').join('');
-        const parts = [lanes.length + ' lanes'];
-        if (counts.up) parts.push(counts.up + ' up');
-        if (counts.limited) parts.push(counts.limited + ' rate-limited');
-        if (counts.down) parts.push(counts.down + ' down');
-        if (counts.locked) parts.push(counts.locked + ' locked');
-        if (counts.off) parts.push(counts.off + ' off');
-        sum.textContent = parts.join(' · ');
+        const ready = counts.up || 0, busy = counts.limited || 0;
+        // Favourite guard (wave-2 fix): a restored favourite lane that
+        // is resting must not trap the user on a dead pick — fall back
+        // to Auto once per page load, only before the user picks
+        // anything themselves, and say so in the summary line.
+        let favNote = '';
+        if (!laneFavGuardDone) {
+            laneFavGuardDone = true;
+            try {
+                const fp = localStorage.getItem('nexus-fav-provider');
+                const lane = fp && lanes.find(l => l.provider === fp);
+                if (!composerTouched && fp && composerProviders.value === fp && lane && lane.state !== 'up' && lane.state !== 'limited') {
+                    composerProviders.value = 'auto';
+                    loadModels('auto');
+                    favNote = ' · your usual lane is resting, so Auto is on';
+                }
+            } catch (e) {}
+        }
+        if (ready) sum.textContent = 'Ready — ' + ready + ' lane' + (ready === 1 ? '' : 's') + ' available now' + (busy ? ' · ' + busy + ' busy' : '') + favNote + ' · tap for lane details';
+        else if (busy) sum.textContent = 'Lanes are busy right now — Nexus will keep trying for you' + favNote;
+        else sum.textContent = 'No lane is available right now · tap for lane details';
+        const dots = '<div style="margin-bottom:4px">' + lanes.map(l =>
+            '<span class="lane-dot" style="background:' + (LANE_STATE_COLOR[l.state] || '#52525b') + ';margin-right:3px"></span>').join('') + '</div>';
         const bad = lanes.filter(l => l.state !== 'up');
-        document.getElementById('lane-detail').innerHTML = bad.length
+        document.getElementById('lane-detail').innerHTML = dots + (bad.length
             ? bad.map(l => '<div>' + esc(friendlyName(l.provider)) + ' — ' + (LANE_STATE_WORD[l.state] || l.state) + '</div>').join('')
-            : '<div>All lanes up.</div>';
+            : '<div>All lanes available.</div>');
     } catch (e) {}
 }
 document.getElementById('lane-strip').addEventListener('click', () => {

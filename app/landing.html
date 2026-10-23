@@ -57,6 +57,7 @@ a{color:inherit}
 .section h2{margin:0;font-size:clamp(30px,4.6vw,50px);font-weight:700;letter-spacing:-.02em;color:#fafafa}
 .sec-sub{max-width:640px;margin:16px auto 0;color:#a7a7b0;font-size:16.5px;line-height:1.6}
 .bento{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:48px;text-align:left}
+.bento.two{grid-template-columns:1fr 1fr}
 .bcard{background:#0d0d10;border:1px solid rgba(255,255,255,.09);border-radius:18px;padding:26px;transition:border-color .25s,transform .25s}
 .bcard:hover{border-color:rgba(255,255,255,.2);transform:translateY(-2px)}
 .bcard.wide{grid-column:span 2}
@@ -138,14 +139,14 @@ footer{border-top:1px solid rgba(255,255,255,.08);margin-top:24px}
 .js .rv{opacity:0;transform:translateY(16px);transition:opacity .7s ease,transform .7s ease}
 .js .rv.in{opacity:1;transform:none}
 @media(max-width:900px){.bento{grid-template-columns:1fr 1fr}.bcard.wide{grid-column:span 2}.tools-grid{grid-template-columns:1fr 1fr}.api-card{grid-template-columns:1fr;padding:28px}}
-@media(max-width:640px){.nav{gap:16px;padding:12px 16px}.nav-links{display:none}.hero{padding:64px 18px 20px}.section{padding:76px 16px 0}.bento{grid-template-columns:1fr}.bcard.wide{grid-column:span 1}.tools-grid{grid-template-columns:1fr}.strip{margin-top:48px}footer{padding:24px 16px}}
+@media(max-width:640px){.nav{gap:16px;padding:12px 16px}.nav-links{display:none}.hero{padding:64px 18px 20px}.section{padding:76px 16px 0}.bento{grid-template-columns:1fr}.bento.two{grid-template-columns:1fr}.bcard.wide{grid-column:span 1}.tools-grid{grid-template-columns:1fr}.strip{margin-top:48px}footer{padding:24px 16px}}
 </style>
 </head>
 <body>
 <nav class="nav">
   <a class="brand" href="/home"><span class="bchip"><svg viewBox="0 0 100 36" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#0a0a0a"/></svg></span>Nexus</a>
-  <div class="nav-links"><a href="#features">Features</a><a href="#providers">Providers</a><a href="#tools">Tools</a><a href="#api">API</a></div>
-  <div class="nav-cta"><a class="dl-icon" href="/Nexus.apk" download title="Download the Nexus app (Android)" aria-label="Download the Nexus app (Android)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m6.5 10.5 5.5 5.5 5.5-5.5"/><path d="M4 20h16"/></svg></a><a class="btn-cyan" data-open href="/login">Open Nexus</a></div>
+  <div class="nav-links"><a href="#features">Features</a><a href="#providers">Providers</a><a href="#tools">Tools</a><a href="#api">API</a><a href="#app">App</a></div>
+  <div class="nav-cta"><a class="dl-icon" href="#app" title="Get the Nexus app (Android)" aria-label="Get the Nexus app (Android)"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m6.5 10.5 5.5 5.5 5.5-5.5"/><path d="M4 20h16"/></svg></a><a class="btn-cyan" data-open href="/login">Open Nexus</a></div>
 </nav>
 
 <header class="hero">
@@ -265,6 +266,30 @@ footer{border-top:1px solid rgba(255,255,255,.08);margin-top:24px}
   -d '{"model": "nexus-auto",
        "messages": [{"role": "user",
                      "content": "Hello"}]}'</pre>
+  </div>
+</section>
+
+<section class="section" id="app">
+  <div class="sec-chip rv"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m6.5 10.5 5.5 5.5 5.5-5.5"/><path d="M4 20h16"/></svg></div>
+  <h2 class="rv">Get the app — or don't</h2>
+  <p class="sec-sub rv">Nexus works fully right here in your browser — same chats, same shared memory. The Android app is the same Nexus in a full-screen window with its own home-screen icon, for people who want that.</p>
+  <div class="bento two">
+    <article class="bcard rv">
+      <h3>Android app</h3>
+      <p>42 KB, signed by Nexus, and security-tested — 0 critical and 0 high findings.</p>
+      <p>1. Download the APK below.<br>
+      2. Open the downloaded file.<br>
+      3. Android asks once to allow installs from your browser. That's Android's rule for <em>every</em> app downloaded outside the Play Store — not a Nexus warning.<br>
+      4. Tap Install. Done — it opens full-screen, no browser bar.</p>
+      <p style="margin-top:14px"><a class="btn-cyan" href="/Nexus.apk" download>Download Nexus.apk</a></p>
+      <p style="font-size:12px;color:#8e8e96;margin-top:12px">SHA-256 of the file: <span style="font-family:'JetBrains Mono',monospace;word-break:break-all">cede4b7872b1fcd4f043e073fbd8c3e8e23c2c7b0c5cacc81fc9d8970972545e</span> — if your download's hash differs, don't install it.</p>
+    </article>
+    <article class="bcard rv">
+      <h3>No install needed</h3>
+      <p>Skip the app entirely — everything works in the browser, and nothing about your chats changes.</p>
+      <p>Want a home-screen icon anyway, with no install and no permissions? In Chrome, open the menu (⋮) and tap <strong style="color:#d9d9de">Add to Home screen</strong>. That adds a Nexus shortcut — it is not an install, and Android never asks about unknown apps.</p>
+      <p style="margin-top:14px"><a class="btn-ghost" data-open href="/login">Open Nexus in browser</a></p>
+    </article>
   </div>
 </section>
 
