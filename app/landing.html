@@ -40,8 +40,9 @@ a{color:inherit}
 .btn-cyan.lg{padding:13px 26px;font-size:15.5px;border-radius:11px}
 .btn-ghost{display:inline-block;background:transparent;color:#fafafa;font-weight:500;font-size:15.5px;text-decoration:none;padding:12px 24px;border-radius:11px;border:1px solid rgba(255,255,255,.22);transition:border-color .2s,background .2s}
 .btn-ghost:hover{border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.04)}
-button.btn-ghost{font-family:inherit;cursor:pointer}
-button.btn-ghost:disabled{opacity:.75;cursor:default}
+.dl-icon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:transparent;border:1px solid rgba(255,255,255,.22);color:#fafafa;cursor:pointer;transition:border-color .2s,background .2s;flex:none}
+.dl-icon:hover{border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.04)}
+.dl-icon:disabled{opacity:.75;cursor:default}
 .install-note{margin:16px auto 0;color:#a7a7b0;font-size:14.5px;line-height:1.55;max-width:560px}
 .hero{text-align:center;padding:92px 24px 30px;max-width:1060px;margin:0 auto;animation:fadeUp .7s cubic-bezier(.2,.7,.3,1) both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -147,8 +148,9 @@ footer{border-top:1px solid rgba(255,255,255,.08);margin-top:24px}
 <nav class="nav">
   <a class="brand" href="/home"><span class="bchip"><svg viewBox="0 0 100 36" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#0a0a0a"/></svg></span>Nexus</a>
   <div class="nav-links"><a href="#features">Features</a><a href="#providers">Providers</a><a href="#tools">Tools</a><a href="#api">API</a></div>
-  <div class="nav-cta"><a class="signin" href="/login">Sign in</a><a class="btn-cyan" data-open href="/login">Open Nexus</a></div>
+  <div class="nav-cta"><button type="button" class="dl-icon install-app-btn" title="Download the Nexus app" aria-label="Download the Nexus app"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m6.5 10.5 5.5 5.5 5.5-5.5"/><path d="M4 20h16"/></svg></button><a class="signin" href="/login">Sign in</a><a class="btn-cyan" data-open href="/login">Open Nexus</a></div>
 </nav>
+<p class="install-note" hidden style="text-align:center;padding:0 24px"></p>
 
 <header class="hero">
   <div class="hero-chip"><svg viewBox="0 0 100 36" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#38bdf8"/></svg></div>
@@ -156,8 +158,7 @@ footer{border-top:1px solid rgba(255,255,255,.08);margin-top:24px}
   <p class="sub">Nexus gathers your AI providers into one private dashboard — one shared memory
   across all of them, automatic failover when a provider hits its limit, and a trace
   that shows exactly who answered, and why.</p>
-  <div class="hero-cta"><a class="btn-cyan lg" data-open href="/login">Start chatting</a><a class="btn-ghost lg" href="#features">Explore features</a><button type="button" class="btn-ghost lg install-app-btn">📲 Download app</button></div>
-  <p class="install-note" hidden></p>
+  <div class="hero-cta"><a class="btn-cyan lg" data-open href="/login">Start chatting</a><a class="btn-ghost lg" href="#features">Explore features</a></div>
 </header>
 
 <div class="shot rv" aria-hidden="true">
@@ -299,8 +300,6 @@ footer{border-top:1px solid rgba(255,255,255,.08);margin-top:24px}
   <h2 class="rv">Your AIs are already here.</h2>
   <p class="rv">One sign-in, and every provider you use is sitting on one desk.</p>
   <a class="btn-cyan lg rv" data-open href="/login">Open Nexus</a>
-  <button type="button" class="btn-ghost lg rv install-app-btn" style="margin-left:14px">📲 Download app</button>
-  <p class="install-note" hidden></p>
 </section>
 
 <footer>
@@ -363,7 +362,11 @@ fetch('/api/status').then(function(r){
     var deferred = null;
     var btns = document.querySelectorAll('.install-app-btn');
     function markInstalled() {
-        btns.forEach(function (b) { b.textContent = '✓ App installed'; b.disabled = true; });
+        btns.forEach(function (b) {
+            b.innerHTML = '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="#4ade80" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5 10 18 19.5 6.5"/></svg>';
+            b.title = 'App installed';
+            b.disabled = true;
+        });
     }
     if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) { markInstalled(); return; }
     window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferred = e; });
