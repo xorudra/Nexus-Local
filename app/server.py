@@ -5730,25 +5730,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path in ("/favicon.ico", "/favicon.svg",
                            "/favicon-32.png", "/apple-touch-icon.png",
-                           "/manifest.json", "/sw.js",
-                           "/icon-192.png", "/icon-512.png"):
+                           "/Nexus.apk"):
             # Public brand icons — browsers fetch them before login.
             # Small sizes use a zoomed bat so the silhouette survives
             # at tab size; the SVG and touch icon carry the full mark.
-            # The PWA manifest + service worker ride the same route
-            # (MiroFish wave, 2026-10-23); the worker itself is a
-            # no-cache pass-through, so it must never be cached either.
+            # /Nexus.apk is the Android app (owner order 2026-10-23:
+            # the APK is the site's only app download — it replaced
+            # the short-lived PWA the same day it shipped).
             _icons = {
                 "/favicon.ico": ("favicon.ico", "image/x-icon"),
                 "/favicon.svg": ("favicon.svg", "image/svg+xml"),
                 "/favicon-32.png": ("favicon-32.png", "image/png"),
                 "/apple-touch-icon.png": ("apple-touch-icon.png",
                                           "image/png"),
-                "/manifest.json": ("manifest.json",
-                                   "application/manifest+json"),
-                "/sw.js": ("sw.js", "text/javascript"),
-                "/icon-192.png": ("icon-192.png", "image/png"),
-                "/icon-512.png": ("icon-512.png", "image/png"),
+                "/Nexus.apk": ("Nexus.apk",
+                               "application/vnd.android.package-archive"),
             }
             _fname, _ctype = _icons[parsed.path]
             try:
@@ -5758,9 +5754,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_response(200)
             self.send_header("Content-Type", _ctype)
-            self.send_header("Cache-Control",
-                             "no-cache" if _fname == "sw.js"
-                             else "public, max-age=86400")
+            if _fname == "Nexus.apk":
+                self.send_header("Content-Disposition",
+                                 'attachment; filename="Nexus.apk"')
+            self.send_header("Cache-Control", "public, max-age=86400")
             self.send_header("Content-Length", str(len(_data)))
             self.end_headers()
             self._send_body(_data)

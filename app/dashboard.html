@@ -10,7 +10,6 @@
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://nexus-local.onrender.com/apple-touch-icon.png">
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#050505">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -1325,12 +1324,6 @@ document.getElementById('lane-strip').addEventListener('click', () => {
 });
 refreshLaneHealth();
 setInterval(refreshLaneHealth, 60000);
-
-// PWA: registering the pass-through worker is what makes Nexus
-// installable; the worker itself caches nothing (see sw.js).
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-}
 
 async function setRouting(mode) {
     try {

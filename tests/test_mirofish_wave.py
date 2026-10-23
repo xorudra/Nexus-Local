@@ -1,6 +1,8 @@
 """MiroFish suggestion wave (owner order 2026-10-23, all but #4):
-1. PWA — /manifest.json + /sw.js + icons served, pages link the
-   manifest and register the (pass-through, cache-nothing) worker.
+1. App download — originally a PWA (manifest + pass-through worker);
+   replaced the same day by owner order with the real Android APK as
+   the site's ONLY app download: /Nexus.apk is served as an attachment
+   and the PWA routes/pages hooks are gone.
 2. Lane health strip — GET /api/lane-health (session-gated) reports a
    per-lane state derived from server state only: up / limited / down
    / off / locked.
@@ -62,7 +64,7 @@ class MiroFishWave(unittest.TestCase):
             if src.is_dir():
                 shutil.copytree(src, cls.tmp / name)
             elif name.endswith((".py", ".json", ".html", ".ico", ".svg",
-                                ".png", ".js")):
+                                ".png", ".js", ".apk")):
                 shutil.copy(src, cls.tmp / name)
         access = {"museai": _hash_pw(FRIEND_PW)}
         encrypt_keys({"groq": "sk-fake"}, MASTER, cls.tmp / "keys.enc")
@@ -129,28 +131,22 @@ class MiroFishWave(unittest.TestCase):
         self.assertEqual(st, 200, str(j)[:200])
         return hdrs.get("Set-Cookie", "").split(";")[0]
 
-    def test_01_manifest_served(self):
-        st, j, _, hdrs = self._call("GET", "/manifest.json")
+    def test_01_apk_served_as_download(self):
+        st, _, raw, hdrs = self._call("GET", "/Nexus.apk")
         self.assertEqual(st, 200)
-        self.assertEqual(j["name"], "Nexus")
-        self.assertEqual(j["start_url"], "/dashboard")
-        sizes = {i["sizes"] for i in j["icons"]}
-        self.assertIn("512x512", sizes)
-        self.assertIn("192x192", sizes)
+        self.assertEqual(hdrs.get("Content-Type"),
+                         "application/vnd.android.package-archive")
+        self.assertIn("attachment", hdrs.get("Content-Disposition", ""))
+        self.assertTrue(raw.startswith(b"PK\x03\x04"))
+        self.assertGreater(len(raw), 10000)
 
-    def test_02_service_worker_is_pass_through(self):
-        st, _, raw, hdrs = self._call("GET", "/sw.js")
-        self.assertEqual(st, 200)
-        body = raw.decode()
-        self.assertIn("fetch(event.request)", body)
-        self.assertNotIn("caches.open", body)
-        self.assertEqual(hdrs.get("Cache-Control"), "no-cache")
-
-    def test_03_pwa_icons_served(self):
-        for path in ("/icon-192.png", "/icon-512.png"):
-            st, _, raw, _ = self._call("GET", path)
-            self.assertEqual(st, 200, path)
-            self.assertTrue(raw.startswith(b"\x89PNG"), path)
+    def test_02_pwa_routes_gone(self):
+        # The APK is the site's only app download (owner order
+        # 2026-10-23); the PWA surface was removed the day it shipped.
+        for path in ("/manifest.json", "/sw.js",
+                     "/icon-192.png", "/icon-512.png"):
+            st, _, _, _ = self._call("GET", path)
+            self.assertEqual(st, 404, path)
 
     def test_04_lane_health_requires_session(self):
         st, _, _, _ = self._call("GET", "/api/lane-health")
@@ -172,19 +168,22 @@ class MiroFishWave(unittest.TestCase):
             self.assertEqual(by_name[name], "up", name)
         self.assertEqual(by_name["groq"], "locked")
 
-    def test_06_pages_carry_pwa_and_wave_hooks(self):
+    def test_06_pages_carry_wave_hooks_not_pwa(self):
         cookie = self._login()
         st, _, raw, _ = self._call("GET", "/dashboard", cookie=cookie)
         self.assertEqual(st, 200)
         html = raw.decode()
-        self.assertIn('rel="manifest"', html)
-        self.assertIn("serviceWorker.register('/sw.js')", html)
+        self.assertNotIn('rel="manifest"', html)
+        self.assertNotIn("serviceWorker", html)
         self.assertIn('id="lane-strip"', html)
         self.assertIn("function failoverNotice", html)
         self.assertIn("nexus-fav-provider", html)
         st, _, raw, _ = self._call("GET", "/", cookie=cookie)
         self.assertEqual(st, 200)
-        self.assertIn('rel="manifest"', raw.decode())
+        landing = raw.decode()
+        self.assertIn('href="/Nexus.apk"', landing)
+        self.assertNotIn("beforeinstallprompt", landing)
+        self.assertNotIn('rel="manifest"', landing)
 
 
 if __name__ == "__main__":
