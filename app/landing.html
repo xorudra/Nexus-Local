@@ -40,6 +40,9 @@ a{color:inherit}
 .btn-cyan.lg{padding:13px 26px;font-size:15.5px;border-radius:11px}
 .btn-ghost{display:inline-block;background:transparent;color:#fafafa;font-weight:500;font-size:15.5px;text-decoration:none;padding:12px 24px;border-radius:11px;border:1px solid rgba(255,255,255,.22);transition:border-color .2s,background .2s}
 .btn-ghost:hover{border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.04)}
+button.btn-ghost{font-family:inherit;cursor:pointer}
+button.btn-ghost:disabled{opacity:.75;cursor:default}
+.install-note{margin:16px auto 0;color:#a7a7b0;font-size:14.5px;line-height:1.55;max-width:560px}
 .hero{text-align:center;padding:92px 24px 30px;max-width:1060px;margin:0 auto;animation:fadeUp .7s cubic-bezier(.2,.7,.3,1) both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 .hero-chip{width:46px;height:46px;margin:0 auto 28px;border-radius:13px;background:#101013;border:1px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;box-shadow:0 16px 36px -8px rgba(56,189,248,.5),inset 0 1px 0 rgba(255,255,255,.08)}
@@ -153,7 +156,8 @@ footer{border-top:1px solid rgba(255,255,255,.08);margin-top:24px}
   <p class="sub">Nexus gathers your AI providers into one private dashboard — one shared memory
   across all of them, automatic failover when a provider hits its limit, and a trace
   that shows exactly who answered, and why.</p>
-  <div class="hero-cta"><a class="btn-cyan lg" data-open href="/login">Start chatting</a><a class="btn-ghost lg" href="#features">Explore features</a></div>
+  <div class="hero-cta"><a class="btn-cyan lg" data-open href="/login">Start chatting</a><a class="btn-ghost lg" href="#features">Explore features</a><button type="button" class="btn-ghost lg install-app-btn">📲 Download app</button></div>
+  <p class="install-note" hidden></p>
 </header>
 
 <div class="shot rv" aria-hidden="true">
@@ -295,6 +299,8 @@ footer{border-top:1px solid rgba(255,255,255,.08);margin-top:24px}
   <h2 class="rv">Your AIs are already here.</h2>
   <p class="rv">One sign-in, and every provider you use is sitting on one desk.</p>
   <a class="btn-cyan lg rv" data-open href="/login">Open Nexus</a>
+  <button type="button" class="btn-ghost lg rv install-app-btn" style="margin-left:14px">📲 Download app</button>
+  <p class="install-note" hidden></p>
 </section>
 
 <footer>
@@ -347,6 +353,38 @@ fetch('/api/status').then(function(r){
   var si = document.querySelector('.signin');
   if (si) { si.setAttribute('href', '/dashboard'); si.textContent = 'Dashboard'; }
 }).catch(function(){});
+</script>
+<script>
+// Download app (owner order 2026-10-23): the button fires Chrome's real
+// install prompt when the browser offers one. When it doesn't (iOS,
+// already installed, prompt not yet available), the click shows the
+// manual steps instead of doing nothing.
+(function () {
+    var deferred = null;
+    var btns = document.querySelectorAll('.install-app-btn');
+    function markInstalled() {
+        btns.forEach(function (b) { b.textContent = '✓ App installed'; b.disabled = true; });
+    }
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) { markInstalled(); return; }
+    window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferred = e; });
+    window.addEventListener('appinstalled', markInstalled);
+    btns.forEach(function (b) {
+        b.addEventListener('click', async function () {
+            if (deferred) {
+                deferred.prompt();
+                try { await deferred.userChoice; } catch (e) {}
+                deferred = null;
+                return;
+            }
+            var scope = b.closest('section') || b.closest('header') || document;
+            var note = scope.querySelector('.install-note') || document.querySelector('.install-note');
+            if (note) {
+                note.hidden = false;
+                note.textContent = 'In Chrome on your phone: tap the ⋮ menu (top right) → "Install app". On iPhone Safari: tap Share → "Add to Home Screen".';
+            }
+        });
+    });
+})();
 </script>
 </body>
 </html>
