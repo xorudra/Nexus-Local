@@ -105,6 +105,8 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
       overlay=document.getElementById('nx-overlay'),
       burger=document.getElementById('nx-burger'),
       toggle=document.getElementById('nx-toggle');
+  // Native haptics in the app (NexusNative bridge), browser fallback.
+  function nxBuzz(ms){ try{ if(window.NexusNative && NexusNative.vibrate){ NexusNative.vibrate(ms || 8); return; } if(navigator.vibrate) navigator.vibrate(ms || 8); }catch(e){} }
   // Restore the collapsed state before the page settles.
   try{ if(localStorage.getItem('nexus-rail-min')==='1') document.documentElement.classList.add('nx-min'); }catch(e){}
   var _minAnim = null;
@@ -140,11 +142,11 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
     _minAnim = { raf: requestAnimationFrame(step) };
   }
   if(toggle) toggle.addEventListener('click',function(){
-    setMin(!document.documentElement.classList.contains('nx-min'));
+    setMin(!document.documentElement.classList.contains('nx-min')); nxBuzz(8);
   });
   document.addEventListener('keydown',function(e){
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='b'){ e.preventDefault();
-      setMin(!document.documentElement.classList.contains('nx-min')); }
+      setMin(!document.documentElement.classList.contains('nx-min')); nxBuzz(8); }
   });
   // Mobile rail on a spring: starts from its live position, carries
   // velocity, and can be grabbed mid-flight — same model as the
@@ -212,6 +214,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
     var x = rail.offsetWidth; _drag = null;
     document.documentElement.classList.remove('nx-dragging');
     dragH.classList.remove('on');
+    nxBuzz(8);
     setMin(x < 168);
   }
   dragH.addEventListener('pointerup', _dragEnd);
