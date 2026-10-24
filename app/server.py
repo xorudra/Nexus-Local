@@ -2887,6 +2887,22 @@ def _gemini_project(access):
                 p2 = p2.get("id") or ""
             if p2:
                 return str(p2)
+            # Onboarded but no project inline: for consumer accounts
+            # the project only appears on a FRESH loadCodeAssist after
+            # onboarding completes (found live 2026-10-24 — onboardUser
+            # returned done=True 4x with no project in the response).
+            st4, j4 = _intg_http(
+                "https://cloudcode-pa.googleapis.com/v1internal:"
+                "loadCodeAssist", "POST", hdr, {"metadata": meta})
+            if st4 == 200 and isinstance(j4, dict):
+                p4 = j4.get("cloudaicompanionProject")
+                if isinstance(p4, dict):
+                    p4 = p4.get("id") or ""
+                if p4:
+                    return str(p4)
+            print("[gemini-signin] onboard done, response keys: %s"
+                  % sorted((j2.get("response") or {}).keys()),
+                  flush=True)
         _gemini_diag("onboardUser", st2, j2)
         time.sleep(2)
     return ""
