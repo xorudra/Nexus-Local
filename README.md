@@ -6,7 +6,7 @@ Chat with every AI, from one Nexus — **23 provider lanes, one login, one share
 
 ## 🧊 3D Architecture
 
-![Every model. One Nexus.](nexus-beam.svg)
+[![Every model. One Nexus.](nexus-beam.png)](nexus-beam.svg)
 
 You sign in through Caddy over HTTPS and land on the one Nexus app. The app holds the chat with its shared memory, your encrypted vault and your integrations, calls the AI providers, keeps an encrypted backup on GitHub, and serves the /v1 API that powers DSRclone's copilot.
 
