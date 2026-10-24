@@ -2871,7 +2871,13 @@ def _proj_id(v):
 
 
 def _gemini_project(access):
-    """Discover (or onboard) the Code Assist project for a token."""
+    """Discover (or onboard) the Code Assist project for a token.
+
+    Returns the project id on success — which may legitimately be ""
+    for consumer free-tier accounts: Google onboards them onto a
+    managed default project and reports cloudaicompanionProject as an
+    EMPTY object (seen live 2026-10-24). Returns None only when the
+    account could not be onboarded at all."""
     hdr = {"Authorization": "Bearer " + access,
            "Content-Type": "application/json", "User-Agent": "GeminiCLI/0.1"}
     meta = {"ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED",
@@ -2881,7 +2887,7 @@ def _gemini_project(access):
         "POST", hdr, {"metadata": meta})
     if st != 200 or not isinstance(j, dict):
         _gemini_diag("loadCodeAssist", st, j)
-        return ""
+        return None
     proj = _proj_id(j.get("cloudaicompanionProject"))
     if proj:
         return str(proj)
@@ -2894,14 +2900,13 @@ def _gemini_project(access):
             "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
             "POST", hdr, {"tierId": tier, "metadata": meta})
         if st2 == 200 and isinstance(j2, dict) and j2.get("done"):
+            # Onboarding completed. The project may be inline, may
+            # only appear on a fresh loadCodeAssist, or may be the
+            # consumer default (empty value) — all three are success.
             p2 = _proj_id((j2.get("response") or {}).get(
                 "cloudaicompanionProject"))
             if p2:
                 return str(p2)
-            # Onboarded but no project inline: for consumer accounts
-            # the project only appears on a FRESH loadCodeAssist after
-            # onboarding completes (found live 2026-10-24 — onboardUser
-            # returned done=True 4x with no project in the response).
             st4, j4 = _intg_http(
                 "https://cloudcode-pa.googleapis.com/v1internal:"
                 "loadCodeAssist", "POST", hdr, {"metadata": meta})
@@ -2909,14 +2914,10 @@ def _gemini_project(access):
                 p4 = _proj_id(j4.get("cloudaicompanionProject"))
                 if p4:
                     return str(p4)
-            _pv = (j2.get("response") or {}).get("cloudaicompanionProject")
-            print("[gemini-signin] onboard done, project shape: %s"
-                  % ("dict keys=%s" % sorted(_pv.keys())
-                     if isinstance(_pv, dict) else type(_pv).__name__),
-                  flush=True)
+            return ""
         _gemini_diag("onboardUser", st2, j2)
         time.sleep(2)
-    return ""
+    return None
 
 
 
@@ -12450,7 +12451,7 @@ class Handler(BaseHTTPRequestHandler):
                     if st3 == 200 and isinstance(uj, dict):
                         tok["email"] = uj.get("email") or ""
                     tok["project"] = _gemini_project(tok["access"])
-                    if not tok["project"]:
+                    if tok["project"] is None:
                         _err(400, "Google signed you in, but Code "
                                   "Assist did not grant a project — "
                                   "try again in a minute")
