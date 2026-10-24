@@ -768,7 +768,9 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
     }
     _rRaf = requestAnimationFrame(_rStep);
   }
+  var _rRM = window.matchMedia('(prefers-reduced-motion: reduce)');
   function _rSpringTo(target, v){
+    if (_rRM.matches){ _rx = target; _rv = 0; _rTarget = null; _rApply(); return; }
     if (_rx === null) _rx = rail.classList.contains('open') ? 280 : 0;
     if (typeof v === 'number') _rv = v;
     _rTarget = target; _rLast = 0;
@@ -1067,7 +1069,9 @@ function _pStep(ts){
     }
     _pRaf = requestAnimationFrame(_pStep);
 }
+const _pRM = window.matchMedia('(prefers-reduced-motion: reduce)');
 function _pSpringTo(target, v){
+    if (_pRM.matches){ _px = target; _pv = 0; _pTarget = null; _pApply(); return; }
     if (_px === null) _px = _pClosed();
     if (typeof v === 'number') _pv = v;
     _pTarget = target; _pLast = 0;

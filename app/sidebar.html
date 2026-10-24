@@ -118,7 +118,9 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
     }
     _rRaf = requestAnimationFrame(_rStep);
   }
+  var _rRM = window.matchMedia('(prefers-reduced-motion: reduce)');
   function _rSpringTo(target, v){
+    if (_rRM.matches){ _rx = target; _rv = 0; _rTarget = null; _rApply(); return; }
     if (_rx === null) _rx = rail.classList.contains('open') ? 280 : 0;
     if (typeof v === 'number') _rv = v;
     _rTarget = target; _rLast = 0;
