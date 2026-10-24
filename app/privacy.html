@@ -27,6 +27,12 @@
 @media (prefers-contrast: more){button,input,select,textarea{border-color:rgba(255,255,255,.55)!important}}
 html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @media (pointer:coarse){input,textarea,select{font-size:1rem}}
+@view-transition{navigation:auto}
+::view-transition-old(root){animation:vtOut .16s cubic-bezier(.2,.9,.25,1)}
+::view-transition-new(root){animation:vtIn .2s cubic-bezier(.2,.9,.25,1)}
+@keyframes vtOut{to{opacity:0}}
+@keyframes vtIn{from{opacity:0}}
+@media (prefers-reduced-motion: reduce){::view-transition-old(root),::view-transition-new(root){animation:none!important}}
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>

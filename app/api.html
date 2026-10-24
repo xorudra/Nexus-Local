@@ -178,6 +178,13 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
 html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @media (pointer:coarse){input,textarea,select{font-size:1rem}}
 .nexus-sidebar{padding-bottom:env(safe-area-inset-bottom,0px);overscroll-behavior:contain}
+@view-transition{navigation:auto}
+::view-transition-old(root){animation:vtOut .16s cubic-bezier(.2,.9,.25,1)}
+::view-transition-new(root){animation:vtIn .2s cubic-bezier(.2,.9,.25,1)}
+@keyframes vtOut{to{opacity:0}}
+@keyframes vtIn{from{opacity:0}}
+@media (prefers-reduced-motion: reduce){::view-transition-old(root),::view-transition-new(root){animation:none!important}}
+.nexus-sidebar{view-transition-name:nexus-rail}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>
@@ -389,6 +396,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   });
 })();
 </script>
+<script type="speculationrules">{"prerender":[{"urls":["/dashboard","/connections","/integrations","/mykeys"],"eagerness":"moderate"}]}</script>
 
 
 <div class="wrap">

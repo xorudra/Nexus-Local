@@ -601,6 +601,11 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 #undo-toast.show{opacity:1;transform:translateX(-50%);pointer-events:auto}
 @media (pointer:coarse){.chat-del,#chats-close{min-width:2.75rem;min-height:2.75rem;display:inline-flex;align-items:center;justify-content:center}.cs-opt{min-height:2.75rem}}
 #undo-toast button{background:none;border:none;color:#fff;font-weight:700;cursor:pointer;font-size:.875rem;padding:.25rem .5rem}
+#chat-menu{position:fixed;z-index:1750;background:rgba(18,18,22,.94);backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);border:1px solid rgba(255,255,255,.2);border-radius:0.875rem;padding:0.375rem;min-width:10.5rem;box-shadow:0 16px 44px rgba(0,0,0,.55);display:none;animation:csIn .16s cubic-bezier(.2,.9,.25,1);transform-origin:top left}
+#chat-menu.open{display:block}
+#chat-menu button{display:flex;width:100%;background:none;border:none;color:#f2f2f2;font-size:.875rem;padding:.5625rem .75rem;border-radius:.5rem;cursor:pointer;text-align:left}
+#chat-menu button:hover{background:rgba(255,255,255,.09)}
+#chat-menu button.danger{color:#ff9d97}
 #chats-edge{display:none}
 @media (max-width:68.6875em){#chats-edge{display:block;position:fixed;left:0;top:70px;bottom:0;width:22px;z-index:1400;touch-action:none}}
 #chats-panel{position:fixed;top:0;left:0;bottom:0;width:min(320px,86vw);background:rgba(12,12,16,.88);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);border-right:1px solid rgba(255,255,255,.09);z-index:1501;transform:translateX(-105%);will-change:transform;display:flex;flex-direction:column;padding:1rem;gap:0.625rem}
@@ -724,6 +729,13 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 #undo-toast{bottom:calc(1.625rem + env(safe-area-inset-bottom,0px))}
 #chats-panel{padding-bottom:env(safe-area-inset-bottom,0px)}
 #chats-list,.thread{overscroll-behavior:contain}
+@view-transition{navigation:auto}
+::view-transition-old(root){animation:vtOut .16s cubic-bezier(.2,.9,.25,1)}
+::view-transition-new(root){animation:vtIn .2s cubic-bezier(.2,.9,.25,1)}
+@keyframes vtOut{to{opacity:0}}
+@keyframes vtIn{from{opacity:0}}
+@media (prefers-reduced-motion: reduce){::view-transition-old(root),::view-transition-new(root){animation:none!important}}
+.nexus-sidebar{view-transition-name:nexus-rail}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>
@@ -935,6 +947,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   });
 })();
 </script>
+<script type="speculationrules">{"prerender":[{"urls":["/dashboard","/connections","/integrations","/mykeys"],"eagerness":"moderate"}]}</script>
 
 
 <div class="header">
@@ -1025,6 +1038,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 <div id="chats-backdrop"></div>
 <div id="chats-edge" aria-hidden="true"></div>
 <div id="undo-toast" role="status"><span id="undo-label">Chat deleted</span><button id="undo-btn" type="button">Undo</button></div>
+<div id="chat-menu" role="menu"><button type="button" data-act="open" role="menuitem">Open</button><button type="button" data-act="rename" role="menuitem">Rename</button><button type="button" data-act="delete" role="menuitem" class="danger">Delete</button></div>
 <div id="sr-live" aria-live="polite" role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap"></div>
 <aside id="chats-panel">
     <div class="chats-head"><span>Your chats</span><button id="chats-close" title="Close">✕</button></div>
@@ -1096,7 +1110,14 @@ async function refreshChatList(){
         d.className = 'chat-item' + (c.id === currentChatId ? ' active' : '');
         const when = new Date((c.updated || c.ts || 0) * 1000).toLocaleDateString(undefined, {month:'short', day:'numeric'});
         d.innerHTML = '<div class="chat-item-main"><div class="chat-item-title">' + esc(c.title || 'Chat') + '</div><div class="chat-item-sub">' + when + ' · ' + (c.count || 0) + ' messages</div></div><button class="chat-del" title="Delete this chat">✕</button>';
-        d.querySelector('.chat-item-main').addEventListener('click', () => openChat(c.id));
+        d.querySelector('.chat-item-main').addEventListener('click', () => { if (window._lpAt && Date.now() - window._lpAt < 600) return; openChat(c.id); });
+        let lpTimer = null;
+        d.addEventListener('pointerdown', (e) => {
+            clearTimeout(lpTimer);
+            lpTimer = setTimeout(() => { window._lpAt = Date.now(); buzz(10); showChatMenu(e.clientX, e.clientY, c, d); }, 480);
+        });
+        ['pointerup','pointermove','pointercancel'].forEach(ev => d.addEventListener(ev, () => clearTimeout(lpTimer)));
+        d.addEventListener('contextmenu', (e) => { e.preventDefault(); showChatMenu(e.clientX, e.clientY, c, d); });
         d.querySelector('.chat-del').addEventListener('click', async (e) => {
             e.stopPropagation();
             buzz(12);
@@ -1118,6 +1139,41 @@ function announce(msg){
     setTimeout(() => { el.textContent = msg; }, 40);
 }
 function buzz(ms){ try{ if (navigator.vibrate) navigator.vibrate(ms || 8); }catch(e){} }
+let _menuChat = null, _menuItem = null;
+function showChatMenu(x, y, c, itemEl){
+    _menuChat = c; _menuItem = itemEl;
+    const m = document.getElementById('chat-menu');
+    m.classList.add('open');
+    m.style.left = Math.min(x, window.innerWidth - 188) + 'px';
+    m.style.top = Math.min(y, window.innerHeight - 158) + 'px';
+}
+function hideChatMenu(){
+    document.getElementById('chat-menu').classList.remove('open');
+    _menuChat = null; _menuItem = null;
+}
+document.getElementById('chat-menu').addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b || !_menuChat) return;
+    const c = _menuChat, itemEl = _menuItem;
+    hideChatMenu();
+    if (b.dataset.act === 'open') openChat(c.id);
+    else if (b.dataset.act === 'delete' && itemEl) itemEl.querySelector('.chat-del').click();
+    else if (b.dataset.act === 'rename') {
+        const name = await askModal({title: 'Rename chat', label: 'New name for this chat', placeholder: c.title || 'Chat', okText: 'Rename'});
+        if (!name) return;
+        const full = await chatsApi('get', {id: c.id});
+        if (full && full.chat) {
+            await chatsApi('save', {id: c.id, messages: full.chat.messages, title: name});
+            if (c.id === currentChatId) setChatTitle(name);
+            refreshChatList();
+            announce('Chat renamed');
+        }
+    }
+});
+document.addEventListener('pointerdown', (e) => {
+    const m = document.getElementById('chat-menu');
+    if (m.classList.contains('open') && !m.contains(e.target)) hideChatMenu();
+});
 let _undoTimer = null;
 function showUndoToast(chat, wasCurrent){
     const bar = document.getElementById('undo-toast');
@@ -1291,6 +1347,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (document.getElementById('ask-backdrop').classList.contains('open')) return; // modal handles its own Escape
     if (attachMenu.style.display !== 'none') { attachMenu.style.display = 'none'; return; }
+    if (document.getElementById('chat-menu').classList.contains('open')) { hideChatMenu(); return; }
     if (_px !== null && _px > _pClosed() + 10) closeChats();
 });
 
