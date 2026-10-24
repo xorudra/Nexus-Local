@@ -12,6 +12,17 @@ You sign in through Caddy over HTTPS and land on the one Nexus app. The app hold
 
 **Interactive:** open [`docs/3d/index.html`](docs/3d/index.html) in a browser — drag to orbit, scroll to zoom.
 
+### State and persistence
+
+| Data | Where it lives | Notes |
+| --- | --- | --- |
+| Provider keys | `keys.enc` | AES-256-GCM, PBKDF2 (600,000 iterations). Never committed. Decrypted into memory only after the admin logs in. |
+| Settings | `app/settings.json` and `app/settings.enc` | The plaintext working copy stays off git. The encrypted mirror is what syncs. |
+| Friend accounts & access | `app/users.enc`, `app/access.enc` (plaintext `app/access.json` stays off git) | Each friend's vault and saved chats are encrypted with that friend's own password. The encrypted blobs are what sync to GitHub. |
+| Usage log | `app/usage.jsonl` | Plain file on the server's disk. Not part of the encrypted sync, so it exists only on the machine that wrote it. |
+| Audit log | `app/audit.jsonl` | Plain file, git-ignored. Same as the usage log. |
+| Sessions | Memory | Cleared on every restart. |
+
 ## What it does
 
 - **One login, 23 lanes** — Gemini, ChatGPT-class and Claude-class models, Groq, OpenRouter free models, NVIDIA, Mistral, Cohere and more, all behind a single account. Pick a lane yourself, or let Auto route (Quality first / Save tokens).
