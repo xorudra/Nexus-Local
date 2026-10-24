@@ -1040,7 +1040,7 @@ function renderUsage(data) {
             limitText = '<div class="trend-limit">Limit: ' + drl + '/day</div>';
         }
         div.innerHTML = '<div class="icon">◆</div><div>'
-            + '<h3 class="provider-name">' + escapeHtml(p.display_name || p.provider) + '</h3>'
+            + '<h2 class="provider-name">' + escapeHtml(p.display_name || p.provider) + '</h3>'
             + '<div class="usage">Key: <span class="pill' + (p.key_configured ? '' : (KEYLESS.includes(p.provider) ? ' keyless' : ' missing')) + '">'
             + (p.key_configured ? '✓' : (KEYLESS.includes(p.provider) ? '○ keyless' : '✗')) + '</span></div>'
             + (p.down ? '<div class="usage">Status: <span class="pill down">⚠ having problems</span></div>' : '')
