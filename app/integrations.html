@@ -188,7 +188,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 @keyframes grainShift{0%,100%{transform:translate(0,0)}12%{transform:translate(-3%,-5%)}25%{transform:translate(-8%,3%)}37%{transform:translate(4%,-8%)}50%{transform:translate(-3%,8%)}62%{transform:translate(-8%,3%)}75%{transform:translate(6%,0)}87%{transform:translate(0,6%)}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
 @keyframes batDrift{0%,100%{transform:translateY(-50%) translateX(0)}50%{transform:translateY(-60%) translateX(-26px)}}
-@media (max-width: 640px) {
+@media (max-width: 40em) {
     .page-header { padding: 1.5rem 1.125rem 0; }
     .page-header h1 { font-size:1.6875rem; }
     .toolbar { padding: 1.125rem 1.125rem 0; }
@@ -196,7 +196,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
     .count-note { display: none; }
     .grid { padding: 1.125rem 1.125rem 2.75rem; grid-template-columns: 1fr; }
 }
-@media (max-width:1099px){
+@media (max-width:68.6875em){
     /* the floating menu button (sidebar drawer) overlaps the page
        header below the pinned-rail width — clear it */
     .page-header{padding-left:4.375rem}
@@ -277,9 +277,9 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 .addrow .nm{font-size:0.90625rem;color:#fff}
 .addrow .st{font-size:0.75rem;color:#8e8e8e;font-family:'JetBrains Mono',monospace}
 .addrow button{margin-left:auto}
-@media (max-width:1100px){.igrid{grid-template-columns:repeat(2,1fr)}}
-@media (max-width:680px){.igrid{grid-template-columns:1fr}.wrap2{padding:0.875rem 0.875rem 1.5rem}.addbtn{margin-left:0}}
-@media (min-width:1100px){body{width:auto}}
+@media (max-width:68.75em){.igrid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:42.5em){.igrid{grid-template-columns:1fr}.wrap2{padding:0.875rem 0.875rem 1.5rem}.addbtn{margin-left:0}}
+@media (min-width:68.75em){body{width:auto}}
 .sect{font-size:1.1875rem;font-weight:600;color:#fff;margin:1.5rem 0 0.25rem}
 #aiSect .sect{margin-top:0.125rem}
 .sectsub{font-size:0.84375rem;color:#9a9aa2;margin:0 0 0.875rem;line-height:1.55;max-width:780px}
@@ -322,7 +322,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 .nexus-toggle{width:30px!important;height:30px!important;padding:0!important}
 .nexus-toggle svg{width:15px!important;height:15px!important;flex:none}
 .nexus-sidebar a.nx-item svg{width:17px!important;height:17px!important;flex:none}
-@media (min-width:1100px){
+@media (min-width:68.75em){
   body{margin-left:260px;transition:margin-left .2s ease}
   html.nx-min body{margin-left:76px}
   html.nx-min .nexus-sidebar{width:76px}
@@ -332,7 +332,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
   html.nx-min .nexus-sidebar a.nx-item{justify-content:center;padding:0.625rem 0}
   html.nx-min .nexus-glabel{padding:0.625rem 0 0.125rem;text-align:center}
 }
-@media (max-width:1099px){
+@media (max-width:68.6875em){
   .nexus-sidebar{left:-280px}
   .nexus-sidebar.open{left:0}
   .nexus-burger{display:flex}
@@ -347,6 +347,8 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+:focus-visible{outline:2px solid #f2f2f2;outline-offset:2px}
+@media (prefers-contrast: more){button,input,select,textarea{border-color:rgba(255,255,255,.55)!important}}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>

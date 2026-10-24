@@ -522,7 +522,7 @@ a.byok-link:hover {
 }
 
 /* Mobile */
-@media (max-width: 640px) {
+@media (max-width: 40em) {
     .header {
         padding: 1rem 1rem 1rem 4.375rem;
     }
@@ -601,7 +601,7 @@ background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/
     margin: 0;
 }
 
-@media (max-width:1099px){
+@media (max-width:68.6875em){
     /* the floating menu button (sidebar drawer) overlaps the page
        header below the pinned-rail width — clear it */
     .page-header{padding-left:4.375rem}
@@ -650,7 +650,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 .nexus-toggle{width:30px!important;height:30px!important;padding:0!important}
 .nexus-toggle svg{width:15px!important;height:15px!important;flex:none}
 .nexus-sidebar a.nx-item svg{width:17px!important;height:17px!important;flex:none}
-@media (min-width:1100px){
+@media (min-width:68.75em){
   body{margin-left:260px;transition:margin-left .2s ease}
   html.nx-min body{margin-left:76px}
   html.nx-min .nexus-sidebar{width:76px}
@@ -660,7 +660,7 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
   html.nx-min .nexus-sidebar a.nx-item{justify-content:center;padding:0.625rem 0}
   html.nx-min .nexus-glabel{padding:0.625rem 0 0.125rem;text-align:center}
 }
-@media (max-width:1099px){
+@media (max-width:68.6875em){
   .nexus-sidebar{left:-280px}
   .nexus-sidebar.open{left:0}
   .nexus-burger{display:flex}
@@ -675,6 +675,8 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+:focus-visible{outline:2px solid #f2f2f2;outline-offset:2px}
+@media (prefers-contrast: more){button,input,select,textarea{border-color:rgba(255,255,255,.55)!important}}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>

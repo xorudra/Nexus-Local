@@ -378,7 +378,7 @@ body {
 }
 
 /* Mobile */
-@media (max-width: 640px) {
+@media (max-width: 40em) {
     .header {
         padding: 1rem 1rem 1rem 4.375rem;
     }
@@ -493,7 +493,7 @@ button.trace-line{cursor:pointer}
 
 
 
-@media(max-width:560px){
+@media(max-width:35em){
 
 .msg{max-width:94%}
 
@@ -572,7 +572,7 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 #composer-send:disabled{opacity:.35;cursor:wait;box-shadow:none}
 #attach-preview{margin-top:0.625rem}
 #attach-preview:empty{margin-top:0}
-@media(max-width:560px){
+@media(max-width:35em){
 .pill-pickers{grid-template-columns:1fr 1fr}
 .composer{margin:0.625rem;padding:0.875rem}
 .composer h2{font-size:0.875rem;margin-bottom:0.5rem}
@@ -599,9 +599,10 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 #chats-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;z-index:1500}
 #undo-toast{position:fixed;left:50%;bottom:1.625rem;transform:translateX(-50%) translateY(1.25rem);opacity:0;pointer-events:none;background:rgba(18,18,22,.92);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:1px solid rgba(255,255,255,.2);color:#f2f2f2;border-radius:999px;padding:.625rem .75rem .625rem 1.125rem;display:flex;gap:.875rem;align-items:center;z-index:1700;transition:opacity .25s ease,transform .25s cubic-bezier(.2,.9,.25,1);font-size:.875rem;box-shadow:0 14px 40px rgba(0,0,0,.55)}
 #undo-toast.show{opacity:1;transform:translateX(-50%);pointer-events:auto}
+@media (pointer:coarse){.chat-del,#chats-close{min-width:2.75rem;min-height:2.75rem;display:inline-flex;align-items:center;justify-content:center}.cs-opt{min-height:2.75rem}}
 #undo-toast button{background:none;border:none;color:#fff;font-weight:700;cursor:pointer;font-size:.875rem;padding:.25rem .5rem}
 #chats-edge{display:none}
-@media (max-width:1099px){#chats-edge{display:block;position:fixed;left:0;top:70px;bottom:0;width:22px;z-index:1400;touch-action:none}}
+@media (max-width:68.6875em){#chats-edge{display:block;position:fixed;left:0;top:70px;bottom:0;width:22px;z-index:1400;touch-action:none}}
 #chats-panel{position:fixed;top:0;left:0;bottom:0;width:min(320px,86vw);background:rgba(12,12,16,.88);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);border-right:1px solid rgba(255,255,255,.09);z-index:1501;transform:translateX(-105%);will-change:transform;display:flex;flex-direction:column;padding:1rem;gap:0.625rem}
 .chats-head{display:flex;justify-content:space-between;align-items:center;color:#fff;font-weight:600;font-size:1rem}
 #chats-close{background:none;border:none;color:#8e8e8e;font-size:1rem;cursor:pointer;width:auto}
@@ -679,7 +680,7 @@ try{ if(sessionStorage.getItem('nexus_terms_notice')==='1'){ var _tn=document.ge
 .nexus-toggle{width:30px!important;height:30px!important;padding:0!important}
 .nexus-toggle svg{width:15px!important;height:15px!important;flex:none}
 .nexus-sidebar a.nx-item svg{width:17px!important;height:17px!important;flex:none}
-@media (min-width:1100px){
+@media (min-width:68.75em){
   body{margin-left:260px;transition:margin-left .2s ease}
   html.nx-min body{margin-left:76px}
   html.nx-min .nexus-sidebar{width:76px}
@@ -690,7 +691,7 @@ try{ if(sessionStorage.getItem('nexus_terms_notice')==='1'){ var _tn=document.ge
   html.nx-min .nexus-sidebar a.nx-item{justify-content:center;padding:0.625rem 0}
   html.nx-min .nexus-glabel{padding:0.625rem 0 0.125rem;text-align:center}
 }
-@media (max-width:1099px){
+@media (max-width:68.6875em){
   .nexus-sidebar{left:-280px;will-change:transform}
   .nexus-sidebar.open{left:0}
   .nexus-burger{display:flex}
@@ -708,6 +709,8 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
 
 @media (prefers-reduced-transparency: reduce){#chats-panel,.input-pill,.cs-menu,#attach-menu{backdrop-filter:none;-webkit-backdrop-filter:none;background:#0c0c10}}
 @media (prefers-contrast: more){#chats-panel,.input-pill,.cs-menu,#attach-menu{border-color:rgba(255,255,255,.55)!important}}
+:focus-visible{outline:2px solid #f2f2f2;outline-offset:2px}
+@media (prefers-contrast: more){button,input,select,textarea{border-color:rgba(255,255,255,.55)!important}}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>
@@ -749,7 +752,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
     // Desktop: spring the rail width + body margin from the live
     // value (interruptible — toggling mid-flight reverses from where
     // it is). Mobile and reduced-motion keep the instant toggle.
-    if (window.innerWidth < 1100 ||
+    if (!window.matchMedia('(min-width:68.75em)').matches ||
         window.matchMedia('(prefers-reduced-motion: reduce)').matches){
       root.classList.toggle('nx-min',min); return;
     }
@@ -785,7 +788,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
   // velocity, and can be grabbed mid-flight — same model as the
   // dashboard's chats panel. Desktop keeps the class toggle.
   var _rx = null, _rv = 0, _rTarget = null, _rRaf = null, _rLast = 0;
-  function _rMobile(){ return window.innerWidth <= 1099; }
+  function _rMobile(){ return window.matchMedia('(max-width:68.6875em)').matches; }
   function _rApply(){
     rail.style.transform = 'translateX(' + _rx + 'px)';
     overlay.style.opacity = Math.min(1, Math.max(0, _rx / 280)).toFixed(3);
@@ -1047,6 +1050,7 @@ async function refreshChatList(){
         d.querySelector('.chat-item-main').addEventListener('click', () => openChat(c.id));
         d.querySelector('.chat-del').addEventListener('click', async (e) => {
             e.stopPropagation();
+            buzz(12);
             const full = await chatsApi('get', {id: c.id});
             await chatsApi('delete', {id: c.id});
             const wasCurrent = c.id === currentChatId;
@@ -1057,6 +1061,7 @@ async function refreshChatList(){
         box.appendChild(d);
     });
 }
+function buzz(ms){ try{ if (navigator.vibrate) navigator.vibrate(ms || 8); }catch(e){} }
 let _undoTimer = null;
 function showUndoToast(chat, wasCurrent){
     const bar = document.getElementById('undo-toast');
@@ -1065,6 +1070,7 @@ function showUndoToast(chat, wasCurrent){
     clearTimeout(_undoTimer);
     _undoTimer = setTimeout(() => bar.classList.remove('show'), 7000);
     document.getElementById('undo-btn').onclick = async () => {
+        buzz(8);
         clearTimeout(_undoTimer);
         bar.classList.remove('show');
         // The save endpoint mints a fresh id for a chat it no longer
@@ -1183,7 +1189,7 @@ function closeChats(){ _pSpringTo(_pClosed()); }
     // the panel follows the finger, then springs on release velocity.
     bind(document.getElementById('chats-edge'),
          () => { if (_px === null) _px = _pClosed(); return _pClosed(); },
-         () => window.innerWidth <= 1099 && (_px === null || _px <= _pClosed() + 10));
+         () => window.matchMedia('(max-width:68.6875em)').matches && (_px === null || _px <= _pClosed() + 10));
 })();
 document.getElementById('chats-open').addEventListener('click', openChats);
 document.getElementById('chats-close').addEventListener('click', closeChats);
@@ -1852,6 +1858,7 @@ composerMsg.addEventListener('input', () => {
     composerMsg.style.height = Math.min(composerMsg.scrollHeight, 130) + 'px';
 });
 composerSend.addEventListener('click', async () => {
+    buzz(8);
     const provider = composerProviders.value;
     const model = document.getElementById('composer-model').value;
     const msg = composerMsg.value.trim();
