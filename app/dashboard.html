@@ -1138,7 +1138,7 @@ function announce(msg){
     el.textContent = '';
     setTimeout(() => { el.textContent = msg; }, 40);
 }
-function buzz(ms){ try{ if (navigator.vibrate) navigator.vibrate(ms || 8); }catch(e){} }
+function buzz(ms){ try{ if (window.NexusNative && NexusNative.vibrate) { NexusNative.vibrate(ms || 8); return; } if (navigator.vibrate) navigator.vibrate(ms || 8); }catch(e){} }
 let _menuChat = null, _menuItem = null;
 function showChatMenu(x, y, c, itemEl){
     _menuChat = c; _menuItem = itemEl;
