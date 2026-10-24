@@ -718,7 +718,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
 
-@media (prefers-reduced-transparency: reduce){#chats-panel,.input-pill,.cs-menu,#attach-menu{backdrop-filter:none;-webkit-backdrop-filter:none;background:#0c0c10}#chats-backdrop{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.78)}}
+@media (prefers-reduced-transparency: reduce){#chats-panel,.input-pill,.cs-menu,#attach-menu,#chat-menu,#undo-toast{backdrop-filter:none;-webkit-backdrop-filter:none;background:#0c0c10}#chats-backdrop{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.78)}}
 @media (prefers-contrast: more){#chats-panel,.input-pill,.cs-menu,#attach-menu{border-color:rgba(255,255,255,.55)!important}}
 :focus-visible{outline:2px solid #f2f2f2;outline-offset:2px}
 @media (prefers-contrast: more){button,input,select,textarea{border-color:rgba(255,255,255,.55)!important}}
@@ -745,7 +745,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
       <svg viewBox="0 0 100 36" style="width:26px;height:11px;flex-shrink:0" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#f2f2f2"/></svg>
       <span class="bt">NEXUS</span>
     </a>
-    <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar" aria-keyshortcuts="Control+b"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
+    <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar" aria-keyshortcuts="Control+b" aria-expanded="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
   </div>
   <div class="nexus-nav">
     <div class="nexus-glabel">Main</div>
@@ -772,6 +772,11 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   function nxBuzz(ms){ try{ if(window.NexusNative && NexusNative.vibrate){ NexusNative.vibrate(ms || 8); return; } if(navigator.vibrate) navigator.vibrate(ms || 8); }catch(e){} }
   // Restore the collapsed state before the page settles.
   try{ if(localStorage.getItem('nexus-rail-min')==='1') document.documentElement.classList.add('nx-min'); }catch(e){}
+  // Keep the collapse toggle's expanded state honest for assistive
+  // tech: one observer covers clicks, Ctrl+B, drag and the spring.
+  function syncToggleExpanded(){ if(toggle) toggle.setAttribute('aria-expanded', document.documentElement.classList.contains('nx-min') ? 'false' : 'true'); }
+  syncToggleExpanded();
+  if (window.MutationObserver) new MutationObserver(syncToggleExpanded).observe(document.documentElement, {attributes:true, attributeFilter:['class']});
   var _minAnim = null;
   function setMin(min){
     try{ localStorage.setItem('nexus-rail-min',min?'1':'0'); }catch(e){}
@@ -931,7 +936,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   // Active item for the current page (same rule as before).
   var p=location.pathname;
   document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
-    if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
+    if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page){a.classList.add('active');a.setAttribute('aria-current','page');}
   });
   // Role-gated items (same behaviour as before): admins see Update
   // Keys / Admin / API Access; friends see My Keys instead.
@@ -973,7 +978,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
     <div class="eyebrow">TASK COMPOSER</div>
     <h2>Chat with <span class="accent">any</span> provider</h2>
     <div class="chat-bar">
-        <button id="chats-open" title="Saved chats">☰ Chats <span id="chats-count"></span></button>
+        <button id="chats-open" title="Saved chats" aria-expanded="false" aria-controls="chats-panel">☰ Chats <span id="chats-count"></span></button>
         <span id="chat-title">New chat</span>
         <button id="chat-new" title="Start a new chat">＋ New</button>
     </div>
@@ -992,7 +997,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
         <div class="input-pill">
             <div class="input-row">
             <div class="attach-wrap">
-                <button type="button" id="attach-plus" title="Attach">+</button>
+                <button type="button" id="attach-plus" title="Attach" aria-expanded="false" aria-controls="attach-menu">+</button>
                 <div id="attach-menu" style="display:none">
                     <div class="attach-title">Add attachment</div>
                     <button class="attach-opt" data-type="camera"><span class="dot" style="background:#f2f2f2"></span><span><div>Camera</div><div class="opt-sub">Take a photo &middot; 8 MB max</div></span></button>
@@ -1257,8 +1262,8 @@ function _pSpringTo(target, v){
     _pTarget = target; _pLast = 0;
     if (!_pRaf) _pRaf = requestAnimationFrame(_pStep);
 }
-function openChats(){ _pSpringTo(0); refreshChatList(); }
-function closeChats(){ _pSpringTo(_pClosed()); }
+function openChats(){ _pSpringTo(0); refreshChatList(); document.getElementById('chats-open').setAttribute('aria-expanded','true'); }
+function closeChats(){ _pSpringTo(_pClosed()); document.getElementById('chats-open').setAttribute('aria-expanded','false'); }
 (function(){
     let drag = null;
     function begin(e, startPx){
@@ -1285,6 +1290,7 @@ function closeChats(){ _pSpringTo(_pClosed()); }
         const projected = _px + v * 0.499; // momentum projection (Apple's exponential-decay form)
         const target = projected < _pClosed() / 2 ? _pClosed() : 0;
         if (target === 0) refreshChatList();
+        document.getElementById('chats-open').setAttribute('aria-expanded', target === 0 ? 'true' : 'false');
         _pSpringTo(target, v); // velocity handoff
     }
     function bind(el, startPxFn, guard){
@@ -1319,8 +1325,10 @@ refreshChatList();
 
 // ===== In-theme modal (replaces the browser's basic prompt/alert) =====
 let _askResolve = null;
+let _askReturnTo = null;
 function askModal(opts){
     return new Promise(res => {
+        _askReturnTo = document.activeElement;
         _askResolve = res;
         document.getElementById('ask-title').textContent = opts.title || 'Confirm';
         document.getElementById('ask-label').textContent = opts.label || '';
@@ -1337,6 +1345,7 @@ function askModal(opts){
 }
 function _askDone(val){
     document.getElementById('ask-backdrop').classList.remove('open');
+    if (_askReturnTo && _askReturnTo.focus) { try { _askReturnTo.focus(); } catch(e){} _askReturnTo = null; }
     if (_askResolve) { const r = _askResolve; _askResolve = null; r(val); }
 }
 document.getElementById('ask-cancel').addEventListener('click', () => _askDone(null));
@@ -1349,6 +1358,14 @@ document.getElementById('ask-input').addEventListener('keydown', (e) => {
     if (e.key === 'Escape') _askDone(null);
 });
 document.getElementById('ask-backdrop').addEventListener('click', (e) => { if (e.target.id === 'ask-backdrop') _askDone(null); });
+document.addEventListener('keydown', (e) => { // Tab trap inside the modal
+    if (e.key !== 'Tab' || !document.getElementById('ask-backdrop').classList.contains('open')) return;
+    const card = document.getElementById('ask-card');
+    const els = Array.from(card.querySelectorAll('button, input')).filter(el => el.offsetParent !== null);
+    if (!els.length) return;
+    if (e.shiftKey && document.activeElement === els[0]) { e.preventDefault(); els[els.length - 1].focus(); }
+    else if (!e.shiftKey && document.activeElement === els[els.length - 1]) { e.preventDefault(); els[0].focus(); }
+});
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (document.getElementById('ask-backdrop').classList.contains('open')) return; // modal handles its own Escape
@@ -1875,9 +1892,10 @@ if (attachPlus && attachMenu) {
     attachPlus.addEventListener('click', (e) => {
         e.stopPropagation();
         attachMenu.style.display = attachMenu.style.display === 'none' ? 'block' : 'none';
+        attachPlus.setAttribute('aria-expanded', attachMenu.style.display === 'block' ? 'true' : 'false');
     });
     document.addEventListener('click', (e) => {
-        if (!attachMenu.contains(e.target)) attachMenu.style.display = 'none';
+        if (!attachMenu.contains(e.target)) { attachMenu.style.display = 'none'; attachPlus.setAttribute('aria-expanded','false'); }
     });
     // Hover effect for options
     document.querySelectorAll('.attach-opt').forEach(btn => {

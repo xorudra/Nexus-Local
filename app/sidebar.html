@@ -82,7 +82,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
       <svg viewBox="0 0 100 36" style="width:26px;height:11px;flex-shrink:0" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#f2f2f2"/></svg>
       <span class="bt">NEXUS</span>
     </a>
-    <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar" aria-keyshortcuts="Control+b"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
+    <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar" aria-keyshortcuts="Control+b" aria-expanded="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
   </div>
   <div class="nexus-nav">
     <div class="nexus-glabel">Main</div>
@@ -109,6 +109,11 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   function nxBuzz(ms){ try{ if(window.NexusNative && NexusNative.vibrate){ NexusNative.vibrate(ms || 8); return; } if(navigator.vibrate) navigator.vibrate(ms || 8); }catch(e){} }
   // Restore the collapsed state before the page settles.
   try{ if(localStorage.getItem('nexus-rail-min')==='1') document.documentElement.classList.add('nx-min'); }catch(e){}
+  // Keep the collapse toggle's expanded state honest for assistive
+  // tech: one observer covers clicks, Ctrl+B, drag and the spring.
+  function syncToggleExpanded(){ if(toggle) toggle.setAttribute('aria-expanded', document.documentElement.classList.contains('nx-min') ? 'false' : 'true'); }
+  syncToggleExpanded();
+  if (window.MutationObserver) new MutationObserver(syncToggleExpanded).observe(document.documentElement, {attributes:true, attributeFilter:['class']});
   var _minAnim = null;
   function setMin(min){
     try{ localStorage.setItem('nexus-rail-min',min?'1':'0'); }catch(e){}
@@ -268,7 +273,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   // Active item for the current page (same rule as before).
   var p=location.pathname;
   document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
-    if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page)a.classList.add('active');
+    if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page){a.classList.add('active');a.setAttribute('aria-current','page');}
   });
   // Role-gated items (same behaviour as before): admins see Update
   // Keys / Admin / API Access; friends see My Keys instead.
