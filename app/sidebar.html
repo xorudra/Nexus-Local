@@ -63,6 +63,9 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
 }
 :focus-visible{outline:2px solid #f2f2f2;outline-offset:2px}
 @media (prefers-contrast: more){button,input,select,textarea{border-color:rgba(255,255,255,.55)!important}}
+html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+@media (pointer:coarse){input,textarea,select{font-size:1rem}}
+.nexus-sidebar{padding-bottom:env(safe-area-inset-bottom,0px);overscroll-behavior:contain}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>

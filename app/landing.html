@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Nexus — Chat with every AI, from one Nexus</title>
 <meta name="description" content="Nexus gathers your AI providers into one private dashboard — shared memory, automatic failover, and a trace that shows exactly who answered.">
 <meta property="og:title" content="Nexus">
@@ -154,6 +154,9 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
 @media (prefers-contrast: more){.nav{border-bottom-color:rgba(255,255,255,.45)}}
 :focus-visible{outline:2px solid #f2f2f2;outline-offset:2px}
 @media (prefers-contrast: more){button,input,select,textarea{border-color:rgba(255,255,255,.55)!important}}
+html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+@media (pointer:coarse){input,textarea,select{font-size:1rem}}
+.nav{padding-top:calc(0.875rem + env(safe-area-inset-top,0px))}
 </style>
 </head>
 <body>
