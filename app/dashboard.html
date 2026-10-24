@@ -596,7 +596,7 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 #chat-new:hover{background:#56c8f9;border-color:transparent}
 .picker:focus{border-color:rgba(56,189,248,.55);outline:none}
 #chat-title{flex:1;text-align:center;color:#8e8e8e;font-size:0.8125rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#chats-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;z-index:1500}
+#chats-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;z-index:1500;backdrop-filter:blur(3px) saturate(120%);-webkit-backdrop-filter:blur(3px) saturate(120%)}
 #undo-toast{position:fixed;left:50%;bottom:1.625rem;transform:translateX(-50%) translateY(1.25rem);opacity:0;pointer-events:none;background:rgba(18,18,22,.92);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:1px solid rgba(255,255,255,.2);color:#f2f2f2;border-radius:999px;padding:.625rem .75rem .625rem 1.125rem;display:flex;gap:.875rem;align-items:center;z-index:1700;transition:opacity .25s cubic-bezier(.2,.9,.25,1),transform .25s cubic-bezier(.2,.9,.25,1);font-size:.875rem;box-shadow:0 14px 40px rgba(0,0,0,.55)}
 #undo-toast.show{opacity:1;transform:translateX(-50%);pointer-events:auto}
 @media (pointer:coarse){.chat-del,#chats-close{min-width:2.75rem;min-height:2.75rem;display:inline-flex;align-items:center;justify-content:center}.cs-opt{min-height:2.75rem}}
@@ -656,7 +656,8 @@ try{ if(sessionStorage.getItem('nexus_terms_notice')==='1'){ var _tn=document.ge
    footer, collapsible-to-icons) in the original Purple Gotham theme.
    Desktop >=1100px: pinned rail, content offset. Below: slide-over. */
 .nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:1.125rem;line-height:1;display:none;align-items:center;justify-content:center}
-.nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:block;opacity:0;pointer-events:none;transition:opacity .25s cubic-bezier(.2,.9,.25,1)}
+.nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:block;opacity:0;pointer-events:none;transition:opacity .25s cubic-bezier(.2,.9,.25,1);backdrop-filter:blur(3px) saturate(120%);-webkit-backdrop-filter:blur(3px) saturate(120%)}
+@media (prefers-reduced-transparency: reduce){.nexus-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.78)}}
 .nexus-overlay.show{opacity:1;pointer-events:auto}
 .nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s cubic-bezier(.2,.9,.25,1),left .25s cubic-bezier(.2,.9,.25,1)}
 .nexus-side-head{display:flex;align-items:center;gap:0.5625rem;padding:1rem 0.75rem 0.75rem}
@@ -712,7 +713,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
 
-@media (prefers-reduced-transparency: reduce){#chats-panel,.input-pill,.cs-menu,#attach-menu{backdrop-filter:none;-webkit-backdrop-filter:none;background:#0c0c10}}
+@media (prefers-reduced-transparency: reduce){#chats-panel,.input-pill,.cs-menu,#attach-menu{backdrop-filter:none;-webkit-backdrop-filter:none;background:#0c0c10}#chats-backdrop{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.78)}}
 @media (prefers-contrast: more){#chats-panel,.input-pill,.cs-menu,#attach-menu{border-color:rgba(255,255,255,.55)!important}}
 :focus-visible{outline:2px solid #f2f2f2;outline-offset:2px}
 @media (prefers-contrast: more){button,input,select,textarea{border-color:rgba(255,255,255,.55)!important}}
