@@ -2856,6 +2856,20 @@ def _gemini_diag(what, st, j):
     print("[gemini-signin] %s -> %s %s" % (what, st, detail), flush=True)
 
 
+def _proj_id(v):
+    """Extract a project id from Google's cloudaicompanionProject value,
+    which arrives as a bare string, an {"id": ...} object, or a
+    {"name": "projects/..."} resource depending on the endpoint."""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, dict):
+        if v.get("id"):
+            return str(v["id"])
+        if v.get("name"):
+            return str(v["name"]).split("/")[-1]
+    return ""
+
+
 def _gemini_project(access):
     """Discover (or onboard) the Code Assist project for a token."""
     hdr = {"Authorization": "Bearer " + access,
@@ -2868,9 +2882,7 @@ def _gemini_project(access):
     if st != 200 or not isinstance(j, dict):
         _gemini_diag("loadCodeAssist", st, j)
         return ""
-    proj = j.get("cloudaicompanionProject")
-    if isinstance(proj, dict):
-        proj = proj.get("id") or ""
+    proj = _proj_id(j.get("cloudaicompanionProject"))
     if proj:
         return str(proj)
     tier = "free-tier"
@@ -2882,9 +2894,8 @@ def _gemini_project(access):
             "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
             "POST", hdr, {"tierId": tier, "metadata": meta})
         if st2 == 200 and isinstance(j2, dict) and j2.get("done"):
-            p2 = (j2.get("response") or {}).get("cloudaicompanionProject")
-            if isinstance(p2, dict):
-                p2 = p2.get("id") or ""
+            p2 = _proj_id((j2.get("response") or {}).get(
+                "cloudaicompanionProject"))
             if p2:
                 return str(p2)
             # Onboarded but no project inline: for consumer accounts
@@ -2895,13 +2906,13 @@ def _gemini_project(access):
                 "https://cloudcode-pa.googleapis.com/v1internal:"
                 "loadCodeAssist", "POST", hdr, {"metadata": meta})
             if st4 == 200 and isinstance(j4, dict):
-                p4 = j4.get("cloudaicompanionProject")
-                if isinstance(p4, dict):
-                    p4 = p4.get("id") or ""
+                p4 = _proj_id(j4.get("cloudaicompanionProject"))
                 if p4:
                     return str(p4)
-            print("[gemini-signin] onboard done, response keys: %s"
-                  % sorted((j2.get("response") or {}).keys()),
+            _pv = (j2.get("response") or {}).get("cloudaicompanionProject")
+            print("[gemini-signin] onboard done, project shape: %s"
+                  % ("dict keys=%s" % sorted(_pv.keys())
+                     if isinstance(_pv, dict) else type(_pv).__name__),
                   flush=True)
         _gemini_diag("onboardUser", st2, j2)
         time.sleep(2)
