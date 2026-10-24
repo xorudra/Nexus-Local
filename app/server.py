@@ -2841,6 +2841,21 @@ def _codex_live_models(info):
     return out
 
 
+def _gemini_diag(what, st, j):
+    """Log WHY Google refused a Code Assist step (status + Google's own
+    error text only — never tokens). Without this the sign-in failure
+    was a silent dead end (owner report 2026-10-24)."""
+    detail = ""
+    if isinstance(j, dict):
+        err = j.get("error") or {}
+        if isinstance(err, dict):
+            detail = (str(err.get("message") or "") or
+                      str(err.get("status") or ""))[:200]
+        if not detail and "done" in j:
+            detail = "done=%s" % j.get("done")
+    print("[gemini-signin] %s -> %s %s" % (what, st, detail), flush=True)
+
+
 def _gemini_project(access):
     """Discover (or onboard) the Code Assist project for a token."""
     hdr = {"Authorization": "Bearer " + access,
@@ -2851,6 +2866,7 @@ def _gemini_project(access):
         "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
         "POST", hdr, {"metadata": meta})
     if st != 200 or not isinstance(j, dict):
+        _gemini_diag("loadCodeAssist", st, j)
         return ""
     proj = j.get("cloudaicompanionProject")
     if isinstance(proj, dict):
@@ -2871,6 +2887,7 @@ def _gemini_project(access):
                 p2 = p2.get("id") or ""
             if p2:
                 return str(p2)
+        _gemini_diag("onboardUser", st2, j2)
         time.sleep(2)
     return ""
 
