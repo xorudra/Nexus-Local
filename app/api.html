@@ -28,85 +28,85 @@
    chart-2 / destructive tints, and the 32px switch. Nexus
    keeps its own sidebar; every row is a real Nexus key. */
 body{margin:0;font-family:'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#0a0a0a;color:#e8e8ee;overflow-x:hidden}
-.wrap{max-width:1560px;margin:0 auto;padding:24px 24px 60px}
-.head-card{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.wrap{max-width:1560px;margin:0 auto;padding:1.5rem 1.5rem 3.75rem}
+.head-card{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:1rem 1.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
 .head-card h1{font-size:1rem;font-weight:600;color:#fafafa;margin:0;flex:1;min-width:180px}
 .crumb{font-size:0.78125rem;color:#a1a1a1;white-space:nowrap}
 .crumb a{color:#a1a1a1;text-decoration:none}
 .crumb a:hover{color:#f2f2f2}
 .crumb b{color:#fafafa;font-weight:500}
-.dots{border-top:2px dotted rgba(255,255,255,.14);margin:14px 2px}
-.card{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:12px;margin-bottom:16px;overflow:hidden}
-.card-head{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+.dots{border-top:2px dotted rgba(255,255,255,.14);margin:0.875rem 0.125rem}
+.card{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:12px;margin-bottom:1rem;overflow:hidden}
+.card-head{display:flex;align-items:flex-start;gap:1rem;flex-wrap:wrap;padding:1.25rem 1.5rem 1rem;border-bottom:1px solid rgba(255,255,255,.08)}
 .card-head .tt{flex:1;min-width:min(420px,100%)}
 .card h2{margin:0;font-size:0.9375rem;font-weight:600;color:#fafafa}
-.card .desc{color:#a1a1a1;font-size:0.84375rem;line-height:1.55;margin:5px 0 0}
-.card-body{padding:18px 24px 22px}
-.keys-body{padding:0 16px 8px}
-.card-foot{padding:2px 24px 20px}
-.btn-primary{background:#e5e5e5;color:#171717;border:1px solid transparent;border-radius:8px;padding:8px 16px;font-size:0.875rem;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1);display:inline-flex;align-items:center;gap:8px}
+.card .desc{color:#a1a1a1;font-size:0.84375rem;line-height:1.55;margin:0.3125rem 0 0}
+.card-body{padding:1.125rem 1.5rem 1.375rem}
+.keys-body{padding:0 1rem 0.5rem}
+.card-foot{padding:0.125rem 1.5rem 1.25rem}
+.btn-primary{background:#e5e5e5;color:#171717;border:1px solid transparent;border-radius:8px;padding:0.5rem 1rem;font-size:0.875rem;font-weight:500;cursor:pointer;font-family:inherit;flex:none;transition:background .2s cubic-bezier(.4,0,.2,1);display:inline-flex;align-items:center;gap:0.5rem}
 .btn-primary svg{width:16px;height:16px;flex:none}
 .btn-primary:hover{background:#ffffff}
 .btn-primary:disabled{opacity:.5;cursor:not-allowed}
-.btn-ghost{background:transparent;border:1px solid rgba(255,255,255,.15);color:#fafafa;border-radius:8px;padding:8px 16px;font-size:0.875rem;font-weight:500;cursor:pointer;font-family:inherit;transition:background .2s cubic-bezier(.4,0,.2,1)}
+.btn-ghost{background:transparent;border:1px solid rgba(255,255,255,.15);color:#fafafa;border-radius:8px;padding:0.5rem 1rem;font-size:0.875rem;font-weight:500;cursor:pointer;font-family:inherit;transition:background .2s cubic-bezier(.4,0,.2,1)}
 .btn-ghost:hover{background:rgba(255,255,255,.06)}
-.kbadge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:0.75rem;font-weight:500;white-space:nowrap}
+.kbadge{display:inline-flex;align-items:center;height:20px;padding:0 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:500;white-space:nowrap}
 .kbadge.on{background:rgba(0,149,136,.12);color:#009588}
 .kbadge.off{background:rgba(255,101,104,.16);color:#ff6568}
 .keys-table{font-size:0.875rem}
-.keys-table th{height:40px;padding:0 8px;color:#fafafa;font-weight:500;font-size:0.875rem;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap;font-family:inherit}
-.keys-table th:first-child{padding-left:16px}
-.keys-table td{padding:8px;color:#d9d9de;font-family:inherit;font-size:0.875rem;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
-.keys-table td:first-child{padding-left:16px}
+.keys-table th{height:40px;padding:0 0.5rem;color:#fafafa;font-weight:500;font-size:0.875rem;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap;font-family:inherit}
+.keys-table th:first-child{padding-left:1rem}
+.keys-table td{padding:0.5rem;color:#d9d9de;font-family:inherit;font-size:0.875rem;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
+.keys-table td:first-child{padding-left:1rem}
 .keys-table tbody tr:last-child td{border-bottom:none}
 .keys-table tbody tr:hover{background:rgba(38,38,38,.5)}
 .keys-table .keycell{min-width:384px}
 .keys-table .u{color:#a1a1a1}
 .keys-table td.u{font-family:inherit;font-size:0.875rem;color:#a1a1a1;white-space:nowrap}
 .keyname{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:0.875rem;font-weight:500;color:#fafafa;line-height:1.2}
-.keycell .keyrow{display:flex;align-items:center;gap:12px;margin-top:4px}
+.keycell .keyrow{display:flex;align-items:center;gap:0.75rem;margin-top:0.25rem}
 .joined{display:flex;flex:1;min-width:0}
-.joined input{flex:1;min-width:0;box-sizing:border-box;background:transparent;border:1px solid rgba(255,255,255,.15);border-right:none;border-radius:8px 0 0 8px;color:#a1a1a1;padding:8px 12px;font-family:inherit;font-size:0.875rem;outline:none}
-.copyseg{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.15);border-radius:0 8px 8px 0;background:transparent;color:#a1a1a1;padding:0 16px;font-size:0.875rem;cursor:pointer;font-family:inherit;flex:none;transition:color .2s,background .2s}
+.joined input{flex:1;min-width:0;box-sizing:border-box;background:transparent;border:1px solid rgba(255,255,255,.15);border-right:none;border-radius:8px 0 0 8px;color:#a1a1a1;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.875rem;outline:none}
+.copyseg{display:inline-flex;align-items:center;gap:0.5rem;border:1px solid rgba(255,255,255,.15);border-radius:0 8px 8px 0;background:transparent;color:#a1a1a1;padding:0 1rem;font-size:0.875rem;cursor:pointer;font-family:inherit;flex:none;transition:color .2s,background .2s}
 .copyseg:hover{color:#fafafa;background:rgba(255,255,255,.05)}
 .copyseg svg{width:20px;height:20px;flex:none}
-.icon-btn{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#d9d9de;cursor:pointer;flex:none;transition:background .2s,color .2s}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 0.625rem;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#d9d9de;cursor:pointer;flex:none;transition:background .2s,color .2s}
 .icon-btn svg{width:20px;height:20px}
 .icon-btn:hover{background:rgba(38,38,38,.8);color:#fafafa}
 .icon-btn.ghost{border-color:transparent}
 .icon-btn.ghost:hover{background:transparent;color:#ff6568}
-.head-actions{display:flex;gap:10px;align-items:center;flex:none;flex-wrap:wrap}
+.head-actions{display:flex;gap:0.625rem;align-items:center;flex:none;flex-wrap:wrap}
 .searchwrap{position:relative;flex:none}
 .searchwrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:#a1a1a1;pointer-events:none}
-#key-search{background:transparent;border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:8px 12px 8px 34px;font-size:0.875rem;font-family:inherit;width:200px;outline:none}
+#key-search{background:transparent;border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:0.5rem 0.75rem 0.5rem 2.125rem;font-size:0.875rem;font-family:inherit;width:200px;outline:none}
 #key-search::placeholder{color:#a1a1a1}
 #key-search:focus{border-color:rgba(255,255,255,.4)}
-#create-row{display:flex;gap:10px;align-items:center;padding:14px 24px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
-#create-row input{flex:1;min-width:200px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:9px 12px;font-size:0.84375rem;font-family:inherit;outline:none}
+#create-row{display:flex;gap:0.625rem;align-items:center;padding:0.875rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
+#create-row input{flex:1;min-width:200px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fafafa;padding:0.5625rem 0.75rem;font-size:0.84375rem;font-family:inherit;outline:none}
 .switch{position:relative;width:32px;height:18.4px;border-radius:999px;border:1px solid transparent;background:rgba(255,255,255,.15);cursor:pointer;padding:0;vertical-align:middle;transition:background .2s}
 .switch .knob{position:absolute;top:1.2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fafafa;transition:left .2s,background .2s}
 .switch[aria-checked="true"]{background:#e5e5e5}
 .switch[aria-checked="true"] .knob{left:14px;background:#171717}
 .switch:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
-.kv{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:0.84375rem}
+.kv{display:flex;justify-content:space-between;gap:1rem;padding:0.5625rem 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:0.84375rem}
 .kv:last-child{border-bottom:none}
 .kv .k{color:#a1a1a1}
 .kv .v{color:#e8e8ee;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:0.78125rem;text-align:right;word-break:break-all}
 .tblwrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:0.84375rem}
-th,td{text-align:left;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.06)}
+th,td{text-align:left;padding:0.625rem 1rem;border-bottom:1px solid rgba(255,255,255,.06)}
 th{color:#e8e8ee;font-weight:500;font-size:0.8125rem}
 td{color:#d9d9de;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:0.78125rem}
 tbody tr:last-child td{border-bottom:none}
 tbody tr:hover{background:rgba(255,255,255,.02)}
 .ready{color:#2ecc71}.notready{color:#e0a23c}
-pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:14px 16px;overflow-x:auto;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:0.78125rem;line-height:1.6;color:#d9d9de;margin:0}
+pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:0.875rem 1rem;overflow-x:auto;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:0.78125rem;line-height:1.6;color:#d9d9de;margin:0}
 #gen-result{font-size:0.84375rem;line-height:1.55;color:#d9d9de;white-space:pre-wrap}
 #gen-result:empty{display:none}
-#test-result{margin-top:14px;font-size:0.84375rem;line-height:1.55;color:#d9d9de;white-space:pre-wrap}
+#test-result{margin-top:0.875rem;font-size:0.84375rem;line-height:1.55;color:#d9d9de;white-space:pre-wrap}
 .note{font-size:0.78125rem;color:#8e8e8e;line-height:1.55}
-@media(max-width:1099px){.head-card{padding-left:66px}}
-@media(max-width:640px){.card-head{padding:16px 18px 12px}.card-body{padding:14px 18px 18px}.card-foot{padding:2px 18px 16px}.head-card{padding-top:14px;padding-bottom:14px;padding-right:18px}.wrap{padding:18px 14px 48px}.head-actions{width:100%}.searchwrap{flex:1;min-width:0}.searchwrap #key-search{width:100%}}
+@media(max-width:1099px){.head-card{padding-left:4.125rem}}
+@media(max-width:640px){.card-head{padding:1rem 1.125rem 0.75rem}.card-body{padding:0.875rem 1.125rem 1.125rem}.card-foot{padding:0.125rem 1.125rem 1rem}.head-card{padding-top:0.875rem;padding-bottom:0.875rem;padding-right:1.125rem}.wrap{padding:1.125rem 0.875rem 3rem}.head-actions{width:100%}.searchwrap{flex:1;min-width:0}.searchwrap #key-search{width:100%}}
 </style>
 </head>
 <body>
@@ -120,20 +120,20 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
 .nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:none}
 .nexus-overlay.show{display:block}
 .nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
-.nexus-side-head{display:flex;align-items:center;gap:9px;padding:16px 12px 12px}
-.nexus-brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:1;min-width:0}
+.nexus-side-head{display:flex;align-items:center;gap:0.5625rem;padding:1rem 0.75rem 0.75rem}
+.nexus-brand{display:flex;align-items:center;gap:0.625rem;text-decoration:none;flex:1;min-width:0}
 .nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:1.03125rem;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
 .nexus-brand .bt em{font-style:normal;color:#f2f2f2}
 .nexus-toggle{margin-left:auto;width:30px;height:30px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#8e8e8e;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .nexus-toggle:hover{color:#fff;border-color:#f2f2f2}
-.nexus-nav{flex:1;overflow-y:auto;padding:4px 12px 12px;scrollbar-width:thin}
-.nexus-glabel{font-size:0.65625rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#8e8e8e;padding:16px 10px 6px;white-space:nowrap}
-.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#8e8e8e;text-decoration:none;font-size:0.90625rem;white-space:nowrap;border-left:none}
+.nexus-nav{flex:1;overflow-y:auto;padding:0.25rem 0.75rem 0.75rem;scrollbar-width:thin}
+.nexus-glabel{font-size:0.65625rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#8e8e8e;padding:1rem 0.625rem 0.375rem;white-space:nowrap}
+.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:0.6875rem;padding:0.5625rem 0.625rem;border-radius:8px;color:#8e8e8e;text-decoration:none;font-size:0.90625rem;white-space:nowrap;border-left:none}
 .nexus-sidebar a.nx-item svg{flex-shrink:0;opacity:.85}
 .nexus-sidebar a.nx-item:hover{color:#fff;background:rgba(255,255,255,.07)}
 .nexus-sidebar a.nx-item.active{color:#fff;background:rgba(255,255,255,.14)}
 .nexus-sidebar a.nx-item.active svg{color:#f2f2f2;opacity:1}
-.nexus-foot{border-top:1px solid rgba(255,255,255,.14);padding:10px 12px}
+.nexus-foot{border-top:1px solid rgba(255,255,255,.14);padding:0.625rem 0.75rem}
 /* Self-defence: some pages style bare button/svg elements globally.
    The sidebar's own geometry is pinned so it renders identically
    on every page. */
@@ -146,10 +146,10 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
   html.nx-min body{margin-left:76px}
   html.nx-min .nexus-sidebar{width:76px}
   html.nx-min .nexus-brand .bt,html.nx-min .nexus-glabel,html.nx-min .nexus-sidebar a.nx-item span{display:none}
-  html.nx-min .nexus-side-head{flex-direction:column;padding:14px 8px 10px}
+  html.nx-min .nexus-side-head{flex-direction:column;padding:0.875rem 0.5rem 0.625rem}
   html.nx-min .nexus-toggle{margin-left:0}
-  html.nx-min .nexus-sidebar a.nx-item{justify-content:center;padding:10px 0}
-  html.nx-min .nexus-glabel{padding:10px 0 2px;text-align:center}
+  html.nx-min .nexus-sidebar a.nx-item{justify-content:center;padding:0.625rem 0}
+  html.nx-min .nexus-glabel{padding:0.625rem 0 0.125rem;text-align:center}
 }
 @media (max-width:1099px){
   .nexus-sidebar{left:-280px}
@@ -273,7 +273,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
     </div>
     <div class="card-foot">
       <div id="gen-result"></div>
-      <p class="note" style="margin-top:10px">Every project can hold its own key. Disabling a key stops it
+      <p class="note" style="margin-top:0.625rem">Every project can hold its own key. Disabling a key stops it
       <b>immediately</b> without touching the others; deleting removes it for good — anything still using it
       (like DSRclone) stops connecting. Keys are stored encrypted on the server and sync like your friend
       list, so they survive restarts.</p>
@@ -288,7 +288,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
         only keyless lanes answer until you sign in.</p>
       </div>
     </div>
-    <div class="card-body" style="padding-top:8px">
+    <div class="card-body" style="padding-top:0.5rem">
       <div class="kv"><span class="k">Base URL</span><span class="v" id="base-url">—</span></div>
       <div class="kv"><span class="k">Service key</span><span class="v" id="key-hint">—</span></div>
       <div class="kv"><span class="k">Connected consumer</span><span class="v" id="consumer">—</span></div>
