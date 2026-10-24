@@ -77,6 +77,12 @@ details.exp .cnt{font-size:0.6875rem;color:#8e8e8e;font-weight:400;margin-left:0
   body{margin-left:260px;transition:margin-left .2s cubic-bezier(.2,.9,.25,1)}
   html.nx-min body{margin-left:76px}
   html.nx-min .nexus-sidebar{width:76px}
+  html.nx-anim .nexus-sidebar{overflow:hidden}
+  .nx-drag{position:absolute;top:0;right:-0.3125rem;width:0.625rem;height:100%;cursor:col-resize;z-index:5;touch-action:none}
+  .nx-drag:hover,.nx-drag.on{background:linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent)}
+  html.nx-dragging{cursor:col-resize}
+  html.nx-dragging body{transition:none!important}
+  html.nx-dragging .nexus-sidebar{transition:none}
   html.nx-min .nexus-brand .bt,html.nx-min .nexus-glabel,html.nx-min .nexus-sidebar a.nx-item span{display:none}
   html.nx-min .nexus-side-head{flex-direction:column;padding:0.875rem 0.5rem 0.625rem}
   html.nx-min .nexus-toggle{margin-left:0}
@@ -109,7 +115,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
       <svg viewBox="0 0 100 36" style="width:26px;height:11px;flex-shrink:0" aria-hidden="true"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#f2f2f2"/></svg>
       <span class="bt">NEXUS</span>
     </a>
-    <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
+    <button class="nexus-toggle" id="nx-toggle" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar" aria-keyshortcuts="Control+b"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/></svg></button>
   </div>
   <div class="nexus-nav">
     <div class="nexus-glabel">Main</div>
@@ -134,9 +140,37 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
       toggle=document.getElementById('nx-toggle');
   // Restore the collapsed state before the page settles.
   try{ if(localStorage.getItem('nexus-rail-min')==='1') document.documentElement.classList.add('nx-min'); }catch(e){}
+  var _minAnim = null;
   function setMin(min){
-    document.documentElement.classList.toggle('nx-min',min);
     try{ localStorage.setItem('nexus-rail-min',min?'1':'0'); }catch(e){}
+    var root = document.documentElement;
+    // Desktop: spring the rail width + body margin from the live
+    // value (interruptible — toggling mid-flight reverses from where
+    // it is). Mobile and reduced-motion keep the instant toggle.
+    if (!window.matchMedia('(min-width:68.75em)').matches ||
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      root.classList.toggle('nx-min',min); return;
+    }
+    var from = rail.offsetWidth, to = min ? 76 : 260;
+    if (from === to){ root.classList.toggle('nx-min',min); return; }
+    if (!min) root.classList.remove('nx-min');
+    if (_minAnim) cancelAnimationFrame(_minAnim.raf);
+    var x = from, v = 0, last = 0;
+    root.classList.add('nx-anim');
+    function step(ts){
+      var dt = Math.min(0.032, last ? (ts - last) / 1000 : 0.016); last = ts;
+      var a = -210 * (x - to) - 27 * v; v += a * dt; x += v * dt;
+      rail.style.width = x + 'px';
+      document.body.style.marginLeft = x + 'px';
+      if (Math.abs(x - to) < 0.5 && Math.abs(v) < 12){
+        rail.style.width = ''; document.body.style.marginLeft = '';
+        root.classList.remove('nx-anim');
+        root.classList.toggle('nx-min', min);
+        _minAnim = null; return;
+      }
+      _minAnim.raf = requestAnimationFrame(step);
+    }
+    _minAnim = { raf: requestAnimationFrame(step) };
   }
   if(toggle) toggle.addEventListener('click',function(){
     setMin(!document.documentElement.classList.contains('nx-min'));
@@ -145,12 +179,122 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='b'){ e.preventDefault();
       setMin(!document.documentElement.classList.contains('nx-min')); }
   });
-  if(burger) burger.addEventListener('click',function(){
+  // Mobile rail on a spring: starts from its live position, carries
+  // velocity, and can be grabbed mid-flight — same model as the
+  // dashboard's chats panel. Desktop keeps the class toggle.
+  var _rx = null, _rv = 0, _rTarget = null, _rRaf = null, _rLast = 0;
+  function _rMobile(){ return window.matchMedia('(max-width:68.6875em)').matches; }
+  function _rApply(){
+    rail.style.transform = 'translateX(' + _rx + 'px)';
+    overlay.style.opacity = Math.min(1, Math.max(0, _rx / 280)).toFixed(3);
+  }
+  function _rStep(ts){
+    if (_rTarget === null){ _rRaf = null; return; }
+    var dt = Math.min(0.032, _rLast ? (ts - _rLast) / 1000 : 0.016); _rLast = ts;
+    var a = -210 * (_rx - _rTarget) - 27 * _rv;
+    _rv += a * dt; _rx += _rv * dt; _rApply();
+    if (Math.abs(_rx - _rTarget) < 0.5 && Math.abs(_rv) < 12){
+      _rx = _rTarget; _rv = 0; _rApply(); _rTarget = null; _rRaf = null; return;
+    }
+    _rRaf = requestAnimationFrame(_rStep);
+  }
+  var _rRM = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function _rSpringTo(target, v){
+    if (_rRM.matches){ _rx = target; _rv = 0; _rTarget = null; _rApply(); return; }
+    if (_rx === null) _rx = rail.classList.contains('open') ? 280 : 0;
+    if (typeof v === 'number') _rv = v;
+    _rTarget = target; _rLast = 0;
+    if (!_rRaf) _rRaf = requestAnimationFrame(_rStep);
+  }
+  function openRail(){
     rail.classList.add('open'); overlay.classList.add('show');
-  });
-  if(overlay) overlay.addEventListener('click',function(){
+    if (_rMobile()){ overlay.style.pointerEvents = 'auto'; _rSpringTo(280); }
+  }
+  function closeRail(){
     rail.classList.remove('open'); overlay.classList.remove('show');
+    if (_rMobile()){ overlay.style.pointerEvents = 'none'; _rSpringTo(0); }
+  }
+  document.addEventListener('keydown',e=>{
+    if (e.key === 'Escape' && _rMobile() && rail.classList.contains('nx-open')) _rSet(false);
   });
+  // Desktop: drag the rail's right edge to resize it 1:1; on
+  // release it springs to mini or full and persists like the toggle.
+  var dragH = document.createElement('div');
+  dragH.className = 'nx-drag';
+  dragH.setAttribute('aria-hidden', 'true');
+  rail.appendChild(dragH);
+  var _drag = null;
+  dragH.addEventListener('pointerdown', e => {
+    if (_rMobile() || e.button !== 0) return;
+    if (_minAnim){ cancelAnimationFrame(_minAnim.raf); _minAnim = null; document.documentElement.classList.remove('nx-anim'); }
+    _drag = { x: e.clientX, w: rail.offsetWidth };
+    document.documentElement.classList.add('nx-dragging');
+    dragH.classList.add('on');
+    try{ dragH.setPointerCapture(e.pointerId); }catch(err){}
+    e.preventDefault();
+  });
+  dragH.addEventListener('pointermove', e => {
+    if (!_drag) return;
+    var x = Math.max(76, Math.min(260, _drag.w + (e.clientX - _drag.x)));
+    rail.style.width = x + 'px';
+    document.body.style.marginLeft = x + 'px';
+    document.documentElement.classList.toggle('nx-min', x < 150);
+  });
+  function _dragEnd(){
+    if (!_drag) return;
+    var x = rail.offsetWidth; _drag = null;
+    document.documentElement.classList.remove('nx-dragging');
+    dragH.classList.remove('on');
+    setMin(x < 168);
+  }
+  dragH.addEventListener('pointerup', _dragEnd);
+  dragH.addEventListener('pointercancel', _dragEnd);
+  if(burger) burger.addEventListener('click', openRail);
+  if(overlay) overlay.addEventListener('click', closeRail);
+  window.addEventListener('resize', function(){
+    if (!_rMobile()){ rail.style.transform = ''; overlay.style.opacity = ''; }
+  });
+  // Drag the open rail shut: engages only once a horizontal pull is
+  // clear, so vertical scrolling and taps inside it are untouched.
+  (function(){
+    var d = null, engaged = false, suppress = false;
+    rail.addEventListener('pointerdown', function(e){
+      if (!_rMobile() || !rail.classList.contains('open')) return;
+      d = { id: e.pointerId, x0: e.clientX, y0: e.clientY, hist: [{x: e.clientX, t: performance.now()}] };
+      engaged = false;
+    });
+    rail.addEventListener('pointermove', function(e){
+      if (!d || e.pointerId !== d.id) return;
+      var dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+      if (!engaged){
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)){
+          engaged = true;
+          _rTarget = null; if (_rRaf){ cancelAnimationFrame(_rRaf); _rRaf = null; }
+          if (_rx === null) _rx = 280;
+          try{ rail.setPointerCapture(e.pointerId); }catch(err){}
+        } else return;
+      }
+      _rx = Math.min(280, Math.max(0, 280 + dx));
+      _rApply();
+      d.hist.push({x: e.clientX, t: performance.now()});
+      if (d.hist.length > 6) d.hist.shift();
+    });
+    function endD(e){
+      if (!d || e.pointerId !== d.id) return;
+      var was = engaged, h = d.hist, n = h.length, v = 0;
+      if (n > 1){ var dt = (h[n-1].t - h[0].t) / 1000; if (dt > 0) v = (h[n-1].x - h[0].x) / dt; }
+      d = null; engaged = false;
+      if (!was) return;
+      suppress = true;
+      setTimeout(function(){ suppress = false; }, 350);
+      var projected = _rx + v * 0.499;
+      if (projected < 140){ closeRail(); _rSpringTo(0, v); }
+      else { openRail(); _rSpringTo(280, v); }
+    }
+    rail.addEventListener('pointerup', endD);
+    rail.addEventListener('pointercancel', endD);
+    rail.addEventListener('click', function(e){ if (suppress){ e.stopPropagation(); e.preventDefault(); } }, true);
+  })();
   // Active item for the current page (same rule as before).
   var p=location.pathname;
   document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
