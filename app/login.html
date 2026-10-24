@@ -59,7 +59,7 @@ background:transparent;border:none;color:#d8d8de;cursor:pointer;display:flex;ali
 --cs-danger:#ff3b30;--cs-size:44px;--cs-height:52px;--cs-gap:0.5rem;--cs-radius:12px;--cs-font:1.375rem;
 position:relative;display:flex;justify-content:center}
 .code-slots__row{position:relative;display:inline-flex;gap:var(--cs-gap);cursor:text;
-touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:opacity 200ms ease}
+touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:opacity 200ms cubic-bezier(.2,.9,.25,1)}
 .code-slots__row[data-disabled]{opacity:.5;cursor:not-allowed}
 .code-slots__input{position:absolute;inset:0;z-index:4;margin:0;padding:0;border:0;outline:0;
 background:transparent;color:transparent;caret-color:transparent;font-size:1rem;opacity:0;
@@ -70,9 +70,9 @@ pointer-events:none;clip-path:inset(0 50% round 12px)}
 .code-slots__check{display:grid;place-items:center;opacity:0}
 .code-slots__slot{position:relative;width:var(--cs-size);height:var(--cs-height);
 border-radius:var(--cs-radius);overflow:hidden;background:var(--cs-slot);
-transition:background-color 200ms ease;user-select:none;-webkit-user-select:none}
+transition:background-color 200ms cubic-bezier(.2,.9,.25,1);user-select:none;-webkit-user-select:none}
 .code-slots__fill{position:absolute;inset:0;border-radius:inherit;background:var(--cs-accent);
-transform:scale(0);transform-origin:center;transition:background-color 200ms ease}
+transform:scale(0);transform-origin:center;transition:background-color 200ms cubic-bezier(.2,.9,.25,1)}
 @media (hover:hover) and (pointer:fine){
 .code-slots__row[data-status='idle']:hover .code-slots__slot:not([data-active]){
 background:color-mix(in srgb,var(--cs-ink) 4%,var(--cs-slot))}}
@@ -92,9 +92,9 @@ animation:code-slots-blink 1s linear infinite}
 .code-slots__sr{position:absolute;width:1px;height:1px;margin:-0.0625rem;padding:0;border:0;
 overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (prefers-reduced-motion:reduce){
-.code-slots__digit,.code-slots__check{transform:none!important;transition:opacity 150ms ease}
+.code-slots__digit,.code-slots__check{transform:none!important;transition:opacity 150ms cubic-bezier(.2,.9,.25,1)}
 .code-slots__caret-line{animation:none}
-.code-slots__wash{clip-path:none;opacity:0;transition:opacity 200ms ease}
+.code-slots__wash{clip-path:none;opacity:0;transition:opacity 200ms cubic-bezier(.2,.9,.25,1)}
 .code-slots__row[data-status='success'] .code-slots__wash{opacity:1}
 .code-slots__row[data-status='success'] .code-slots__check{opacity:1}}
 

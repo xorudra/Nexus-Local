@@ -119,7 +119,7 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
 .nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:1.125rem;line-height:1;display:none;align-items:center;justify-content:center}
 .nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:none}
 .nexus-overlay.show{display:block}
-.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
+.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s cubic-bezier(.2,.9,.25,1),left .25s cubic-bezier(.2,.9,.25,1)}
 .nexus-side-head{display:flex;align-items:center;gap:0.5625rem;padding:1rem 0.75rem 0.75rem}
 .nexus-brand{display:flex;align-items:center;gap:0.625rem;text-decoration:none;flex:1;min-width:0}
 .nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:1.03125rem;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
@@ -142,7 +142,7 @@ pre{background:#0a0a0a;border:1px solid rgba(255,255,255,.1);border-radius:8px;p
 .nexus-toggle svg{width:15px!important;height:15px!important;flex:none}
 .nexus-sidebar a.nx-item svg{width:17px!important;height:17px!important;flex:none}
 @media (min-width:68.75em){
-  body{margin-left:260px;transition:margin-left .2s ease}
+  body{margin-left:260px;transition:margin-left .2s cubic-bezier(.2,.9,.25,1)}
   html.nx-min body{margin-left:76px}
   html.nx-min .nexus-sidebar{width:76px}
   html.nx-min .nexus-brand .bt,html.nx-min .nexus-glabel,html.nx-min .nexus-sidebar a.nx-item span{display:none}
