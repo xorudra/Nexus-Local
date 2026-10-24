@@ -39,7 +39,7 @@ button.primary{width:100%;padding:.65rem;border-radius:6px;border:none;backgroun
 font-weight:500;font-size:.875rem;cursor:pointer;font-family:inherit;margin-top:.65rem}
 button.primary:hover{background:#fff}
 button.primary:disabled{opacity:.6;cursor:wait}
-#error{display:none;background:rgba(60,10,10,.6);border:1px solid #ff4d4d;color:#ff9a9a;font-size:13px;
+#error{display:none;background:rgba(60,10,10,.6);border:1px solid #ff4d4d;color:#ff9a9a;font-size:0.8125rem;
 border-radius:6px;padding:10px 12px;margin-top:.65rem;text-align:left}
 #error2{display:none;color:#fca5a5;font-size:.85rem;margin-top:.65rem;text-align:left}
 .shake{animation:shake .4s}
@@ -56,13 +56,13 @@ background:transparent;border:none;color:#d8d8de;cursor:pointer;display:flex;ali
 /* ── CodeSlots (React Bits) — CSS ported as-is; values are the ones
    from the integration spec Rudra supplied (2026-10-10). ── */
 .code-slots{--cs-accent:#f5f5f5;--cs-ink:#f5f5f5;--cs-slot:#27272a;--cs-digit:#18181b;
---cs-danger:#ff3b30;--cs-size:44px;--cs-height:52px;--cs-gap:8px;--cs-radius:12px;--cs-font:22px;
+--cs-danger:#ff3b30;--cs-size:44px;--cs-height:52px;--cs-gap:8px;--cs-radius:12px;--cs-font:1.375rem;
 position:relative;display:flex;justify-content:center}
 .code-slots__row{position:relative;display:inline-flex;gap:var(--cs-gap);cursor:text;
 touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:opacity 200ms ease}
 .code-slots__row[data-disabled]{opacity:.5;cursor:not-allowed}
 .code-slots__input{position:absolute;inset:0;z-index:4;margin:0;padding:0;border:0;outline:0;
-background:transparent;color:transparent;caret-color:transparent;font-size:16px;opacity:0;
+background:transparent;color:transparent;caret-color:transparent;font-size:1rem;opacity:0;
 cursor:inherit;-webkit-appearance:none;appearance:none;width:auto}
 .code-slots__wash{position:absolute;inset:0;z-index:1;display:grid;place-items:center;
 border-radius:var(--cs-radius);background:var(--cs-accent);color:var(--cs-digit);
@@ -117,7 +117,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
 <div class="logo">N</div>
 <h1>Sign in to Nexus</h1>
 <p class="sub">Your password unlocks the dashboard</p>
-<div id="annc" style="display:none;width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.25);color:#f2f2f2;font-size:13px;border-radius:6px;padding:10px 12px;margin-bottom:.65rem;text-align:left"></div>
+<div id="annc" style="display:none;width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.25);color:#f2f2f2;font-size:0.8125rem;border-radius:6px;padding:10px 12px;margin-bottom:.65rem;text-align:left"></div>
 <div id="pwBox">
 <div class="pw-wrap">
 <input type="password" id="pw" aria-label="Password" placeholder="Password" autocomplete="current-password" autofocus>
@@ -146,7 +146,7 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
 <button class="primary" id="loginBtn2" onclick="submit2FA()">Verify</button>
 </div>
 <p class="link">New here? <a href="/setup">Set up your keys &rarr;</a></p>
-<p class="link" style="margin-top:.35rem;font-size:12px;opacity:.75"><a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></p>
+<p class="link" style="margin-top:.35rem;font-size:0.75rem;opacity:.75"><a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></p>
 </div>
 </div>
 <script>

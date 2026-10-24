@@ -152,14 +152,14 @@ body {
 
 .card .provider-name {
     font-family: 'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-    font-size: 17px;
+    font-size:1.0625rem;
     letter-spacing: 0.05em;
     color: #fff;
     margin: 0 0 4px 0;
 }
 
 .card .provider-subtitle {
-    font-size: 14px;
+    font-size:0.875rem;
     color: #8a93a6;
     margin: 0 0 12px 0;
 }
@@ -167,7 +167,7 @@ body {
 .pill {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 600;
-    font-size: 10px;
+    font-size:0.625rem;
     letter-spacing: .12em;
     text-transform: uppercase;
     display: inline-block;
@@ -215,7 +215,7 @@ a.byok-link:hover {
 /* Bring-your-own-key section (friends only; shown by JS for non-admins) */
 #byok .byok-intro {
     color: #8e8e8e;
-    font-size: 14px;
+    font-size:0.875rem;
     line-height: 1.6;
     margin: 0 0 16px;
 }
@@ -231,7 +231,7 @@ a.byok-link:hover {
 #byok details.exp summary {
     color: #d9d9de;
     cursor: pointer;
-    font-size: 15px;
+    font-size:0.9375rem;
     font-weight: 600;
     list-style: none;
     display: flex;
@@ -250,7 +250,7 @@ a.byok-link:hover {
 #byok details.exp[open ] summary::after { transform: rotate(90deg); }
 
 #byok details.exp .cnt {
-    font-size: 11px;
+    font-size:0.6875rem;
     color: #8e8e8e;
     font-weight: 400;
     margin-left: 8px;
@@ -261,7 +261,7 @@ a.byok-link:hover {
 #byok .prov label {
     display: block;
     color: #8e8e8e;
-    font-size: 13px;
+    font-size:0.8125rem;
     margin-bottom: 4px;
 }
 
@@ -273,7 +273,7 @@ a.byok-link:hover {
     border-radius: 8px;
     color: #f2f2f2;
     padding: 10px 12px;
-    font-size: 14px;
+    font-size:0.875rem;
 }
 
 #byok .prov input:focus {
@@ -283,7 +283,7 @@ a.byok-link:hover {
 }
 
 #byok .badge {
-    font-size: 10px;
+    font-size:0.625rem;
     font-weight: 700;
     letter-spacing: .08em;
     text-transform: uppercase;
@@ -310,7 +310,7 @@ a.byok-link:hover {
     border-radius: 8px;
     color: #f2f2f2;
     padding: 11px 13px;
-    font-size: 14px;
+    font-size:0.875rem;
 }
 
 #byok .byok-save input:focus {
@@ -323,7 +323,7 @@ a.byok-link:hover {
     flex: 1 1 140px;
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 600;
-    font-size: 13px;
+    font-size:0.8125rem;
     letter-spacing: .2em;
     text-transform: uppercase;
     background: linear-gradient(#ffffff,#a8a8b0);
@@ -338,7 +338,7 @@ a.byok-link:hover {
 
 #byok #bk_msg {
     margin-top: 10px;
-    font-size: 13px;
+    font-size:0.8125rem;
     min-height: 18px;
 }
 
@@ -464,7 +464,7 @@ a.byok-link:hover {
     box-shadow: 0 0 24px rgba(255,255,255,.25), inset 0 1px 0 rgba(255,255,255,.5);
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 600;
-    font-size: 13px;
+    font-size:0.8125rem;
     letter-spacing: .2em;
     text-transform: uppercase;
     padding: 16px 32px;
@@ -496,7 +496,7 @@ a.byok-link:hover {
     border-radius: 8px;
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 500;
-    font-size: 13px;
+    font-size:0.8125rem;
     letter-spacing: .2em;
     text-transform: uppercase;
     cursor: pointer;
@@ -514,7 +514,7 @@ a.byok-link:hover {
 /* Eyebrow labels */
 .eyebrow {
     font-family:'JetBrains Mono',monospace;
-    font-size: 15px;
+    font-size:0.9375rem;
     color: #f2f2f2;
     letter-spacing: 0.32em;
     margin-bottom: 8px;
@@ -558,7 +558,7 @@ details.provider-group {
 details.provider-group summary {
     padding: 20px 24px;
     cursor: pointer;
-    font-size: 18px;
+    font-size:1.125rem;
     font-weight: 600;
     color: #e6e9f0;
     list-style: none;
@@ -568,7 +568,7 @@ details.provider-group summary {
 }
 details.provider-group summary::-webkit-details-marker { display: none; }
 details.provider-group summary .count {
-    font-size: 14px;
+    font-size:0.875rem;
     color: #8e8e8e;
     font-weight: normal;
 }
@@ -587,7 +587,7 @@ details.provider-group[open] summary {
 }
 .page-header h1 {
     font-family:'Space Grotesk',sans-serif; font-weight:700;
-    font-size: 34px;
+    font-size:2.125rem;
     letter-spacing: .08em;
     margin: 0 0 8px;
     line-height: 1.2;
@@ -625,19 +625,19 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 /* Nexus sidebar — shadcn-style composition (brand header, grouped nav,
    footer, collapsible-to-icons) in the original Purple Gotham theme.
    Desktop >=1100px: pinned rail, content offset. Below: slide-over. */
-.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:18px;line-height:1;display:none;align-items:center;justify-content:center}
+.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:1.125rem;line-height:1;display:none;align-items:center;justify-content:center}
 .nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:none}
 .nexus-overlay.show{display:block}
 .nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
 .nexus-side-head{display:flex;align-items:center;gap:9px;padding:16px 12px 12px}
 .nexus-brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:1;min-width:0}
-.nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:16.5px;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
+.nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:1.03125rem;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
 .nexus-brand .bt em{font-style:normal;color:#f2f2f2}
 .nexus-toggle{margin-left:auto;width:30px;height:30px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#8e8e8e;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .nexus-toggle:hover{color:#fff;border-color:#f2f2f2}
 .nexus-nav{flex:1;overflow-y:auto;padding:4px 12px 12px;scrollbar-width:thin}
-.nexus-glabel{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#8e8e8e;padding:16px 10px 6px;white-space:nowrap}
-.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#8e8e8e;text-decoration:none;font-size:14.5px;white-space:nowrap;border-left:none}
+.nexus-glabel{font-size:0.65625rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#8e8e8e;padding:16px 10px 6px;white-space:nowrap}
+.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#8e8e8e;text-decoration:none;font-size:0.90625rem;white-space:nowrap;border-left:none}
 .nexus-sidebar a.nx-item svg{flex-shrink:0;opacity:.85}
 .nexus-sidebar a.nx-item:hover{color:#fff;background:rgba(255,255,255,.07)}
 .nexus-sidebar a.nx-item.active{color:#fff;background:rgba(255,255,255,.14)}
@@ -772,12 +772,12 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
         <p class="byok-intro">If a provider above shows a missing key or "having problems", the shared key may be absent or failing. Add <b>your own</b> key for that provider and your chats will use yours instead — your usage, your quota. Keys are encrypted with your login password and are never shown to anyone, including the admin.</p>
         <details class="exp" id="bk_exp_fl">
             <summary>FreeLLMAPI Providers <span class="cnt" id="bk_cnt_fl"></span></summary>
-            <p style="color:#8e8e8e;font-size:12px;margin:8px 0 12px;line-height:1.5">The normal direct lane — keys for Groq, Google, OpenRouter, NVIDIA and the freemium providers.</p>
+            <p style="color:#8e8e8e;font-size:0.75rem;margin:8px 0 12px;line-height:1.5">The normal direct lane — keys for Groq, Google, OpenRouter, NVIDIA and the freemium providers.</p>
             <div id="bk_providers_fl"></div>
         </details>
         <details class="exp" id="bk_exp_rl">
             <summary>Relay Providers <span class="cnt" id="bk_cnt_rl"></span></summary>
-            <p style="color:#8e8e8e;font-size:12px;margin:8px 0 12px;line-height:1.5">The relay lane — the same big providers reached through the relay (different accounts/quotas than the FreeLLMAPI lane).</p>
+            <p style="color:#8e8e8e;font-size:0.75rem;margin:8px 0 12px;line-height:1.5">The relay lane — the same big providers reached through the relay (different accounts/quotas than the FreeLLMAPI lane).</p>
             <div id="bk_providers_rl"></div>
         </details>
         <div class="byok-save">

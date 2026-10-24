@@ -4,19 +4,19 @@
 /* Nexus sidebar — shadcn-style composition (brand header, grouped nav,
    footer, collapsible-to-icons) in the original Purple Gotham theme.
    Desktop >=1100px: pinned rail, content offset. Below: slide-over. */
-.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:18px;line-height:1;display:none;align-items:center;justify-content:center}
-.nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:none}
-.nexus-overlay.show{display:block}
+.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:1.125rem;line-height:1;display:none;align-items:center;justify-content:center}
+.nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:block;opacity:0;pointer-events:none;transition:opacity .25s ease}
+.nexus-overlay.show{opacity:1;pointer-events:auto}
 .nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s ease,left .25s ease}
 .nexus-side-head{display:flex;align-items:center;gap:9px;padding:16px 12px 12px}
 .nexus-brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:1;min-width:0}
-.nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:16.5px;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
+.nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:1.03125rem;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
 .nexus-brand .bt em{font-style:normal;color:#f2f2f2}
 .nexus-toggle{margin-left:auto;width:30px;height:30px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#8e8e8e;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .nexus-toggle:hover{color:#fff;border-color:#f2f2f2}
 .nexus-nav{flex:1;overflow-y:auto;padding:4px 12px 12px;scrollbar-width:thin}
-.nexus-glabel{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#8e8e8e;padding:16px 10px 6px;white-space:nowrap}
-.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#8e8e8e;text-decoration:none;font-size:14.5px;white-space:nowrap;border-left:none}
+.nexus-glabel{font-size:0.65625rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#8e8e8e;padding:16px 10px 6px;white-space:nowrap}
+.nexus-sidebar a.nx-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;color:#8e8e8e;text-decoration:none;font-size:0.90625rem;white-space:nowrap;border-left:none}
 .nexus-sidebar a.nx-item svg{flex-shrink:0;opacity:.85}
 .nexus-sidebar a.nx-item:hover{color:#fff;background:rgba(255,255,255,.07)}
 .nexus-sidebar a.nx-item.active{color:#fff;background:rgba(255,255,255,.14)}
@@ -40,7 +40,7 @@
   html.nx-min .nexus-glabel{padding:10px 0 2px;text-align:center}
 }
 @media (max-width:1099px){
-  .nexus-sidebar{left:-280px}
+  .nexus-sidebar{left:-280px;will-change:transform}
   .nexus-sidebar.open{left:0}
   .nexus-burger{display:flex}
   .nexus-toggle{display:none}
@@ -99,12 +99,85 @@ button:active,.btn:active,[role="button"]:active{transform:scale(.97);transition
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='b'){ e.preventDefault();
       setMin(!document.documentElement.classList.contains('nx-min')); }
   });
-  if(burger) burger.addEventListener('click',function(){
+  // Mobile rail on a spring: starts from its live position, carries
+  // velocity, and can be grabbed mid-flight — same model as the
+  // dashboard's chats panel. Desktop keeps the class toggle.
+  var _rx = null, _rv = 0, _rTarget = null, _rRaf = null, _rLast = 0;
+  function _rMobile(){ return window.innerWidth <= 1099; }
+  function _rApply(){
+    rail.style.transform = 'translateX(' + _rx + 'px)';
+    overlay.style.opacity = Math.min(1, Math.max(0, _rx / 280)).toFixed(3);
+  }
+  function _rStep(ts){
+    if (_rTarget === null){ _rRaf = null; return; }
+    var dt = Math.min(0.032, _rLast ? (ts - _rLast) / 1000 : 0.016); _rLast = ts;
+    var a = -210 * (_rx - _rTarget) - 27 * _rv;
+    _rv += a * dt; _rx += _rv * dt; _rApply();
+    if (Math.abs(_rx - _rTarget) < 0.5 && Math.abs(_rv) < 12){
+      _rx = _rTarget; _rv = 0; _rApply(); _rTarget = null; _rRaf = null; return;
+    }
+    _rRaf = requestAnimationFrame(_rStep);
+  }
+  function _rSpringTo(target, v){
+    if (_rx === null) _rx = rail.classList.contains('open') ? 280 : 0;
+    if (typeof v === 'number') _rv = v;
+    _rTarget = target; _rLast = 0;
+    if (!_rRaf) _rRaf = requestAnimationFrame(_rStep);
+  }
+  function openRail(){
     rail.classList.add('open'); overlay.classList.add('show');
-  });
-  if(overlay) overlay.addEventListener('click',function(){
+    if (_rMobile()){ overlay.style.pointerEvents = 'auto'; _rSpringTo(280); }
+  }
+  function closeRail(){
     rail.classList.remove('open'); overlay.classList.remove('show');
+    if (_rMobile()){ overlay.style.pointerEvents = 'none'; _rSpringTo(0); }
+  }
+  if(burger) burger.addEventListener('click', openRail);
+  if(overlay) overlay.addEventListener('click', closeRail);
+  window.addEventListener('resize', function(){
+    if (!_rMobile()){ rail.style.transform = ''; overlay.style.opacity = ''; }
   });
+  // Drag the open rail shut: engages only once a horizontal pull is
+  // clear, so vertical scrolling and taps inside it are untouched.
+  (function(){
+    var d = null, engaged = false, suppress = false;
+    rail.addEventListener('pointerdown', function(e){
+      if (!_rMobile() || !rail.classList.contains('open')) return;
+      d = { id: e.pointerId, x0: e.clientX, y0: e.clientY, hist: [{x: e.clientX, t: performance.now()}] };
+      engaged = false;
+    });
+    rail.addEventListener('pointermove', function(e){
+      if (!d || e.pointerId !== d.id) return;
+      var dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+      if (!engaged){
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)){
+          engaged = true;
+          _rTarget = null; if (_rRaf){ cancelAnimationFrame(_rRaf); _rRaf = null; }
+          if (_rx === null) _rx = 280;
+          try{ rail.setPointerCapture(e.pointerId); }catch(err){}
+        } else return;
+      }
+      _rx = Math.min(280, Math.max(0, 280 + dx));
+      _rApply();
+      d.hist.push({x: e.clientX, t: performance.now()});
+      if (d.hist.length > 6) d.hist.shift();
+    });
+    function endD(e){
+      if (!d || e.pointerId !== d.id) return;
+      var was = engaged, h = d.hist, n = h.length, v = 0;
+      if (n > 1){ var dt = (h[n-1].t - h[0].t) / 1000; if (dt > 0) v = (h[n-1].x - h[0].x) / dt; }
+      d = null; engaged = false;
+      if (!was) return;
+      suppress = true;
+      setTimeout(function(){ suppress = false; }, 350);
+      var projected = _rx + v * 0.499;
+      if (projected < 140){ closeRail(); _rSpringTo(0, v); }
+      else { openRail(); _rSpringTo(280, v); }
+    }
+    rail.addEventListener('pointerup', endD);
+    rail.addEventListener('pointercancel', endD);
+    rail.addEventListener('click', function(e){ if (suppress){ e.stopPropagation(); e.preventDefault(); } }, true);
+  })();
   // Active item for the current page (same rule as before).
   var p=location.pathname;
   document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
