@@ -6288,9 +6288,9 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_error(500, "internal error")
             return
-        # Public legal pages (plain-language terms + privacy, written
-        # for how this instance actually handles data).
-        if parsed.path in ("/terms", "/privacy"):
+        # Public static pages (plain-language terms + privacy, written
+        # for how this instance actually handles data, plus the loader).
+        if parsed.path in ("/terms", "/privacy", "/loading"):
             try:
                 content = (Path(__file__).parent
                            / (parsed.path[1:] + ".html")).read_text(encoding="utf-8")
