@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nexus — Loading</title>
+<meta name="theme-color" content="#050505">
+<link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0a0a0a;color:#e8e8ee;font-family:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
+.page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:0 1.5rem}
+/* Port of the supplied framer-motion loader: Nexus has no React/build
+   step, so the same motion is done with plain CSS + Web Animations. */
+.loader{display:flex;justify-content:center;width:min(80vw,420px);
+  animation:fadeBlur 1.2s cubic-bezier(.25,.46,.45,.94) .2s both}
+@keyframes fadeBlur{from{opacity:0;filter:blur(3px)}to{opacity:1;filter:blur(0)}}
+.bars{position:relative;display:flex;justify-content:center;gap:.25rem}
+.bar{position:relative;z-index:1;width:.375rem;height:2.25rem;background:#779FFF;border-radius:9999px;flex:none;transform-origin:center}
+@media (prefers-reduced-motion:reduce){.loader{animation:none}.bar{transform:none!important}}
+</style>
+</head>
+<body>
+<main class="page" aria-label="Loading">
+  <div class="loader">
+    <div class="bars" id="bars">
+      <!-- base = the snippet's random 0.4–1.0 scale, fixed here so every
+           load renders the same spread instead of a hydration-style jump -->
+      <div class="bar" data-base="0.82"></div><div class="bar" data-base="0.55"></div><div class="bar" data-base="0.97"></div><div class="bar" data-base="0.43"></div><div class="bar" data-base="0.71"></div><div class="bar" data-base="0.88"></div><div class="bar" data-base="0.49"></div><div class="bar" data-base="1.00"></div><div class="bar" data-base="0.63"></div><div class="bar" data-base="0.77"></div><div class="bar" data-base="0.46"></div><div class="bar" data-base="0.91"></div><div class="bar" data-base="0.58"></div>
+    </div>
+  </div>
+</main>
+<script>
+(function(){
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('.bar').forEach(function(bar, i){
+    var base = parseFloat(bar.dataset.base);
+    bar.animate(
+      [{transform:'scaleY('+base+')'},{transform:'scaleY(1.5)'},{transform:'scaleY('+base+')'}],
+      {duration:1700, delay:i*150, iterations:Infinity, easing:'ease-in-out'});
+  });
+})();
+</script>
+</body>
+</html>
