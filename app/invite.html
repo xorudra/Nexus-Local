@@ -63,7 +63,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
-<body>
+<body><div id="nxPageLoader" aria-hidden="true"><div class="nx-pl-bars"><i data-base="0.82"></i><i data-base="0.55"></i><i data-base="0.97"></i><i data-base="0.43"></i><i data-base="0.71"></i><i data-base="0.88"></i><i data-base="0.49"></i><i data-base="1.00"></i><i data-base="0.63"></i><i data-base="0.77"></i><i data-base="0.46"></i><i data-base="0.91"></i><i data-base="0.58"></i></div></div><style>#nxPageLoader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:#0a0a0a;transition:opacity .3s ease}#nxPageLoader.nx-pl-hide{opacity:0;pointer-events:none}.nx-pl-bars{display:flex;gap:.25rem}.nx-pl-bars i{display:block;width:.375rem;height:2.25rem;background:#779FFF;border-radius:9999px;transform-origin:center}@media (prefers-reduced-motion:reduce){#nxPageLoader{transition-duration:.05s}}</style>
 <div class="card" role="main">
 <div class="inner">
 <div class="logo">N</div>
@@ -141,5 +141,22 @@ $('f').addEventListener('submit', function(ev){
   });
 });
 </script>
-</body>
+<script>(function(){var l=document.getElementById('nxPageLoader');if(!l)return;
+var reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(!reduced){l.querySelectorAll('i').forEach(function(b,i){var s=parseFloat(b.dataset.base);
+b.animate([{transform:'scaleY('+s+')'},{transform:'scaleY(1.5)'},{transform:'scaleY('+s+')'}],
+{duration:1700,delay:i*150,iterations:Infinity,easing:'ease-in-out'});});}
+var hidden=false;function hide(){if(hidden)return;hidden=true;l.classList.add('nx-pl-hide');
+setTimeout(function(){l.style.display='none';},350);}
+var t0=Date.now();function hideSoon(){setTimeout(hide,Math.max(0,400-(Date.now()-t0)));}
+window.addEventListener('load',hideSoon);setTimeout(hide,3000);
+window.addEventListener('pageshow',function(){hide();});
+function show(){hidden=false;l.style.display='flex';l.classList.remove('nx-pl-hide');}
+document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a');
+if(!a||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+var h=a.getAttribute('href');if(!h||h.charAt(0)==='#'||/^(javascript|mailto|tel):/.test(h)||a.target==='_blank'||a.hasAttribute('download'))return;
+var u;try{u=new URL(h,location.href);}catch(err){return;}if(u.origin!==location.origin)return;
+e.preventDefault();show();setTimeout(function(){location.href=u.href;},120);});
+document.addEventListener('submit',function(){show();});
+})();</script></body>
 </html>

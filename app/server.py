@@ -53,6 +53,8 @@ from key_security import encrypt_keys, decrypt_keys, encrypt_raw, decrypt_raw
 
 USAGE_PATH = Path(__file__).parent / "usage.jsonl"
 SESSIONS = {}
+_NX_LOADER_DIV = '<div id="nxPageLoader" aria-hidden="true"><div class="nx-pl-bars"><i data-base="0.82"></i><i data-base="0.55"></i><i data-base="0.97"></i><i data-base="0.43"></i><i data-base="0.71"></i><i data-base="0.88"></i><i data-base="0.49"></i><i data-base="1.00"></i><i data-base="0.63"></i><i data-base="0.77"></i><i data-base="0.46"></i><i data-base="0.91"></i><i data-base="0.58"></i></div></div><style>#nxPageLoader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:#0a0a0a;transition:opacity .3s ease}#nxPageLoader.nx-pl-hide{opacity:0;pointer-events:none}.nx-pl-bars{display:flex;gap:.25rem}.nx-pl-bars i{display:block;width:.375rem;height:2.25rem;background:#779FFF;border-radius:9999px;transform-origin:center}@media (prefers-reduced-motion:reduce){#nxPageLoader{transition-duration:.05s}}</style>'
+_NX_LOADER_JS = "<script>(function(){var l=document.getElementById('nxPageLoader');if(!l)return;\nvar reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;\nif(!reduced){l.querySelectorAll('i').forEach(function(b,i){var s=parseFloat(b.dataset.base);\nb.animate([{transform:'scaleY('+s+')'},{transform:'scaleY(1.5)'},{transform:'scaleY('+s+')'}],\n{duration:1700,delay:i*150,iterations:Infinity,easing:'ease-in-out'});});}\nvar hidden=false;function hide(){if(hidden)return;hidden=true;l.classList.add('nx-pl-hide');\nsetTimeout(function(){l.style.display='none';},350);}\nvar t0=Date.now();function hideSoon(){setTimeout(hide,Math.max(0,400-(Date.now()-t0)));}\nwindow.addEventListener('load',hideSoon);setTimeout(hide,3000);\nwindow.addEventListener('pageshow',function(){hide();});\nfunction show(){hidden=false;l.style.display='flex';l.classList.remove('nx-pl-hide');}\ndocument.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a');\nif(!a||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;\nvar h=a.getAttribute('href');if(!h||h.charAt(0)==='#'||/^(javascript|mailto|tel):/.test(h)||a.target==='_blank'||a.hasAttribute('download'))return;\nvar u;try{u=new URL(h,location.href);}catch(err){return;}if(u.origin!==location.origin)return;\ne.preventDefault();show();setTimeout(function(){location.href=u.href;},120);});\ndocument.addEventListener('submit',function(){show();});\n})();</script>"
 _login_attempts = {}
 # Per-session API rate limits: (bucket, session token) -> [timestamps].
 # Stops a single session (friend or hijacked) from burning provider quota.
@@ -6288,9 +6290,9 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_error(500, "internal error")
             return
-        # Public static pages (plain-language terms + privacy, written
-        # for how this instance actually handles data, plus the loader).
-        if parsed.path in ("/terms", "/privacy", "/loading"):
+        # Public legal pages (plain-language terms + privacy, written
+        # for how this instance actually handles data).
+        if parsed.path in ("/terms", "/privacy"):
             try:
                 content = (Path(__file__).parent
                            / (parsed.path[1:] + ".html")).read_text(encoding="utf-8")
@@ -6394,7 +6396,7 @@ class Handler(BaseHTTPRequestHandler):
                     ".back{text-align:center;margin-top:16px}"
                     ".back a{color:#f2f2f2;text-decoration:none;font-size:14px}"
                     "@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}""@keyframes grainShift{0%,100%{transform:translate(0,0)}12%{transform:translate(-3%,-5%)}25%{transform:translate(-8%,3%)}37%{transform:translate(4%,-8%)}50%{transform:translate(-3%,8%)}62%{transform:translate(-8%,3%)}75%{transform:translate(6%,0)}87%{transform:translate(0,6%)}}""@keyframes batDrift{0%,100%{transform:translateY(-50%) translateX(0)}50%{transform:translateY(-60%) translateX(-26px)}}""@keyframes tabGlow{0%,100%{box-shadow:0 0 14px rgba(255,255,255,.10)}50%{box-shadow:0 0 26px rgba(255,255,255,.28)}}""body::before{content:\"\";position:fixed;inset:0;z-index:2000;pointer-events:none;background:radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.62) 100%)}""body::after{content:\"\";position:fixed;inset:-120px;z-index:2001;pointer-events:none;opacity:.05;background-image:url(\"data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27140%27%20height%3D%27140%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.85%27%20numOctaves%3D%272%27/%3E%3C/filter%3E%3Crect%20width%3D%27140%27%20height%3D%27140%27%20filter%3D%27url%28%23n%29%27%20opacity%3D%270.55%27/%3E%3C/svg%3E\");animation:grainShift 7s steps(8) infinite}"".hero{position:relative;overflow:hidden;animation:fadeUp .7s cubic-bezier(.2,.7,.3,1) both}"".hero::after{content:\"\";position:absolute;right:-34px;top:50%;width:280px;height:101px;background:url(\"data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20100%2036%27%3E%3Cpath%20d%3D%27M0%2C14%20L24%2C3%20L39%2C9%20L44%2C1%20L46.5%2C7%20L50%2C5%20L53.5%2C7%20L56%2C1%20L61%2C9%20L76%2C3%20L100%2C14%20L90%2C20%20L83%2C16%20L75%2C24%20L67%2C18%20L59%2C28%20L54%2C22%20L50%2C30%20L46%2C22%20L41%2C28%20L33%2C18%20L25%2C24%20L17%2C16%20L10%2C20%20Z%27%20fill%3D%27%23f2f2f2%27/%3E%3C/svg%3E\") no-repeat center/contain;opacity:.07;pointer-events:none;animation:batDrift 11s ease-in-out infinite}"".steps{animation:fadeUp .7s .08s cubic-bezier(.2,.7,.3,1) both}"".tabs{animation:fadeUp .7s .14s cubic-bezier(.2,.7,.3,1) both}"".tab.sel{animation:tabGlow 2.6s ease-in-out infinite}"".sec.on .card{animation:fadeUp .5s cubic-bezier(.2,.7,.3,1) both}"
-                    "</style></head><body>" + sidebar + "<div class='wrap'>"
+                    "</style></head><body>" + _NX_LOADER_DIV + sidebar + "<div class='wrap'>"
                     "<div class='hero'><div class='eyebrow'>NEXUS</div>"
                     "<h1>Update Keys</h1>"
                     "<p class='sub'>Only fill in the keys you want to change</p></div>"
@@ -6404,7 +6406,7 @@ class Handler(BaseHTTPRequestHandler):
                     "<button type='submit'>Save Changes</button>"
                     "</form></div>"
                     "<p class='back'><a href='/'>← Back to Dashboard</a></p>"
-                    "</div></body></html>")
+                    "</div>" + _NX_LOADER_JS + "</body></html>")
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
