@@ -512,7 +512,7 @@ document.addEventListener('click',function(e){var a=e.target.closest&&e.target.c
 if(!a||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
 var h=a.getAttribute('href');if(!h||h.charAt(0)==='#'||/^(javascript|mailto|tel):/.test(h)||a.target==='_blank'||a.hasAttribute('download'))return;
 var u;try{u=new URL(h,location.href);}catch(err){return;}if(u.origin!==location.origin)return;
-e.preventDefault();show();setTimeout(function(){location.href=u.href;},120);});
+e.preventDefault();show();location.href=u.href;});
 document.addEventListener('submit',function(){show();});
 })();</script></body>
 </html>
