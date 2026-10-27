@@ -77,8 +77,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   </nav>
 </main>
 <script>(function(){var l=document.getElementById('nxPageLoader');if(!l)return;
-var reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
-function startBars(){if(reduced)return;l.querySelectorAll('i').forEach(function(b,i){b.getAnimations().forEach(function(a){a.cancel();});var s=parseFloat(b.dataset.base);
+function startBars(){l.querySelectorAll('i').forEach(function(b,i){b.getAnimations().forEach(function(a){a.cancel();});var s=parseFloat(b.dataset.base);
 b.animate([{transform:'scaleY('+s+')'},{transform:'scaleY(1.5)'},{transform:'scaleY('+s+')'}],
 {duration:1000,delay:i*60,iterations:Infinity,easing:'ease-in-out'});});}startBars();
 var hidden=false;var _actUntil=0;function hide(){if(Date.now()<_actUntil){setTimeout(hide,_actUntil-Date.now()+50);return;}if(hidden)return;hidden=true;l.classList.add('nx-pl-hide');
