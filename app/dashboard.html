@@ -737,7 +737,6 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 @keyframes vtOut{to{opacity:0}}
 @keyframes vtIn{from{opacity:0}}
 @media (prefers-reduced-motion: reduce){::view-transition-old(root),::view-transition-new(root){animation:none!important}}
-.nexus-sidebar{view-transition-name:nexus-rail}
 </style>
 <button class="nexus-burger" id="nx-burger" aria-label="Open menu">&#9776;</button>
 <div class="nexus-overlay" id="nx-overlay"></div>
@@ -890,6 +889,18 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   dragH.addEventListener('pointerup', _dragEnd);
   dragH.addEventListener('pointercancel', _dragEnd);
   if(burger) burger.addEventListener('click', openRail);
+  // nx-close-on-link: a tapped sidebar link must leave with the rail
+  // already shut, instantly (no spring), so the navigation never
+  // carries an open rail snapshot onto the next page.
+  rail.querySelectorAll('a[href]').forEach(function(a){
+    a.addEventListener('click', function(){
+      if (_rMobile() && rail.classList.contains('open')){
+        _rTarget = null; _rx = 0; rail.style.transform = '';
+        rail.classList.remove('open'); overlay.classList.remove('show');
+        overlay.style.pointerEvents = 'none';
+      }
+    });
+  });
   if(overlay) overlay.addEventListener('click', closeRail);
   window.addEventListener('resize', function(){
     if (!_rMobile()){ rail.style.transform = ''; overlay.style.opacity = ''; }
