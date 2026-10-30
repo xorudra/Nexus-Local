@@ -4375,11 +4375,14 @@ RELAY_KEYLESS = {"relay_pollinations", "aihorde", "pollinations", "kilo", "ovh"}
 # of starting over. Long histories are compressed deterministically
 # (older turns summarised locally, newest turns verbatim) so the memory
 # stays inside a fixed character budget on free-tier context windows.
+# 2026-10-31 (owner order): budget raised to the max compatible with ALL
+# provider lanes, current and future — 100K chars (~25K tokens) fits any
+# modern lane with a >=32K-token window while leaving room for the reply.
 # ---------------------------------------------------------------------------
-SHARED_MEMORY_MAX_CHARS = 26000   # total history budget per request
-SHARED_MEMORY_MSG_CAP = 8000      # per-message cap
+SHARED_MEMORY_MAX_CHARS = 100000  # total history budget per request
+SHARED_MEMORY_MSG_CAP = 30000     # per-message cap
 SHARED_MEMORY_RECENT = 10         # newest messages always kept verbatim
-SHARED_MEMORY_SUMMARY_CAP = 6000  # cap for the compressed older-turns note
+SHARED_MEMORY_SUMMARY_CAP = 24000 # cap for the compressed older-turns note
 
 _SHARED_MEMORY_SYSTEM = (
     "You are answering inside Nexus, where several AI models share ONE "
