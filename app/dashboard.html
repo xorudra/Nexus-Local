@@ -1269,12 +1269,12 @@ async function openChat(id){
         chatLog.forEach(m => addMsg(m.r === 'user' ? 'user' : 'ai', m.t, m.m, m.tr));
     } else if (e) { e.style.display = ''; }
     closeChats();
-    hideMemMeter();
+    resetMemMeter();
     refreshChatList();
 }
 function newChat(fromDelete){
     currentChatId = null;
-    hideMemMeter();
+    resetMemMeter();
     chatLog = [];
     setChatTitle('New chat');
     thread.querySelectorAll('.msg').forEach(n => n.remove());
@@ -2116,10 +2116,22 @@ function updateMemMeter(j) {
         remainingLabel: 'chars free',
     });
 }
-function hideMemMeter() {
+/* Waiting state: the meter is always visible so the feature is
+   discoverable; live numbers replace this after the first reply. */
+function resetMemMeter() {
     const el = document.getElementById('mem-meter');
-    if (el) { el.hidden = true; el.innerHTML = ''; }
+    if (!el) return;
+    el.hidden = false;
+    el.innerHTML = '<div data-slot="rate-limit-meter" class="rlm">'
+        + '<div class="rlm-head"><span class="rlm-label">Shared memory</span></div>'
+        + '<p class="rlm-counts" style="margin:0"><span class="rlm-remaining" style="color:#9a9aa6">—</span>'
+        + '<span class="rlm-of">chars free</span></p>'
+        + '<div class="rlm-bar" role="meter" aria-valuemin="0" aria-valuemax="100000" aria-label="Shared memory">'
+        + '<div class="rlm-fill" style="width:0%;background:#34d399"></div></div>'
+        + '<p class="rlm-note" style="color:#9a9aa6">Send a message — live usage appears after the first reply.</p>'
+        + '</div>';
 }
+resetMemMeter();
 composerSend.addEventListener('click', async () => {
     buzz(8);
     const provider = composerProviders.value;
