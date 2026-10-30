@@ -4470,7 +4470,7 @@ def _build_shared_messages(history, current_text, current_content=None,
     `for_provider`, an explicit continue-from-here note is injected.
     """
     hist = list(history or [])
-    info = {"turns": len(hist), "compressed": False}
+    info = {"turns": len(hist), "compressed": False, "chars": 0}
     if not hist and not handover_from:
         return None, info
     total = sum(len(h["content"]) for h in hist)
@@ -4517,6 +4517,7 @@ def _build_shared_messages(history, current_text, current_content=None,
     msgs.append({"role": "user",
                  "content": current_content if current_content is not None
                  else current_text})
+    info["chars"] = sum(len(_sm_text(m.get("content"))) for m in msgs)
     return msgs, info
 
 
@@ -9609,7 +9610,9 @@ class Handler(BaseHTTPRequestHandler):
                                              "handover": bool(_handover_from),
                                              "from_provider": _handover_from,
                                              "memory_turns": _sm_info["turns"],
-                                             "memory_compressed": _sm_info["compressed"]}).encode())
+                                             "memory_compressed": _sm_info["compressed"],
+                                             "memory_chars": _sm_info["chars"],
+                                             "memory_budget": SHARED_MEMORY_MAX_CHARS}).encode())
             else:
                 self._set_json_headers(_last[0])
                 self.wfile.write(json.dumps({"error": _last[1],
