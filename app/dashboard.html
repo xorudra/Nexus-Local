@@ -545,7 +545,7 @@ background-repeat:no-repeat;background-position:right 12px center;padding-right:
 .picker::placeholder{color:#9a9aa6}
 .input-pill{position:relative;display:flex;flex-direction:column;background:rgba(16,16,18,.9);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:none;border-radius:24px;padding:0.5rem;transition:border-color .2s,box-shadow .2s}
 .input-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:0.375rem;align-items:center;width:100%;min-height:50px}
-.pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:0.375rem;width:100%;border-top:1px solid #17171a;margin-top:0.375rem;padding-top:0.5rem}
+.pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:0.375rem;width:100%;margin-bottom:0.5rem}
 .pill-pickers .picker{padding:0.4375rem 1.5rem 0.4375rem 0.625rem;font-size:0.75rem;border-radius:9px;background-position:right 8px center}
 
 /* ===== Custom dropdowns (replace the native select look) ===== */
@@ -640,6 +640,7 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 .pill-pickers::-webkit-scrollbar{display:none}
 .pill-pickers .cs{flex:none}
 .pill-pickers .cs-btn{background:transparent;font-size:0.6875rem;color:#8a8a92;padding:0.3125rem 0.5rem;min-height:0;border-radius:999px}
+.nexus-burger{background:transparent !important;border:none !important;box-shadow:none !important}
 }
 
 /* ===== Saved chats: bar + slide-in panel ===== */
@@ -1059,25 +1060,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
         <div id="lane-detail" hidden></div>
     </div>
     <div class="composer-box">
-        <div class="input-pill">
-            <div class="input-row">
-            <div class="attach-wrap">
-                <button type="button" id="attach-plus" title="Attach" aria-expanded="false" aria-controls="attach-menu">+</button>
-                <div id="attach-menu" style="display:none">
-                    <div class="attach-title">Add attachment</div>
-                    <button class="attach-opt" data-type="camera"><span class="dot" style="background:#f2f2f2"></span><span><div>Camera</div><div class="opt-sub">Take a photo &middot; 8 MB max</div></span></button>
-                    <button class="attach-opt" data-type="photos"><span class="dot" style="background:#d9d9de"></span><span><div>Photos</div><div class="opt-sub">Choose from gallery &middot; 8 MB max</div></span></button>
-                    <button class="attach-opt" data-type="videos"><span class="dot" style="background:#f5c518"></span><span><div>Videos</div><div class="opt-sub">Choose a video &middot; 20 MB max</div></span></button>
-                    <button class="attach-opt" data-type="files"><span class="dot" style="background:#c0c0c0"></span><span><div>Files</div><div class="opt-sub">PDF, DOCX, TXT, MD, CSV, JSON, LOG &middot; 10 MB max</div></span></button>
-                    <button class="attach-opt" data-type="link"><span class="dot" style="background:#d9d9de"></span><span><div>Link</div><div class="opt-sub">Paste any photo or video link</div></span></button>
-                </div>
-            </div>
-
-            <textarea id="composer-message" rows="1" aria-label="Message" placeholder="Type a message..."></textarea>
-            <button id="composer-mic" title="Voice input" style="width:40px;height:40px;border-radius:50%;background:#1a1a1e;border:1px solid #33333c;cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center;padding:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#c6c6cf" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg></button>
-            <button id="composer-send" title="Send"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 19V5M5 12l7-7 7 7" stroke="#050505" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-            </div>
-            <div class="pill-pickers">
+        <div class="pill-pickers">
                 <select id="composer-provider" class="picker" aria-label="Provider" onchange="loadModels(this.value)" title="Provider"></select>
                 <select id="composer-model" class="picker" aria-label="Model" title="Model"><option value="">Select model...</option></select>
                 <select id="composer-mode" class="picker" aria-label="Task mode" title="Task mode" onchange="var p=document.getElementById('composer-provider'); if(p&&p.value) loadModels(p.value);">
@@ -1096,6 +1079,24 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
                 <option value="save">Save tokens</option>
                 <option value="auto">Auto routing</option>
             </select>
+            </div>
+        <div class="input-pill">
+            <div class="input-row">
+            <div class="attach-wrap">
+                <button type="button" id="attach-plus" title="Attach" aria-expanded="false" aria-controls="attach-menu">+</button>
+                <div id="attach-menu" style="display:none">
+                    <div class="attach-title">Add attachment</div>
+                    <button class="attach-opt" data-type="camera"><span class="dot" style="background:#f2f2f2"></span><span><div>Camera</div><div class="opt-sub">Take a photo &middot; 8 MB max</div></span></button>
+                    <button class="attach-opt" data-type="photos"><span class="dot" style="background:#d9d9de"></span><span><div>Photos</div><div class="opt-sub">Choose from gallery &middot; 8 MB max</div></span></button>
+                    <button class="attach-opt" data-type="videos"><span class="dot" style="background:#f5c518"></span><span><div>Videos</div><div class="opt-sub">Choose a video &middot; 20 MB max</div></span></button>
+                    <button class="attach-opt" data-type="files"><span class="dot" style="background:#c0c0c0"></span><span><div>Files</div><div class="opt-sub">PDF, DOCX, TXT, MD, CSV, JSON, LOG &middot; 10 MB max</div></span></button>
+                    <button class="attach-opt" data-type="link"><span class="dot" style="background:#d9d9de"></span><span><div>Link</div><div class="opt-sub">Paste any photo or video link</div></span></button>
+                </div>
+            </div>
+
+            <textarea id="composer-message" rows="1" aria-label="Message" placeholder="Type a message..."></textarea>
+            <button id="composer-mic" title="Voice input" style="width:40px;height:40px;border-radius:50%;background:#1a1a1e;border:1px solid #33333c;cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center;padding:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#c6c6cf" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg></button>
+            <button id="composer-send" title="Send"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 19V5M5 12l7-7 7 7" stroke="#050505" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
         </div>
         <input type="file" id="attach-input" aria-label="Attach a file" accept="image/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.log" style="display:none">
