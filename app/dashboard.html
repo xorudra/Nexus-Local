@@ -1478,9 +1478,15 @@ function makeCustomSelect(sel){
     wrap.appendChild(btn);
     wrap.appendChild(menu);
     const labelEl = btn.querySelector('.cs-label');
+    function shortModel(t){
+        // "command-a-reasoning-08-2025" -> "command-a-reasoning" (fits the button)
+        return t.replace(/-\d{2}-\d{4}$/, '').replace(/:\w+$/, '');
+    }
     function syncLabel(){
         const o = sel.options[sel.selectedIndex];
-        labelEl.textContent = o ? o.text : '';
+        let txt = o ? o.text : '';
+        if (sel.id === 'composer-model' && txt.length > 20) txt = shortModel(txt);
+        labelEl.textContent = txt;
         btn.title = o ? o.text : '';
     }
     function buildMenu(){
