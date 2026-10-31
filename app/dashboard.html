@@ -640,6 +640,7 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 .pill-pickers .cs{flex:1 1 auto;min-width:0;position:relative}
 .pill-pickers .cs-btn{background:rgba(255,255,255,.06);font-size:0.75rem;color:#e8e8ec;padding:0.5rem 0.75rem;min-height:36px;border-radius:999px;border:1px solid rgba(255,255,255,.08);width:100%}
 .pill-pickers .cs-menu{top:calc(100% + 6px);bottom:auto;transform-origin:top left;z-index:200}
+.pill-pickers .cs.up .cs-menu{top:auto;bottom:calc(100% + 6px);transform-origin:bottom left}
 #composer-message{padding:0.5rem 0.375rem;line-height:1.5}
 .nexus-burger{background:transparent !important;border:none !important;box-shadow:none !important;top:8px !important}
 }
@@ -1500,7 +1501,19 @@ function makeCustomSelect(sel){
         e.stopPropagation();
         const willOpen = !wrap.classList.contains('open');
         document.querySelectorAll('.cs.open').forEach(w => w.classList.remove('open'));
-        if (willOpen) { buildMenu(); wrap.classList.add('open'); }
+        if (willOpen) {
+            buildMenu(); wrap.classList.add('open');
+            // Smart direction: open upward if not enough space below
+            const br = btn.getBoundingClientRect();
+            const spaceBelow = window.innerHeight - br.bottom;
+            const spaceAbove = br.top;
+            const need = Math.min(menu.scrollHeight || 300, 320);
+            if (spaceBelow < need && spaceAbove > spaceBelow) {
+                wrap.classList.add('up');
+            } else {
+                wrap.classList.remove('up');
+            }
+        }
     });
     menu.addEventListener('click', (e) => e.stopPropagation());
     document.addEventListener('click', () => wrap.classList.remove('open'));
