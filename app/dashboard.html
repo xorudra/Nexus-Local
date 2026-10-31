@@ -544,7 +544,7 @@ button.trace-line{cursor:pointer}
 /* ChatGPT-like centered layout on desktop (owner order 2026-10-31) */
 /* Full-width composer (owner order 2026-10-31): no empty space on sides */
 @media(min-width:35.01em){
-.composer{max-width:none;margin-left:0;margin-right:0;width:100%}
+.composer{max-width:none;margin-left:0;margin-right:0;box-sizing:border-box;overflow-x:clip}
 .pill-pickers{grid-template-columns:1.1fr 1.4fr 0.9fr 1fr !important}
 .pill-pickers .cs-btn{padding:0.75rem 1rem !important;font-size:0.875rem !important;min-height:48px !important}
 }
