@@ -421,9 +421,9 @@ overflow-y:auto;padding:1rem 1rem 0.5rem;margin-bottom:0;display:flex;flex-direc
 
 /* Full-dashboard composer (owner order 2026-10-31): hero removed — the
    Task Composer fills the viewport, only the token usage meter stays. */
-main{min-height:calc(100dvh - 72px);display:flex;flex-direction:column}
-.composer{flex:1;display:flex;flex-direction:column}
-#composer-thread{flex:1;min-height:min(380px,52dvh);max-height:none}
+main{height:calc(100dvh - 72px);min-height:0;display:flex;flex-direction:column}
+.composer{flex:1;display:flex;flex-direction:column;min-height:0}
+#composer-thread{flex:1;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain}
 .rlm{background:rgba(255,255,255,.035);border:none;border-radius:14px;
     display:flex;flex-direction:column;gap:6px;padding:12px 14px;animation:ax-fade-in .5s ease both}
 .rlm-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
