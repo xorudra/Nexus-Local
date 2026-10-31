@@ -538,9 +538,10 @@ button.trace-line{cursor:pointer}
 /* ===== Composer: unified pill input ===== */
 .composer-box{background:#050505;border:none;border-radius:0 0 20px 20px;padding:0.25rem 0.75rem 0.75rem}
 /* Borderless composer (owner order 2026-10-31): no borders or shadows on desktop either */
-.composer,.composer-box,.input-pill,.cs-btn,.rlm{border:none !important;box-shadow:none !important}
+.composer,.composer-box,.input-pill,.cs-btn,.rlm{border:none !important;box-shadow:none !important;background:transparent !important}
 .input-pill:focus-within{box-shadow:0 0 0 1.5px rgba(56,189,248,.5) !important}
 .composer-box{background:transparent}
+.cs-btn{background:rgba(255,255,255,.04) !important}
 .picker{flex:1;min-width:0;background:#101012;border:none;border-radius:10px;
 color:#f2f2f2;padding:0.5625rem 0.75rem;font-size:0.8125rem;font-family:inherit;appearance:none}
 select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23f2f2f2' fill='none' stroke-width='1.6'/%3E%3C/svg%3E");
