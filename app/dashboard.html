@@ -537,7 +537,7 @@ background-repeat:no-repeat;background-position:right 12px center;padding-right:
 .picker:focus{outline:none;border-color:#f2f2f2;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
 .picker::placeholder{color:#9a9aa6}
 .input-pill{position:relative;display:flex;flex-direction:column;background:rgba(16,16,18,.9);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:0.5rem;transition:border-color .2s,box-shadow .2s}
-.input-row{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;gap:0.375rem;align-items:center;width:100%;min-height:50px}
+.input-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:0.375rem;align-items:center;width:100%;min-height:50px}
 .pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:0.375rem;width:100%;border-top:1px solid #17171a;margin-top:0.375rem;padding-top:0.5rem}
 .pill-pickers .picker{padding:0.4375rem 1.5rem 0.4375rem 0.625rem;font-size:0.75rem;border-radius:9px;background-position:right 8px center}
 
@@ -573,34 +573,11 @@ background-repeat:no-repeat;background-position:right 12px center;padding-right:
 .input-pill:focus-within{border-color:rgba(56,189,248,.55);box-shadow:0 0 0 3px rgba(56,189,248,.14),0 0 32px rgba(56,189,248,.10)}
 
 /* AnimatedAIChat port (owner order 2026-10-31): vanilla, Nexus cyan theme.
-   Glassy composer card, command button + "/" palette with real commands. */
+   Glassy composer card with cyan focus glow + entrance rise.
+   (The "/" command palette was removed 2026-10-31 at owner order —
+   "we don't need yet". The code is in git history if he wants it back.) */
 @keyframes nx-rise{from{opacity:0;transform:translateY(14px)}}
-.composer-box{position:relative;animation:nx-rise .55s cubic-bezier(.2,.7,.2,1) both}
-#nx-cmd-btn{width:40px;height:40px;border-radius:50%;background:#1a1a1e;border:1px solid #33333c;color:#c6c6cf;cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center;font-size:17px;padding:0;transition:transform .15s,border-color .15s,color .15s,background .15s}
-#nx-cmd-btn:hover{border-color:#38bdf8;color:#38bdf8;transform:scale(1.06)}
-#nx-cmd-btn:active{transform:scale(.94)}
-#nx-cmd-btn.open{background:rgba(56,189,248,.14);border-color:#38bdf8;color:#38bdf8}
-#nx-cmd-palette{position:absolute;left:-2px;right:-2px;bottom:calc(100% + 10px);background:rgba(8,8,10,.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:6px;z-index:70;max-height:min(290px,42vh);overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,.65),0 0 24px rgba(56,189,248,.06)}
-#nx-cmd-palette[hidden]{display:none}
-@keyframes nx-pop{from{opacity:0;transform:translateY(8px) scale(.99)}}
-#nx-cmd-palette:not([hidden]){animation:nx-pop .16s cubic-bezier(.2,.7,.2,1) both}
-.nx-cmd-head{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#6b6b76;padding:8px 10px 4px}
-.nx-cmd-item{display:flex;align-items:center;gap:10px;padding:8px 10px;min-height:46px;border-radius:9px;cursor:pointer;transition:background .12s}
-.nx-cmd-item:hover{background:rgba(255,255,255,.05)}
-.nx-cmd-item.active{background:rgba(56,189,248,.13)}
-.nx-cmd-icon{width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(255,255,255,.06);color:#9a9aa6;font-size:14px}
-.nx-cmd-item.active .nx-cmd-icon{background:rgba(56,189,248,.18);color:#38bdf8}
-.nx-cmd-text{display:flex;flex-direction:column;min-width:0;flex:1;line-height:1.35}
-.nx-cmd-label{font-size:13px;font-weight:500;color:#e8e8ec;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nx-cmd-desc{font-size:11px;color:#9a9aa6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nx-cmd-prefix{flex:none;font-family:'JetBrains Mono',monospace;font-size:12px;color:#38bdf8;background:rgba(56,189,248,.1);padding:2px 8px;border-radius:6px}
-.nx-cmd-empty{padding:14px;text-align:center;color:#9a9aa6;font-size:13px}
-@media (max-width:540px){
-  .input-row{gap:0.25rem}
-  #nx-cmd-btn{width:36px;height:36px;font-size:15px}
-  .nx-cmd-item{padding:9px 10px}
-  #nx-cmd-palette{left:-4px;right:-4px}
-}
+.composer-box{animation:nx-rise .55s cubic-bezier(.2,.7,.2,1) both}
 .attach-wrap{position:relative}
 #attach-plus{width:40px;height:40px;border-radius:50%;background:transparent;border:none;color:#8a8a92;
 font-size:1.625rem;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
@@ -1072,8 +1049,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
                     <button class="attach-opt" data-type="link"><span class="dot" style="background:#d9d9de"></span><span><div>Link</div><div class="opt-sub">Paste any photo or video link</div></span></button>
                 </div>
             </div>
-            <button type="button" id="nx-cmd-btn" title="Commands — type / or tap">⌘</button>
-            <div id="nx-cmd-palette" hidden></div>
+
             <textarea id="composer-message" rows="1" aria-label="Message" placeholder="Type a message..."></textarea>
             <button id="composer-mic" title="Voice input" style="width:40px;height:40px;border-radius:50%;background:#1a1a1e;border:1px solid #33333c;cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center;padding:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#c6c6cf" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg></button>
             <button id="composer-send" title="Send"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 19V5M5 12l7-7 7 7" stroke="#050505" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -2077,182 +2053,13 @@ function clearAttachment() {
 }
 
 const composerMsg = document.getElementById('composer-message');
-/* Command palette — vanilla port of AnimatedAIChat's palette
-   (owner order 2026-10-31). Nexus cyan theme, real commands only:
-   /new, /clear, and /<provider> built live from the provider select. */
-const nxCmdBtn = document.getElementById('nx-cmd-btn');
-const nxCmdPalette = document.getElementById('nx-cmd-palette');
-let nxCmdOpen = false, nxCmdActive = -1, nxCmdList = [];
-function nxSetProvider(val) {
-    composerProviders.value = val;
-    composerProviders.dispatchEvent(new Event('change', {bubbles: true}));
-    const wrap = composerProviders.closest('.cs');
-    if (wrap) {
-        const labelEl = wrap.querySelector('.cs-label');
-        const opt = composerProviders.options[composerProviders.selectedIndex];
-        if (labelEl && opt) { labelEl.textContent = opt.text; labelEl.parentElement.title = opt.text; }
-    }
-}
-function nxBuildCommands(filter) {
-    const cmds = [
-        {icon: '＋', label: 'New chat', desc: 'Start a fresh conversation', prefix: '/new', section: 'Actions',
-         run: () => newChat()},
-        {icon: '✕', label: 'Clear input', desc: 'Empty the message box', prefix: '/clear', section: 'Actions',
-         run: () => {}},
-    ];
-    const seen = {};
-    Array.from(composerProviders.options).forEach(o => {
-        if (!o.value) return;
-        const short = o.value.replace(/^relay_/, '');
-        if (seen[short]) return;
-        seen[short] = true;
-        cmds.push({icon: '◈', label: o.text, desc: 'Switch provider', prefix: '/' + short, section: 'Providers',
-         run: () => nxSetProvider(o.value)});
-    });
-    if (filter) {
-        const f = filter.toLowerCase();
-        return cmds.filter(c => c.prefix.toLowerCase().indexOf(f) === 0);
-    }
-    return cmds;
-}
-function nxRenderPalette() {
-    let html = '', lastSection = '';
-    nxCmdList.forEach((c, i) => {
-        if (c.section !== lastSection) {
-            lastSection = c.section;
-            html += '<div class="nx-cmd-head">' + esc(c.section) + '</div>';
-        }
-        html += '<div class="nx-cmd-item' + (i === nxCmdActive ? ' active' : '') + '" data-i="' + i + '" role="option" aria-selected="' + (i === nxCmdActive) + '">'
-            + '<span class="nx-cmd-icon">' + c.icon + '</span>'
-            + '<span class="nx-cmd-text"><span class="nx-cmd-label">' + esc(c.label) + '</span>'
-            + '<span class="nx-cmd-desc">' + esc(c.desc) + '</span></span>'
-            + '<span class="nx-cmd-prefix">' + esc(c.prefix) + '</span>'
-            + '</div>';
-    });
-    nxCmdPalette.innerHTML = html || '<div class="nx-cmd-empty">No matching commands</div>';
-    nxCmdPalette.querySelectorAll('.nx-cmd-item').forEach(el => {
-        el.addEventListener('mousedown', e => {
-            e.preventDefault();
-            nxRunCommand(parseInt(el.dataset.i, 10));
-        });
-    });
-    const activeEl = nxCmdPalette.querySelector('.nx-cmd-item.active');
-    if (activeEl) activeEl.scrollIntoView({block: 'nearest'});
-}
-function nxOpenPalette(filter) {
-    nxCmdList = nxBuildCommands(filter);
-    nxCmdActive = nxCmdList.length ? 0 : -1;
-    nxRenderPalette();
-    nxCmdOpen = true;
-    nxCmdPalette.hidden = false;
-    nxCmdBtn.classList.add('open');
-}
-function nxClosePalette() {
-    nxCmdOpen = false;
-    nxCmdPalette.hidden = true;
-    nxCmdBtn.classList.remove('open');
-}
-function nxClearInput() {
-    composerMsg.value = '';
-    composerMsg.style.height = 'auto';
-}
-function nxRunCommand(i) {
-    const c = nxCmdList[i];
-    nxClosePalette();
-    if (!c) return;
-    nxClearInput();
-    composerMsg.focus();
-    c.run();
-    announce(c.label + ' — done');
-}
-if (nxCmdBtn) nxCmdBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    if (nxCmdOpen) nxClosePalette();
-    else { nxOpenPalette(''); composerMsg.focus(); }
-});
-document.addEventListener('mousedown', e => {
-    if (nxCmdOpen && nxCmdPalette && !nxCmdPalette.contains(e.target)
-        && e.target !== nxCmdBtn && !nxCmdBtn.contains(e.target)) nxClosePalette();
-});
 composerMsg.addEventListener('keydown', e => {
-    if (nxCmdOpen) {
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            nxCmdActive = nxCmdList.length ? (nxCmdActive + 1) % nxCmdList.length : -1;
-            nxRenderPalette();
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            nxCmdActive = nxCmdList.length ? (nxCmdActive - 1 + nxCmdList.length) % nxCmdList.length : -1;
-            nxRenderPalette();
-        } else if (e.key === 'Tab' || e.key === 'Enter') {
-            e.preventDefault();
-            nxRunCommand(nxCmdActive);
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            nxClosePalette();
-        }
-        return;
-    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); composerSend.click(); }
 });
 composerMsg.addEventListener('input', () => {
     composerMsg.style.height = 'auto';
     composerMsg.style.height = Math.min(composerMsg.scrollHeight, 130) + 'px';
-    const v = composerMsg.value;
-    if (v.startsWith('/') && v.indexOf(' ') === -1) nxOpenPalette(v);
-    else if (nxCmdOpen) nxClosePalette();
 });
-/* RateLimitMeter — vanilla port (owner order 2026-10-31). Props mirror the
-   React component 1:1; renders the shared-memory budget meter. */
-const _rlmNum = new Intl.NumberFormat('en-US');
-function _rlmRel(target, now) {
-    const s = Math.max(0, Math.round((target - now) / 1000));
-    if (s < 60) return 'in ' + s + ' second' + (s === 1 ? '' : 's');
-    const m = Math.round(s / 60);
-    if (m < 60) return 'in ' + m + ' minute' + (m === 1 ? '' : 's');
-    const h = Math.round(m / 60);
-    return 'in ' + h + ' hour' + (h === 1 ? '' : 's');
-}
-function _rlmEsc(s) {
-    return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-}
-function renderRateLimitMeter(o) {
-    const reference = o.now || new Date();
-    const limit = o.limit, remaining = o.remaining;
-    const used = Math.max(0, limit - remaining);
-    const share = limit > 0 ? remaining / limit : 0;
-    const exhausted = remaining <= 0;
-    const label = o.label || 'Rate limit';
-    const remainingLabel = o.remainingLabel || 'remaining';
-    const resetsLabel = o.resetsLabel || 'resets';
-    const exhaustedLabel = o.exhaustedLabel || 'Quota exhausted';
-    const projectionLabel = o.projectionLabel || 'On the current rate this window runs out before it resets.';
-    const secondsLeft = o.resetAt ? (o.resetAt.getTime() - reference.getTime()) / 1000 : undefined;
-    const elapsedShare = (o.windowSeconds && secondsLeft !== undefined)
-        ? Math.min(1, Math.max(0.0001, (o.windowSeconds - secondsLeft) / o.windowSeconds))
-        : undefined;
-    const willExhaust = elapsedShare !== undefined && !exhausted && used / elapsedShare > limit;
-    const tone = o.tone || (exhausted ? '#f87171'
-        : (share < 0.15 || willExhaust) ? '#fbbf24' : '#34d399');
-    const note = exhausted
-        ? '<p class="rlm-note exhausted">' + _rlmEsc(exhaustedLabel) + '</p>'
-        : willExhaust
-            ? '<p class="rlm-note warn">' + _rlmEsc(projectionLabel) + '</p>' : '';
-    const footer = o.footer
-        ? '<p class="rlm-note" style="color:#9a9aa6">' + _rlmEsc(o.footer) + '</p>' : '';
-    return '<div data-slot="rate-limit-meter" class="rlm">'
-        + '<div class="rlm-head"><span class="rlm-label">' + _rlmEsc(label) + '</span>'
-        + (o.resetAt ? '<span class="rlm-reset">' + _rlmEsc(resetsLabel) + ' ' + _rlmEsc(_rlmRel(o.resetAt, reference)) + '</span>' : '')
-        + '</div>'
-        + '<p class="rlm-counts" style="margin:0"><span class="rlm-remaining" style="color:' + tone + '">'
-        + _rlmNum.format(remaining) + '</span><span class="rlm-of">/ ' + _rlmNum.format(limit) + ' ' + _rlmEsc(remainingLabel) + '</span></p>'
-        + '<div class="rlm-bar" role="meter" aria-valuenow="' + remaining + '" aria-valuemin="0" aria-valuemax="' + limit + '"'
-        + (typeof label === 'string' ? ' aria-label="' + _rlmEsc(label) + '"' : '') + '>'
-        + '<div class="rlm-fill" style="width:' + (share * 100).toFixed(1) + '%;background:' + tone + '"></div>'
-        + (elapsedShare !== undefined
-            ? '<span class="rlm-elapsed" aria-hidden="true" style="inset-inline-start:' + ((1 - elapsedShare) * 100).toFixed(1) + '%"></span>' : '')
-        + '</div>' + note + footer + '</div>';
-}
 /* Token usage meter (owner order 2026-10-31): today's real token count
    from /api/quotas, bar scaled against the busiest day of the last 7
    so the number has context. Never an estimate, never a fake quota. */
