@@ -300,8 +300,8 @@ body {
     padding: 1.375rem;
     margin: 1.25rem auto 1.25rem;
     max-width: 1560px;
-    border: 1px solid rgba(255,255,255,.1);
-    box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 120px rgba(56,189,248,.05), inset 0 1px 0 rgba(255,255,255,.05);
+    border: none;
+    box-shadow: none;
 }
 
 .composer h2 {
@@ -405,7 +405,7 @@ body {
 
 
 /* ===== Task Composer: chat UI ===== */
-.thread{background:#050505;border:1px solid #17171a;border-bottom:none;border-radius:12px 12px 0 0;min-height:380px;max-height:72vh;
+.thread{background:#050505;border:none;border-radius:12px 12px 0 0;min-height:380px;max-height:72vh;
 overflow-y:auto;padding:1rem 1rem 0.5rem;margin-bottom:0;display:flex;flex-direction:column;gap:0.75rem}
 .thread-empty{text-align:center;color:#9a9aa6;margin:auto;padding:1.75rem 1.25rem}
 .thread-empty svg{width:44px;opacity:.35;margin-bottom:0.5rem}
@@ -423,7 +423,7 @@ overflow-y:auto;padding:1rem 1rem 0.5rem;margin-bottom:0;display:flex;flex-direc
 main{min-height:calc(100dvh - 72px);display:flex;flex-direction:column}
 .composer{flex:1;display:flex;flex-direction:column}
 #composer-thread{flex:1;min-height:min(380px,52dvh);max-height:none}
-.rlm{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.1);border-radius:14px;
+.rlm{background:rgba(255,255,255,.035);border:none;border-radius:14px;
     display:flex;flex-direction:column;gap:6px;padding:12px 14px;animation:ax-fade-in .5s ease both}
 .rlm-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
 .rlm-label{font-size:12px;font-weight:500;color:#9a9aa6}
@@ -535,26 +535,26 @@ button.trace-line{cursor:pointer}
 
 
 /* ===== Composer: unified pill input ===== */
-.composer-box{background:#050505;border:1px solid #17171a;border-top:none;border-radius:0 0 20px 20px;padding:0.25rem 0.75rem 0.75rem}
-.picker{flex:1;min-width:0;background:#101012;border:1px solid rgba(255,255,255,.16);border-radius:10px;
+.composer-box{background:#050505;border:none;border-radius:0 0 20px 20px;padding:0.25rem 0.75rem 0.75rem}
+.picker{flex:1;min-width:0;background:#101012;border:none;border-radius:10px;
 color:#f2f2f2;padding:0.5625rem 0.75rem;font-size:0.8125rem;font-family:inherit;appearance:none}
 select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23f2f2f2' fill='none' stroke-width='1.6'/%3E%3C/svg%3E");
 background-repeat:no-repeat;background-position:right 12px center;padding-right:2rem;cursor:pointer}
 .picker:focus{outline:none;border-color:#f2f2f2;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
 .picker::placeholder{color:#9a9aa6}
-.input-pill{position:relative;display:flex;flex-direction:column;background:rgba(16,16,18,.9);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:0.5rem;transition:border-color .2s,box-shadow .2s}
+.input-pill{position:relative;display:flex;flex-direction:column;background:rgba(16,16,18,.9);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:none;border-radius:24px;padding:0.5rem;transition:border-color .2s,box-shadow .2s}
 .input-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:0.375rem;align-items:center;width:100%;min-height:50px}
 .pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:0.375rem;width:100%;border-top:1px solid #17171a;margin-top:0.375rem;padding-top:0.5rem}
 .pill-pickers .picker{padding:0.4375rem 1.5rem 0.4375rem 0.625rem;font-size:0.75rem;border-radius:9px;background-position:right 8px center}
 
 /* ===== Custom dropdowns (replace the native select look) ===== */
 .cs{position:relative;min-width:0}
-.cs-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:0.5rem;background:#101012;border:1px solid rgba(255,255,255,.16);border-radius:9px;color:#f2f2f2;padding:0.4375rem 0.625rem;font-size:0.75rem;font-family:inherit;cursor:pointer;min-height:33px}
+.cs-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:0.5rem;background:#101012;border:none;border-radius:9px;color:#f2f2f2;padding:0.4375rem 0.625rem;font-size:0.75rem;font-family:inherit;cursor:pointer;min-height:33px}
 .cs-btn:hover{border-color:rgba(255,255,255,.45)}
 .cs-btn .cs-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
 .cs-btn .cs-chev{flex:none;color:#f2f2f2;font-size:0.625rem;transition:transform .15s}
 .cs.open .cs-chev{transform:rotate(180deg)}
-.cs-menu{transform-origin:bottom left;position:absolute;left:0;bottom:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(80vw,340px);max-height:46vh;overflow:auto;background:#101014;border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:0.375rem;z-index:90;box-shadow:0 14px 44px rgba(0,0,0,.65);display:none}
+.cs-menu{transform-origin:bottom left;position:absolute;left:0;bottom:calc(100% + 6px);min-width:100%;width:max-content;max-width:min(80vw,340px);max-height:46vh;overflow:auto;background:#101014;border:none;border-radius:12px;padding:0.375rem;z-index:90;box-shadow:0 14px 44px rgba(0,0,0,.65);display:none}
 .pill-pickers .cs:nth-child(even) .cs-menu{left:auto;right:0}.pill-pickers .cs:nth-child(even) .cs-menu{transform-origin:bottom right}
 .cs.open .cs-menu{display:block}@keyframes csIn{from{opacity:0;transform:scale(.96) translateY(4px)}to{opacity:1;transform:none}}.cs.open .cs-menu{animation:csIn .18s cubic-bezier(.2,.9,.25,1)}
 .cs-opt{display:flex;align-items:center;gap:0.5rem;padding:0.5625rem 0.625rem;border-radius:8px;color:#f2f2f2;font-size:0.8125rem;cursor:pointer;white-space:nowrap}
@@ -625,8 +625,8 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 
 /* ===== Saved chats: bar + slide-in panel ===== */
 .chat-bar{display:flex;align-items:center;gap:0.625rem;margin-bottom:0.625rem}
-.chat-bar button{width:auto;flex:none;background:#101012;border:1px solid rgba(255,255,255,.25);color:#f2f2f2;border-radius:9px;padding:0.4375rem 0.75rem;font-size:0.8125rem;cursor:pointer;font-family:inherit}
-.chat-bar button:hover{border-color:#f2f2f2}
+.chat-bar button{width:auto;flex:none;background:#101012;border:none;color:#f2f2f2;border-radius:9px;padding:0.4375rem 0.75rem;font-size:0.8125rem;cursor:pointer;font-family:inherit}
+.chat-bar button:hover{background:#18181c}
 /* The template's single cyan CTA, mapped to the page's primary
    action (Proactiv restyle, 2026-10-15). */
 #chat-new{background:#38bdf8;border-color:transparent;color:#082f49;font-weight:600}
