@@ -636,10 +636,10 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 #token-meter .rlm-foot{font-size:0.625rem;margin-top:0.125rem}
 .input-pill{border-radius:999px;background:#1c1c1f;box-shadow:0 8px 30px rgba(0,0,0,.5)}
 .input-pill:focus-within{box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 0 1.5px rgba(56,189,248,.5)}
-.pill-pickers{display:flex;overflow-x:auto;gap:0.125rem;border:none;margin:0 0 0.5rem;padding:0.125rem 0.25rem;scrollbar-width:none}
-.pill-pickers::-webkit-scrollbar{display:none}
-.pill-pickers .cs{flex:none}
-.pill-pickers .cs-btn{background:rgba(255,255,255,.06);font-size:0.75rem;color:#e8e8ec;padding:0.5rem 0.75rem;min-height:36px;border-radius:999px;border:1px solid rgba(255,255,255,.08)}
+.pill-pickers{display:flex;flex-wrap:wrap;gap:0.375rem;border:none;margin:0 0 0.5rem;padding:0.125rem 0.25rem}
+.pill-pickers .cs{flex:1 1 auto;min-width:0;position:relative}
+.pill-pickers .cs-btn{background:rgba(255,255,255,.06);font-size:0.75rem;color:#e8e8ec;padding:0.5rem 0.75rem;min-height:36px;border-radius:999px;border:1px solid rgba(255,255,255,.08);width:100%}
+.pill-pickers .cs-menu{top:calc(100% + 6px);bottom:auto;transform-origin:top left}
 .nexus-burger{background:transparent !important;border:none !important;box-shadow:none !important;top:8px !important}
 }
 
