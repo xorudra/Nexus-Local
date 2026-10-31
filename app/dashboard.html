@@ -2090,6 +2090,55 @@ composerMsg.addEventListener('input', () => {
 /* Token usage meter (owner order 2026-10-31): today's real token count
    from /api/quotas, bar scaled against the busiest day of the last 7
    so the number has context. Never an estimate, never a fake quota. */
+const _rlmNum = new Intl.NumberFormat('en-US');
+function _rlmRel(target, now) {
+    const s = Math.max(0, Math.round((target - now) / 1000));
+    if (s < 60) return 'in ' + s + ' second' + (s === 1 ? '' : 's');
+    const m = Math.round(s / 60);
+    if (m < 60) return 'in ' + m + ' minute' + (m === 1 ? '' : 's');
+    const h = Math.round(m / 60);
+    return 'in ' + h + ' hour' + (h === 1 ? '' : 's');
+}
+function _rlmEsc(s) {
+    return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+}
+function renderRateLimitMeter(o) {
+    const reference = o.now || new Date();
+    const limit = o.limit, remaining = o.remaining;
+    const used = Math.max(0, limit - remaining);
+    const share = limit > 0 ? remaining / limit : 0;
+    const exhausted = remaining <= 0;
+    const label = o.label || 'Rate limit';
+    const remainingLabel = o.remainingLabel || 'remaining';
+    const resetsLabel = o.resetsLabel || 'resets';
+    const exhaustedLabel = o.exhaustedLabel || 'Quota exhausted';
+    const projectionLabel = o.projectionLabel || 'On the current rate this window runs out before it resets.';
+    const secondsLeft = o.resetAt ? (o.resetAt.getTime() - reference.getTime()) / 1000 : undefined;
+    const elapsedShare = (o.windowSeconds && secondsLeft !== undefined)
+        ? Math.min(1, Math.max(0.0001, (o.windowSeconds - secondsLeft) / o.windowSeconds))
+        : undefined;
+    const willExhaust = elapsedShare !== undefined && !exhausted && used / elapsedShare > limit;
+    const tone = o.tone || (exhausted ? '#f87171'
+        : (share < 0.15 || willExhaust) ? '#fbbf24' : '#34d399');
+    const note = exhausted
+        ? '<p class="rlm-note exhausted">' + _rlmEsc(exhaustedLabel) + '</p>'
+        : willExhaust
+            ? '<p class="rlm-note warn">' + _rlmEsc(projectionLabel) + '</p>' : '';
+    const footer = o.footer
+        ? '<p class="rlm-note" style="color:#9a9aa6">' + _rlmEsc(o.footer) + '</p>' : '';
+    return '<div data-slot="rate-limit-meter" class="rlm">'
+        + '<div class="rlm-head"><span class="rlm-label">' + _rlmEsc(label) + '</span>'
+        + (o.resetAt ? '<span class="rlm-reset">' + _rlmEsc(resetsLabel) + ' ' + _rlmEsc(_rlmRel(o.resetAt, reference)) + '</span>' : '')
+        + '</div>'
+        + '<p class="rlm-counts" style="margin:0"><span class="rlm-remaining" style="color:' + tone + '">'
+        + _rlmNum.format(remaining) + '</span><span class="rlm-of">/ ' + _rlmNum.format(limit) + ' ' + _rlmEsc(remainingLabel) + '</span></p>'
+        + '<div class="rlm-bar" role="meter" aria-valuenow="' + remaining + '" aria-valuemin="0" aria-valuemax="' + limit + '"'
+        + (typeof label === 'string' ? ' aria-label="' + _rlmEsc(label) + '"' : '') + '>'
+        + '<div class="rlm-fill" style="width:' + (share * 100).toFixed(1) + '%;background:' + tone + '"></div>'
+        + (elapsedShare !== undefined
+            ? '<span class="rlm-elapsed" aria-hidden="true" style="inset-inline-start:' + ((1 - elapsedShare) * 100).toFixed(1) + '%"></span>' : '')
+        + '</div>' + note + footer + '</div>';
+}
 function updateTokenMeter(data) {
     const el = document.getElementById('token-meter');
     if (!el) return;
