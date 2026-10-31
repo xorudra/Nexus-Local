@@ -277,8 +277,10 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   // Role-gated items (same behaviour as before): admins see Update
   // Keys / Admin / API Access; friends see My Keys instead.
   fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})})
-  .then(function(r){
-    if(r.ok){
+  .then(function(r){ return r.ok ? r.json() : null; })
+  .then(function(j){
+    var isAdmin = !!(j && j.you && j.you.kind === 'admin');
+    if(isAdmin){
       ['nav-admin','nav-api','nav-keys','nav-admin-label'].forEach(function(id){
         var el=document.getElementById(id); if(el) el.style.display='';
       });
