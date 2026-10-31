@@ -132,7 +132,7 @@ $('f').addEventListener('submit', function(ev){
     body:JSON.stringify({label:label,password:pw,code:code})})
   .then(function(r){return r.json().then(function(j){return {s:r.status,j:j}})})
   .then(function(x){
-    if(x.s===200 && x.j.ok){ location.href='/dashboard'; return; }
+    if(x.s===200 && x.j.ok){ location.href='/console'; return; }
     fail(x.j.error||'Something went wrong.');
     $('go').disabled=false; $('go').textContent='Create my account';
   }).catch(function(){

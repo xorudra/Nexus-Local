@@ -1,0 +1,162 @@
+{
+  "ok": true,
+  "strict": false,
+  "browserSkipped": false,
+  "lint": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 1,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "gsap_repeated_fromto_without_baseline",
+        "severity": "warning",
+        "message": "3 tl.fromTo() calls target \"#dashframe\" with no stable baseline. The last-authored fromTo \"from\" values become the element's resting state for any seek before the first tween actually runs, because GSAP applies fromTo from-values at authoring time (immediateRender), not at tween position.",
+        "selector": "#dashframe",
+        "dataAttributes": {},
+        "sourceFile": "/home/hatch/workspace/local-dashboard/brag-output-2026-10-24-182351/composition/compositions/scene2.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "Add `immediateRender: false` to every fromTo except the earliest-positioned one (at 0s), so pre-first-tween seeks keep its \"from\" values. A hiding `tl.set(..., 0)` baseline trips gsap_timeline_set_initial_hide, and a `gsap.set` authored before the fromTo calls is overwritten by them."
+      }
+    ],
+    "filesScanned": 5
+  },
+  "runtime": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": []
+  },
+  "layout": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 1,
+    "findings": [
+      {
+        "code": "container_overflow",
+        "severity": "info",
+        "time": 3.333,
+        "selector": "#chat-video",
+        "message": "Element extends outside a clipping layout container.",
+        "rect": {
+          "left": 176.08,
+          "top": 34.9,
+          "right": 1741.88,
+          "bottom": 915.66,
+          "width": 1565.81,
+          "height": 880.77
+        },
+        "containerSelector": "div.zoomstage",
+        "fixHint": "Resize/reposition the child or container, or mark intentional overflow with data-layout-allow-overflow.",
+        "containerRect": {
+          "left": 184.39,
+          "top": 40.15,
+          "right": 1735.61,
+          "bottom": 912.71,
+          "width": 1551.22,
+          "height": 872.56
+        },
+        "overflow": {
+          "left": 8.31,
+          "right": 6.27,
+          "top": 5.25,
+          "bottom": 2.95
+        },
+        "dataAttributes": {
+          "data-hf-render-id": "chat-video",
+          "data-start": "0",
+          "data-duration": "7",
+          "data-media-start": "0",
+          "data-hf-authored-opacity": ""
+        },
+        "sourceFile": "compositions/scene2.html",
+        "bbox": {
+          "x": 176.08,
+          "y": 34.9,
+          "width": 1565.81,
+          "height": 880.77
+        },
+        "firstSeen": 3.333,
+        "lastSeen": 7.778,
+        "occurrences": 3,
+        "heldMs": 0,
+        "times": [
+          3.333,
+          5.556,
+          7.778
+        ]
+      }
+    ],
+    "duration": 20,
+    "samples": [
+      1.111,
+      3.333,
+      5.556,
+      7.778,
+      10,
+      12.222,
+      14.444,
+      16.667,
+      18.889
+    ],
+    "transitionSamples": [],
+    "transitionSamplesDropped": 0,
+    "tolerance": 2,
+    "totalIssueCount": 1,
+    "truncated": false
+  },
+  "motion": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": false,
+    "samples": 0
+  },
+  "contrast": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": true,
+    "samples": [
+      1.111,
+      5.556,
+      10,
+      14.444,
+      18.889
+    ],
+    "checked": 9,
+    "passed": 9
+  },
+  "craft": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": true,
+    "step": 0.125,
+    "samples": 160
+  },
+  "hdr": {
+    "autoPromotion": null,
+    "inspection": "available"
+  },
+  "snapshots": {
+    "enabled": false,
+    "files": [],
+    "times": [],
+    "findingFiles": []
+  }
+}

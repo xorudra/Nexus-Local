@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="../assets/js/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url(../assets/fonts/sg-400.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url(../assets/fonts/sg-500.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url(../assets/fonts/sg-700.woff2) format('woff2'); }
+      @font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url(../assets/fonts/jm-400.woff2) format('woff2'); }
+      :root { --ground: #050505; --panel: #0d0d10; --ink: #fafafa; --muted: #a7a7b0; --accent: #38bdf8; --danger: #ff9d97; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--ground); }
+      #root { width: 100%; height: 100%; position: relative; font-family: 'Space Grotesk', sans-serif; background: var(--ground); }
+      .clip { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden; }
+      #scene4 { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 26px; }
+      /* v11: the closer keeps its wordmark, but over the real product —
+         landing hero dimmed behind the text instead of flat black. */
+      #backdrop { position: absolute; inset: 0; z-index: 0; }
+      #backdrop img { display: block; width: 100%; height: 100%; object-fit: cover; filter: brightness(0.32); }
+      #scene4 > div:not(#backdrop) { position: relative; z-index: 1; }
+      /* Traveling gradient beam: the bright core sweeps continuously along
+         the streak (background-position loop), NO blur, NO shadow. */
+      .beam { width: 560px; height: 3px; opacity: 0;
+        background: linear-gradient(90deg, transparent, #38bdf8 30%, #ffffff 50%, #38bdf8 70%, transparent);
+        background-size: 200% 100%; background-position: 100% 0%; }
+      #wordmark { font-size: 168px; font-weight: 700; letter-spacing: -0.03em; color: var(--ink); line-height: 1; }
+      #tagline { font-size: 46px; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; }
+      #addr { font-size: 32px; color: var(--muted); }
+      #addr b { color: var(--accent); font-weight: 500; }
+      #shrug { font-size: 30px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="scene4" data-width="1920" data-height="1080" data-duration="4">
+      <div id="scene4" class="clip">
+        <div id="backdrop"><img src="../assets/img/landing.png" alt="" /></div>
+        <div id="wordmark">Nexus</div>
+        <div class="beam"></div>
+        <div id="tagline">Chat with every AI, from one Nexus.</div>
+        <div id="addr"><b>nexusos.dpdns.org</b></div>
+        <div id="shrug">Get the app &mdash; or don&rsquo;t.</div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      gsap.set('#backdrop', { scale: 1, transformOrigin: '50% 50%' });
+      tl.to('#backdrop', { scale: 1.05, duration: 4.0, ease: 'power1.inOut' }, 0.0);
+      tl.fromTo('#wordmark', { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.6, ease: 'power3.out' }, 0.3);
+      tl.fromTo('.beam', { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0.3);
+      tl.fromTo('.beam', { backgroundPosition: '100% 0%' }, { backgroundPosition: '0% 0%', duration: 2, ease: 'none', repeat: 1 }, 0.0);
+      tl.fromTo('#tagline', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' }, 1.0);
+      tl.fromTo('#addr', { opacity: 0 }, { opacity: 1, duration: 0.4 }, 1.47);
+      tl.fromTo('#shrug', { opacity: 0 }, { opacity: 1, duration: 0.4 }, 1.47);
+      tl.to('#scene4', { opacity: 0, duration: 0.3, ease: 'power1.out' }, 3.7);
+      window.__timelines['scene4'] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

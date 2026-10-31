@@ -379,7 +379,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   </div>
   <div class="nexus-nav">
     <div class="nexus-glabel">Main</div>
-    <a class="nx-item" href="/dashboard" data-page="dashboard" title="Dashboard"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg><span>Dashboard</span></a>
+    <a class="nx-item" href="/console" data-page="console" title="Console"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg><span>Console</span></a>
     <a class="nx-item" href="/connections" data-page="connections" title="Connections"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 17H7a5 5 0 0 1 0-10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/></svg><span>Connections</span></a>
     <a class="nx-item" href="/integrations" data-page="integrations" title="Integrations"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2.5v5M15 2.5v5M6.5 7.5h11V12a5.5 5.5 0 0 1-11 0V7.5Z"/><path d="M12 17.5V22"/></svg><span>Integrations</span></a>
     <a class="nx-item" href="/mykeys" data-page="mykeys" id="nav-mykeys" style="display:none" title="My Keys"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="15.5" r="4.5"/><path d="M11.2 12.3 20 3.5M16.5 7l3 3"/></svg><span>My Keys</span></a>
@@ -599,7 +599,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 </script>
 <main>
 </main>
-<script type="speculationrules">{"prerender":[{"urls":["/dashboard","/connections","/integrations","/mykeys"],"eagerness":"moderate"}]}</script>
+<script type="speculationrules">{"prerender":[{"urls":["/console","/connections","/integrations","/mykeys"],"eagerness":"moderate"}]}</script>
 
 <div class="page-header">
     <div class="crumbs"><a href="/">Home</a><span class="sep">/</span><span>Integrations</span></div>
@@ -819,7 +819,7 @@ function openPanel(id, focus){
     if (d.kind === 'link'){
       h += '<p>This gateway is part of Nexus\u2019s plumbing: it connects from the Setup page, where its URL and unified key live.</p><div class="row"><a class="btnw" href="/setup">Open Setup</a></div>';
     } else if (a.keyless){
-      h += '<p>This lane needs no key and no account \u2014 it already works in your chats, including while the shared vault is locked.</p><div class="row"><a class="btng" href="/dashboard">Open Dashboard</a></div>';
+      h += '<p>This lane needs no key and no account \u2014 it already works in your chats, including while the shared vault is locked.</p><div class="row"><a class="btng" href="/console">Open Console</a></div>';
     } else if (d.signin){
       var RISK = '<div class="risk"><b>Read before you sign in:</b> this connection uses the same access as ' + esc(d.toolname) + ', the provider\u2019s own tool. Their terms reserve that access for their own tools, so connecting it to Nexus can put your ' + esc(d.signname) + ' at risk of limits or suspension. The officially supported route for apps is an API key. If a sign-in stops working, the provider may have expired it \u2014 just sign in again.</div>';
       if (a.oauth){

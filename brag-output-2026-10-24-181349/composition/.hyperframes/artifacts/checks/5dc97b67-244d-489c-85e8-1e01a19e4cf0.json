@@ -1,0 +1,123 @@
+{
+  "ok": false,
+  "strict": false,
+  "browserSkipped": true,
+  "lint": {
+    "ok": false,
+    "errorCount": 3,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "gsap_infinite_repeat",
+        "severity": "error",
+        "message": "GSAP tween uses `repeat: -1` (infinite) without a finite composition `data-duration`. The timeline can report an unbounded duration and make render planning fail.",
+        "selector": "[data-composition-id]",
+        "dataAttributes": {},
+        "sourceFile": "/home/hatch/workspace/local-dashboard/brag-output-2026-10-24-123215/composition/compositions/scene1.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "Add a finite composition `data-duration`, or replace `repeat: -1` with `repeat: Math.max(0, Math.floor(totalDuration / singleCycleDuration) - 1)`."
+      },
+      {
+        "code": "gsap_infinite_repeat",
+        "severity": "error",
+        "message": "GSAP tween uses `repeat: -1` (infinite) without a finite composition `data-duration`. The timeline can report an unbounded duration and make render planning fail.",
+        "selector": "[data-composition-id]",
+        "dataAttributes": {},
+        "sourceFile": "/home/hatch/workspace/local-dashboard/brag-output-2026-10-24-123215/composition/compositions/scene2.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "Add a finite composition `data-duration`, or replace `repeat: -1` with `repeat: Math.max(0, Math.floor(totalDuration / singleCycleDuration) - 1)`."
+      },
+      {
+        "code": "gsap_infinite_repeat",
+        "severity": "error",
+        "message": "GSAP tween uses `repeat: -1` (infinite) without a finite composition `data-duration`. The timeline can report an unbounded duration and make render planning fail.",
+        "selector": "[data-composition-id]",
+        "dataAttributes": {},
+        "sourceFile": "/home/hatch/workspace/local-dashboard/brag-output-2026-10-24-123215/composition/compositions/scene4.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "Add a finite composition `data-duration`, or replace `repeat: -1` with `repeat: Math.max(0, Math.floor(totalDuration / singleCycleDuration) - 1)`."
+      }
+    ],
+    "filesScanned": 5
+  },
+  "runtime": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": []
+  },
+  "layout": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "duration": 0,
+    "samples": [],
+    "transitionSamples": [],
+    "transitionSamplesDropped": 0,
+    "tolerance": 2,
+    "totalIssueCount": 0,
+    "truncated": false
+  },
+  "motion": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": false,
+    "samples": 0
+  },
+  "contrast": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": true,
+    "samples": [],
+    "checked": 0,
+    "passed": 0
+  },
+  "craft": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": false,
+    "step": 0,
+    "samples": 0
+  },
+  "hdr": {
+    "autoPromotion": null,
+    "inspection": "available"
+  },
+  "snapshots": {
+    "enabled": false,
+    "files": [],
+    "times": [],
+    "findingFiles": []
+  }
+}

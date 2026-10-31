@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="assets/js/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url(assets/fonts/sg-400.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url(assets/fonts/sg-500.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url(assets/fonts/sg-700.woff2) format('woff2'); }
+      @font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url(assets/fonts/jm-400.woff2) format('woff2'); }
+      :root { --ground: #050505; --panel: #0d0d10; --ink: #fafafa; --muted: #a7a7b0; --accent: #38bdf8; --danger: #ff9d97; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--ground); }
+      #root { width: 100%; height: 100%; position: relative; font-family: 'Space Grotesk', sans-serif; background: var(--ground); }
+      .clip { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden; }
+      .glow { position: absolute; left: 50%; top: 50%; width: 1100px; height: 1100px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, rgba(56,189,248,.16), rgba(56,189,248,0) 62%); pointer-events: none; }
+      /* Scene 1 */
+      #scene1 { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+      #scene1 h1 { font-size: 96px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.08; color: var(--ink); }
+      #scene1 h1 .grad { background: linear-gradient(180deg, #8a8a93, #fafafa); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+      /* Scene 2 */
+      #scene2 { display: flex; align-items: center; justify-content: center; }
+      #chatwin { width: 1120px; height: 640px; background: var(--panel); border: 1px solid rgba(255,255,255,.14); border-radius: 24px; box-shadow: 0 16px 36px -8px rgba(56,189,248,.5), inset 0 1px 0 rgba(255,255,255,.08); padding: 28px 36px; display: flex; flex-direction: column; gap: 18px; }
+      #chathead { display: flex; align-items: center; gap: 12px; font-size: 30px; font-weight: 700; color: var(--ink); letter-spacing: -0.02em; }
+      #chathead .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 16px var(--accent); }
+      #chathead .live { margin-left: auto; font-size: 28px; font-weight: 500; color: var(--muted); letter-spacing: .08em; }
+      .bubble { max-width: 880px; border-radius: 20px; padding: 20px 26px; font-size: 30px; line-height: 1.4; }
+      .bubble.you { align-self: flex-end; background: #17171c; border: 1px solid rgba(255,255,255,.14); color: var(--ink); text-align: right; }
+      .bubble.ai { align-self: flex-start; background: #121216; border: 1px solid rgba(56,189,248,.35); color: var(--ink); }
+      .tc { display: inline-block; }
+      #caret { display: inline-block; width: 4px; height: 34px; background: var(--accent); vertical-align: -4px; margin-left: 2px; }
+      .trace { font-family: 'JetBrains Mono', monospace; font-size: 28px; line-height: 1.5; align-self: flex-start; padding-left: 8px; }
+      .trace .fail { color: var(--danger); }
+      .trace .ok { color: var(--accent); }
+      #composer { margin-top: auto; display: flex; align-items: center; gap: 16px; background: #101013; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 18px 28px; font-size: 28px; color: var(--muted); }
+      #sendbtn { margin-left: auto; width: 58px; height: 58px; border-radius: 50%; background: var(--accent); color: #050505; font-size: 30px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+      /* Scene 3 */
+      #scene3 { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 54px; }
+      .feat { text-align: center; }
+      .feat .rule { width: 72px; height: 4px; background: var(--accent); margin: 0 auto 18px; border-radius: 2px; }
+      .feat p { font-size: 64px; font-weight: 500; letter-spacing: -0.02em; color: var(--ink); }
+      /* Scene 4 */
+      #scene4 { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 26px; }
+      #wordmark { font-size: 168px; font-weight: 700; letter-spacing: -0.03em; color: var(--ink); line-height: 1; }
+      #tagline { font-size: 46px; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; }
+      #addr { font-size: 32px; color: var(--muted); }
+      #addr b { color: var(--accent); font-weight: 500; }
+      #shrug { font-size: 30px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="20" data-width="1920" data-height="1080">
+      <div id="scene1" class="clip" data-start="0" data-duration="3" data-track-index="0">
+        <div class="glow" data-layout-allow-overflow></div>
+        <h1><span id="s1l1" class="grad">Chat with every AI,</span><br /><span id="s1l2">from one Nexus.</span></h1>
+      </div>
+      <div id="scene2" class="clip" data-start="3" data-duration="7" data-track-index="1">
+        <div class="glow" data-layout-allow-overflow></div>
+        <div id="chatwin">
+          <div id="chathead"><span class="dot"></span>Nexus<span class="live">ONE CHAT &middot; EVERY AI</span></div>
+          <div id="userbubble" class="bubble you"><span class="tc">E</span><span class="tc">x</span><span class="tc">p</span><span class="tc">l</span><span class="tc">a</span><span class="tc">i</span><span class="tc">n</span><span class="tc">&nbsp;</span><span class="tc">f</span><span class="tc">a</span><span class="tc">i</span><span class="tc">l</span><span class="tc">o</span><span class="tc">v</span><span class="tc">e</span><span class="tc">r</span><span class="tc">&nbsp;</span><span class="tc">l</span><span class="tc">i</span><span class="tc">k</span><span class="tc">e</span><span class="tc">&nbsp;</span><span class="tc">I</span><span class="tc">'</span><span class="tc">m</span><span class="tc">&nbsp;</span><span class="tc">f</span><span class="tc">i</span><span class="tc">v</span><span class="tc">e</span><span id="caret"></span></div>
+          <div class="trace"><span id="tracefail" class="fail">Lane failed &mdash; switching&hellip;</span><br /><span id="traceok" class="ok">Switched automatically &mdash; answered.</span></div>
+          <div id="answerbubble" class="bubble ai">If one lane goes quiet, Nexus asks the next.</div>
+          <div id="composer">Type a message&hellip;<span id="sendbtn">&uarr;</span></div>
+        </div>
+      </div>
+      <div id="scene3" class="clip" data-start="10" data-duration="6" data-track-index="2">
+        <div class="glow" data-layout-allow-overflow></div>
+        <div id="feat1" class="feat"><div class="rule"></div><p>One shared memory</p></div>
+        <div id="feat2" class="feat"><div class="rule"></div><p>Automatic failover</p></div>
+        <div id="feat3" class="feat"><div class="rule"></div><p>Your keys, your vault</p></div>
+      </div>
+      <div id="scene4" class="clip" data-start="16" data-duration="4" data-track-index="3">
+        <div class="glow" data-layout-allow-overflow></div>
+        <div id="wordmark">Nexus</div>
+        <div id="tagline">Chat with every AI, from one Nexus.</div>
+        <div id="addr"><b>nexusos.dpdns.org</b></div>
+        <div id="shrug">Get the app &mdash; or don&rsquo;t.</div>
+      </div>
+      <audio id="bg-music" data-start="0" data-duration="20" data-track-index="10" data-volume="0.35" data-fade-out="1.5" src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"></audio>
+      <audio id="sfx-key1" data-start="3.4" data-duration="0.25" data-track-index="11" data-volume="0.5" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+      <audio id="sfx-key2" data-start="3.9" data-duration="0.25" data-track-index="12" data-volume="0.5" src="assets/sfx/keyboard/keypress-007.wav"></audio>
+      <audio id="sfx-key3" data-start="4.4" data-duration="0.25" data-track-index="13" data-volume="0.5" src="assets/sfx/keyboard/keypress-014.wav"></audio>
+      <audio id="sfx-send" data-start="4.8" data-duration="0.1" data-track-index="14" data-volume="0.7" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="sfx-switch" data-start="6.2" data-duration="0.62" data-track-index="15" data-volume="0.6" src="assets/sfx/interface/switch_001.ogg"></audio>
+      <audio id="sfx-answer" data-start="6.6" data-duration="0.11" data-track-index="16" data-volume="0.7" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="sfx-f1" data-start="10.93" data-duration="0.19" data-track-index="17" data-volume="0.6" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="sfx-f2" data-start="12.02" data-duration="0.11" data-track-index="18" data-volume="0.6" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="sfx-f3" data-start="13.11" data-duration="0.19" data-track-index="19" data-volume="0.6" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="sfx-logo" data-start="16.5" data-duration="0.12" data-track-index="20" data-volume="0.6" src="assets/sfx/interface/bong_001.ogg"></audio>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      // Scene 1 — hook (0-3)
+      // s1l1 is statically on screen at t=0 (frame 0 is the social thumbnail)
+      tl.fromTo('#s1l2', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power3.out' }, 0.5);
+      tl.to('#scene1', { opacity: 0, duration: 0.3, ease: 'power1.out' }, 2.7);
+      // Scene 2 — the flow (3-10)
+      tl.fromTo('#chatwin', { opacity: 0, y: 24, scale: 0.98 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: 'power3.out' }, 3.0);
+      tl.fromTo('#userbubble', { opacity: 0 }, { opacity: 1, duration: 0.2 }, 3.3);
+      tl.fromTo('.tc', { opacity: 0 }, { opacity: 1, duration: 0.01, stagger: 0.045 }, 3.4);
+      tl.to('#caret', { opacity: 0, duration: 0.15 }, 4.85);
+      tl.fromTo('#sendbtn', { scale: 1 }, { scale: 0.9, duration: 0.1, yoyo: true, repeat: 1, ease: 'power1.out' }, 4.8);
+      tl.fromTo('#tracefail', { opacity: 0 }, { opacity: 1, duration: 0.3 }, 5.5);
+      tl.fromTo('#traceok', { opacity: 0 }, { opacity: 1, duration: 0.3 }, 6.2);
+      tl.fromTo('#answerbubble', { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }, 6.6);
+      // beat accents (non-text glows): 8.74s strong cue, 9.29s strong cue
+      tl.fromTo('.trace', { opacity: 1 }, { opacity: 0.6, duration: 0.15, yoyo: true, repeat: 1 }, 8.74);
+      tl.fromTo('#chatwin', { boxShadow: '0 16px 36px -8px rgba(56,189,248,.5), inset 0 1px 0 rgba(255,255,255,.08)' }, { boxShadow: '0 16px 54px -4px rgba(56,189,248,.85), inset 0 1px 0 rgba(255,255,255,.08)', duration: 0.2, yoyo: true, repeat: 1 }, 9.29);
+      tl.to('#scene2', { opacity: 0, duration: 0.3, ease: 'power1.out' }, 9.7);
+      // Scene 3 — three truths (10-16), beat-grid: 10.93 / 12.02 / 13.11 (third beat-locked)
+      tl.fromTo('#feat1', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }, 10.93);
+      tl.fromTo('#feat2', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }, 12.02);
+      tl.fromTo('#feat3', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }, 13.11);
+      tl.to('#scene3', { opacity: 0, duration: 0.3, ease: 'power1.out' }, 15.7);
+      // Scene 4 — outro (16-20)
+      tl.fromTo('#wordmark', { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.6, ease: 'power3.out' }, 16.3);
+      tl.fromTo('#tagline', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' }, 17.0);
+      // beat-locked: address + shrug land on the 17.47s strong cue
+      tl.fromTo('#addr', { opacity: 0 }, { opacity: 1, duration: 0.4 }, 17.47);
+      tl.fromTo('#shrug', { opacity: 0 }, { opacity: 1, duration: 0.4 }, 17.47);
+      tl.to('#scene4', { opacity: 0, duration: 0.3, ease: 'power1.out' }, 19.7);
+      window.__timelines['main'] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="../assets/js/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url(../assets/fonts/sg-400.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url(../assets/fonts/sg-500.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url(../assets/fonts/sg-700.woff2) format('woff2'); }
+      @font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url(../assets/fonts/jm-400.woff2) format('woff2'); }
+      :root { --ground: #050505; --panel: #0d0d10; --ink: #fafafa; --muted: #a7a7b0; --accent: #38bdf8; --danger: #ff9d97; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--ground); }
+      #root { width: 100%; height: 100%; position: relative; font-family: 'Space Grotesk', sans-serif; background: var(--ground); }
+      .clip { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden; }
+      /* v11: features are labels OVER real product footage, not text on
+         black. The footage scrolls on its own, so the camera stays
+         static here — no motion stacked on motion. */
+      #featcam { position: absolute; inset: 0; }
+      #featcam video { display: block; width: 100%; height: 100%; object-fit: cover; }
+      .feat { position: absolute; left: 80px; text-align: left; }
+      .feat .rule { width: 64px; height: 4px; background: var(--accent); margin: 0 0 10px; border-radius: 2px; }
+      .feat p { display: inline-block; font-size: 44px; font-weight: 500; letter-spacing: -0.02em; color: var(--ink); background: rgba(5, 5, 5, 0.55); padding: 8px 16px; border-radius: 10px; }
+      #feat1 { bottom: 230px; }
+      #feat2 { bottom: 150px; }
+      #feat3 { bottom: 70px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="scene3" data-width="1920" data-height="1080">
+      <div id="scene3" class="clip" data-hold>
+        <div id="featcam"><video id="feat-video" data-start="0" data-duration="5" data-media-start="0" muted playsinline preload="auto" src="../assets/vid/feat-clip.mp4"></video></div>
+        <div id="feat1" class="feat"><div class="rule"></div><p>One shared memory</p></div>
+        <div id="feat2" class="feat"><div class="rule"></div><p>Automatic failover</p></div>
+        <div id="feat3" class="feat"><div class="rule"></div><p>Your keys, your vault</p></div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo('#feat1', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }, 0.5);
+      tl.fromTo('#feat2', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }, 2.0);
+      tl.fromTo('#feat3', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' }, 3.5);
+      tl.to('#scene3', { opacity: 0, duration: 0.3, ease: 'power1.out' }, 4.7);
+      window.__timelines['scene3'] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

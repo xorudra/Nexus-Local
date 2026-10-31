@@ -14,7 +14,7 @@ Features
   * POST /api/chat     -> chat via provider APIs
   * GET  /            -> landing.html (the public home page, the default page)
   * GET  /home        -> landing.html (public home page)
-  * GET  /dashboard   -> dashboard.html (requires login)
+  * GET  /console     -> console.html (requires login)
   * GET  /login        -> login.html
   * POST /api/login    -> password auth, creates session
   * POST /api/logout   -> end session
@@ -5859,7 +5859,7 @@ class Handler(BaseHTTPRequestHandler):
                 **_session_meta(self.headers, self.client_address[0]),
             }
             self.send_response(302)
-            self.send_header("Location", "/dashboard")
+            self.send_header("Location", "/console")
             self.send_header("Set-Cookie",
                              f"session={stok}; HttpOnly; Secure; SameSite=Lax; Path=/")
             self.end_headers()
@@ -6462,7 +6462,7 @@ class Handler(BaseHTTPRequestHandler):
         # Root: the public home page is Nexus's default page
         # (owner order 2026-10-16 — "make home page default page
         # of nexus"). Everyone lands here first, signed in or
-        # not; the app itself lives at /dashboard below.
+        # not; the app itself lives at /console below.
         if parsed.path == "/":
             key_path = Path(__file__).parent / "keys.enc"
             if not key_path.exists():
@@ -6481,7 +6481,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(500, "internal error")
             return
         # The app itself: the dashboard, session-gated as always.
-        if parsed.path == "/dashboard":
+        if parsed.path == "/console":
             key_path = Path(__file__).parent / "keys.enc"
             if not key_path.exists():
                 self.send_response(302)
@@ -6490,7 +6490,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self._get_session():
                 try:
-                    content = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+                    content = (Path(__file__).parent / "console.html").read_text(encoding="utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html")
                     self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -7642,7 +7642,7 @@ class Handler(BaseHTTPRequestHandler):
                 Handler.keys = keys  # refresh in-memory
                 register_custom_providers(keys)
             self.send_response(302)
-            self.send_header("Location", "/dashboard")
+            self.send_header("Location", "/console")
             self.end_headers()
             return
         if parsed.path == "/api/2fa_qr":

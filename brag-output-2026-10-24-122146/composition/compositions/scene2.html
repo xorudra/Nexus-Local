@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="../assets/js/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url(../assets/fonts/sg-400.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url(../assets/fonts/sg-500.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url(../assets/fonts/sg-700.woff2) format('woff2'); }
+      @font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url(../assets/fonts/jm-400.woff2) format('woff2'); }
+      :root { --ground: #050505; --panel: #0d0d10; --ink: #fafafa; --muted: #a7a7b0; --accent: #38bdf8; --danger: #ff9d97; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--ground); }
+      #root { width: 100%; height: 100%; position: relative; font-family: 'Space Grotesk', sans-serif; background: var(--ground); }
+      .clip { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden; }
+      #scene2 { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .beam { width: 1632px; height: 3px; margin-top: 18px; opacity: 0; background: linear-gradient(90deg, transparent, #38bdf8 30%, #38bdf8 70%, transparent); }
+      #chatwin { width: 1632px; background: var(--panel); border: 1px solid rgba(255,255,255,.14); border-radius: 24px; padding: 44px 48px; display: flex; flex-direction: column; gap: 24px; }
+      #chathead { display: flex; align-items: center; gap: 12px; font-size: 38px; font-weight: 700; color: var(--ink); letter-spacing: -0.02em; }
+      #chathead .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); }
+      #chathead .live { margin-left: auto; font-size: 30px; font-weight: 500; color: var(--muted); letter-spacing: .08em; }
+      .bubble { max-width: 1240px; border-radius: 20px; padding: 26px 32px; font-size: 38px; line-height: 1.45; }
+      .bubble.you { align-self: flex-end; background: #17171c; border: 1px solid rgba(255,255,255,.14); color: var(--ink); text-align: right; }
+      .bubble.ai { align-self: flex-start; background: #121216; border: 1px solid rgba(56,189,248,.35); color: var(--ink); }
+      .tc { display: inline-block; }
+      #caret { display: inline-block; width: 4px; height: 40px; background: var(--accent); vertical-align: -4px; margin-left: 2px; }
+      .trace { font-family: 'JetBrains Mono', monospace; font-size: 32px; line-height: 1.6; align-self: flex-start; padding-left: 8px; }
+      .trace .fail { color: var(--danger); }
+      .trace .ok { color: var(--accent); }
+      .trace .hl { background: rgba(56,189,248,.14); padding: 2px 14px; border-radius: 8px; }
+      #composer { display: flex; align-items: center; gap: 16px; background: #101013; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 22px 32px; font-size: 32px; color: var(--muted); }
+      #sendbtn { margin-left: auto; width: 68px; height: 68px; border-radius: 50%; background: var(--accent); color: #050505; font-size: 34px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="scene2" data-width="1920" data-height="1080">
+      <div id="scene2" class="clip"><div id="chatwin">
+          <div id="chathead"><span class="dot"></span>Nexus<span class="live">ONE CHAT &middot; EVERY AI</span></div>
+          <div id="userbubble" class="bubble you"><span class="tc">E</span><span class="tc">x</span><span class="tc">p</span><span class="tc">l</span><span class="tc">a</span><span class="tc">i</span><span class="tc">n</span><span class="tc">&nbsp;</span><span class="tc">f</span><span class="tc">a</span><span class="tc">i</span><span class="tc">l</span><span class="tc">o</span><span class="tc">v</span><span class="tc">e</span><span class="tc">r</span><span class="tc">&nbsp;</span><span class="tc">l</span><span class="tc">i</span><span class="tc">k</span><span class="tc">e</span><span class="tc">&nbsp;</span><span class="tc">I</span><span class="tc">'</span><span class="tc">m</span><span class="tc">&nbsp;</span><span class="tc">f</span><span class="tc">i</span><span class="tc">v</span><span class="tc">e</span><span id="caret"></span></div>
+          <div class="trace"><span id="tracefail" class="fail">&#10005; <s>Claude</s> &middot; limit reached</span><br /><span id="traceok" class="ok hl">&#10003; Gemini continues &mdash; same memory</span></div>
+          <div id="answerbubble" class="bubble ai"><span class="aw">If</span> <span class="aw">one</span> <span class="aw">lane</span> <span class="aw">goes</span> <span class="aw">quiet,</span> <span class="aw">Nexus</span> <span class="aw">asks</span> <span class="aw">the</span> <span class="aw">next.</span></div>
+          <div id="composer">Type a message&hellip;<span id="sendbtn">&uarr;</span></div>
+        </div><div class="beam"></div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo('#chatwin', { opacity: 0, y: 24, scale: 0.98 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: 'power3.out' }, 0.0);
+      tl.fromTo('#userbubble', { opacity: 0 }, { opacity: 1, duration: 0.2 }, 0.3);
+      tl.fromTo('.tc', { opacity: 0 }, { opacity: 1, duration: 0.01, stagger: 0.045 }, 0.4);
+      tl.to('#caret', { opacity: 0, duration: 0.15 }, 1.85);
+      tl.fromTo('#sendbtn', { scale: 1 }, { scale: 0.9, duration: 0.1, yoyo: true, repeat: 1, ease: 'power1.out' }, 1.8);
+      tl.fromTo('#tracefail', { opacity: 0 }, { opacity: 1, duration: 0.3 }, 2.5);
+      tl.fromTo('#traceok', { opacity: 0 }, { opacity: 1, duration: 0.3 }, 3.2);
+      tl.fromTo('#answerbubble', { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.15, ease: 'power3.out' }, 3.6);
+      tl.fromTo('.aw', { opacity: 0 }, { opacity: 1, duration: 0.01, stagger: 0.11 }, 3.65);
+      tl.fromTo('.trace', { opacity: 1 }, { opacity: 0.6, duration: 0.15, yoyo: true, repeat: 1 }, 5.74);
+      tl.to('.beam', { opacity: 0.901, duration: 0.25, ease: 'none' }, 0);
+      tl.to('.beam', { opacity: 0.708, duration: 0.25, ease: 'none' }, 0.25);
+      tl.to('.beam', { opacity: 0.728, duration: 0.25, ease: 'none' }, 0.5);
+      tl.to('.beam', { opacity: 0.886, duration: 0.25, ease: 'none' }, 0.75);
+      tl.to('.beam', { opacity: 0.832, duration: 0.25, ease: 'none' }, 1.0);
+      tl.to('.beam', { opacity: 0.864, duration: 0.25, ease: 'none' }, 1.25);
+      tl.to('.beam', { opacity: 0.841, duration: 0.25, ease: 'none' }, 1.5);
+      tl.to('.beam', { opacity: 0.806, duration: 0.25, ease: 'none' }, 1.75);
+      tl.to('.beam', { opacity: 0.781, duration: 0.25, ease: 'none' }, 2.0);
+      tl.to('.beam', { opacity: 0.855, duration: 0.25, ease: 'none' }, 2.25);
+      tl.to('.beam', { opacity: 0.834, duration: 0.25, ease: 'none' }, 2.5);
+      tl.to('.beam', { opacity: 0.806, duration: 0.25, ease: 'none' }, 2.75);
+      tl.to('.beam', { opacity: 0.864, duration: 0.25, ease: 'none' }, 3.0);
+      tl.to('.beam', { opacity: 0.825, duration: 0.25, ease: 'none' }, 3.25);
+      tl.to('.beam', { opacity: 0.843, duration: 0.25, ease: 'none' }, 3.5);
+      tl.to('.beam', { opacity: 0.841, duration: 0.25, ease: 'none' }, 3.75);
+      tl.to('.beam', { opacity: 0.883, duration: 0.25, ease: 'none' }, 4.0);
+      tl.to('.beam', { opacity: 0.873, duration: 0.25, ease: 'none' }, 4.25);
+      tl.to('.beam', { opacity: 0.797, duration: 0.25, ease: 'none' }, 4.5);
+      tl.to('.beam', { opacity: 0.843, duration: 0.25, ease: 'none' }, 4.75);
+      tl.to('.beam', { opacity: 0.861, duration: 0.25, ease: 'none' }, 5.0);
+      tl.to('.beam', { opacity: 0.836, duration: 0.25, ease: 'none' }, 5.25);
+      tl.to('.beam', { opacity: 0.783, duration: 0.25, ease: 'none' }, 5.5);
+      tl.to('.beam', { opacity: 0.927, duration: 0.25, ease: 'none' }, 5.75);
+      tl.to('.beam', { opacity: 0.877, duration: 0.25, ease: 'none' }, 6.0);
+      tl.to('.beam', { opacity: 0.975, duration: 0.25, ease: 'none' }, 6.25);
+      tl.to('.beam', { opacity: 0.853, duration: 0.25, ease: 'none' }, 6.5);
+      tl.to('.beam', { opacity: 0.97, duration: 0.25, ease: 'none' }, 6.75);
+      tl.to('#scene2', { opacity: 0, duration: 0.3, ease: 'power1.out' }, 6.7);
+      window.__timelines['scene2'] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

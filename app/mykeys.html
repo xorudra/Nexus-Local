@@ -130,7 +130,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   </div>
   <div class="nexus-nav">
     <div class="nexus-glabel">Main</div>
-    <a class="nx-item" href="/dashboard" data-page="dashboard" title="Dashboard"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg><span>Dashboard</span></a>
+    <a class="nx-item" href="/console" data-page="console" title="Console"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></svg><span>Console</span></a>
     <a class="nx-item" href="/connections" data-page="connections" title="Connections"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 17H7a5 5 0 0 1 0-10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/></svg><span>Connections</span></a>
     <a class="nx-item" href="/integrations" data-page="integrations" title="Integrations"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2.5v5M15 2.5v5M6.5 7.5h11V12a5.5 5.5 0 0 1-11 0V7.5Z"/><path d="M12 17.5V22"/></svg><span>Integrations</span></a>
     <a class="nx-item" href="/mykeys" data-page="mykeys" id="nav-mykeys" style="display:none" title="My Keys"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="15.5" r="4.5"/><path d="M11.2 12.3 20 3.5M16.5 7l3 3"/></svg><span>My Keys</span></a>
@@ -329,7 +329,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
   // Active item for the current page (same rule as before).
   var p=location.pathname;
   document.querySelectorAll('.nexus-sidebar a[data-page]').forEach(function(a){
-    if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page){a.classList.add('active');a.setAttribute('aria-current','page');}
+    if((p==='/'&&a.dataset.page==='console')||p==='/'+a.dataset.page){a.classList.add('active');a.setAttribute('aria-current','page');}
   });
   // Role-gated items (same behaviour as before): admins see Update
   // Keys / Admin / API Access; friends see My Keys instead.
@@ -350,7 +350,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 </script>
 <main>
 </main>
-<script type="speculationrules">{"prerender":[{"urls":["/dashboard","/connections","/integrations","/mykeys"],"eagerness":"moderate"}]}</script>
+<script type="speculationrules">{"prerender":[{"urls":["/console","/connections","/integrations","/mykeys"],"eagerness":"moderate"}]}</script>
 
 <h1>MY KEYS</h1>
 <p class="sub">Your personal provider keys. When set, your chats use <b>your</b> keys instead of the shared ones — your usage burns your own quotas, not the admin's. Keys are encrypted with your login password. Leave a field blank to keep its current value.</p>
@@ -380,7 +380,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 </div>
 
 <div class="nav">
-<a href="/dashboard">← Dashboard</a>
+<a href="/console">← Console</a>
 </div>
 
 <script>

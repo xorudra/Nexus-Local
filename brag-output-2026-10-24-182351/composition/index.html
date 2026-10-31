@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="assets/js/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url(assets/fonts/sg-400.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url(assets/fonts/sg-500.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url(assets/fonts/sg-700.woff2) format('woff2'); }
+      @font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url(assets/fonts/jm-400.woff2) format('woff2'); }
+      :root { --ground: #050505; --panel: #0d0d10; --ink: #fafafa; --muted: #a7a7b0; --accent: #38bdf8; --danger: #ff9d97; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--ground); }
+      #root { width: 100%; height: 100%; position: relative; font-family: 'Space Grotesk', sans-serif; background: var(--ground); }
+      .clip { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="20" data-width="1920" data-height="1080">
+      <div id="scene1-host" class="clip" data-composition-id="scene1" data-composition-src="compositions/scene1.html" data-start="0" data-duration="3" data-track-index="0"></div>
+      <div id="scene2-host" class="clip" data-composition-id="scene2" data-composition-src="compositions/scene2.html" data-start="3" data-duration="7" data-track-index="1"></div>
+      <div id="scene3-host" class="clip" data-composition-id="scene3" data-composition-src="compositions/scene3.html" data-start="10" data-duration="6" data-track-index="2"></div>
+      <div id="scene4-host" class="clip" data-composition-id="scene4" data-composition-src="compositions/scene4.html" data-start="16" data-duration="4" data-track-index="3"></div>
+      <audio id="bg-music" data-start="0" data-duration="20" data-track-index="10" data-volume="0.35" data-fade-out="1.5" src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"></audio>
+      <audio id="sfx-switch" data-start="6.2" data-duration="0.62" data-track-index="15" data-volume="0.6" src="assets/sfx/interface/switch_001.ogg"></audio>
+      <audio id="sfx-answer" data-start="8.6" data-duration="0.11" data-track-index="16" data-volume="0.7" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="sfx-f1" data-start="10.37" data-duration="0.19" data-track-index="17" data-volume="0.6" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="sfx-f2" data-start="10.93" data-duration="0.11" data-track-index="18" data-volume="0.6" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="sfx-f3" data-start="11.46" data-duration="0.19" data-track-index="19" data-volume="0.6" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="sfx-logo" data-start="16.5" data-duration="0.12" data-track-index="20" data-volume="0.6" src="assets/sfx/interface/bong_001.ogg"></audio>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines['main'] = gsap.timeline({ paused: true });
+      window.__timelines['main'].seek(0);
+    </script>
+  </body>
+</html>

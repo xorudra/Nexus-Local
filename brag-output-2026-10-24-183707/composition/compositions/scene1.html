@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="../assets/js/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url(../assets/fonts/sg-400.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url(../assets/fonts/sg-500.woff2) format('woff2'); }
+      @font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url(../assets/fonts/sg-700.woff2) format('woff2'); }
+      @font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url(../assets/fonts/jm-400.woff2) format('woff2'); }
+      :root { --ground: #050505; --panel: #0d0d10; --ink: #fafafa; --muted: #a7a7b0; --accent: #38bdf8; --danger: #ff9d97; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--ground); }
+      #root { width: 100%; height: 100%; position: relative; font-family: 'Space Grotesk', sans-serif; background: var(--ground); }
+      .clip { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden; }
+      #scene1 { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 36px; }
+      #scene1 h1 { font-size: 96px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.08; color: var(--ink); }
+      #scene1 h1 .grad { background: linear-gradient(180deg, #8a8a93, #fafafa); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+      /* Traveling border beam: crisp conic-gradient ring, NO blur, NO shadow.
+         The bright segment is a ~75deg arc; GSAP rotates --ba so the segment
+         travels continuously around the picture border. */
+      .picframe { --ba: 0deg; width: 1500px; padding: 4px; border-radius: 24px;
+        background: conic-gradient(from var(--ba), transparent 0deg, transparent 280deg, #38bdf8 310deg, #ffffff 340deg, #38bdf8 355deg, transparent 360deg); }
+      .picframe img { display: block; width: 100%; height: auto; border-radius: 20px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="scene1" data-width="1920" data-height="1080" data-duration="3">
+      <div id="scene1" class="clip"><h1><span id="s1l1" class="grad">Chat with every AI,</span><br /><span id="s1l2">from one Nexus.</span></h1><div id="landframe" class="picframe"><img src="../assets/img/landing.png" alt="Nexus landing page" /></div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo('#s1l2', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power3.out' }, 0.5);
+      tl.fromTo('#landframe', { opacity: 0, scale: 0.98 }, { opacity: 1, scale: 1, duration: 0.5, ease: 'power3.out' }, 1.4);
+      tl.fromTo('#landframe', { '--ba': '0deg' }, { '--ba': '360deg', duration: 1.6, ease: 'none' }, 1.4);
+      tl.to('#scene1', { opacity: 0, duration: 0.3, ease: 'power1.out' }, 2.7);
+      window.__timelines['scene1'] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

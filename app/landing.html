@@ -421,10 +421,10 @@ document.documentElement.classList.add('js');
 fetch('/api/status').then(function(r){
   if (!r.ok) return;
   document.querySelectorAll('[data-open]').forEach(function(a){
-    a.setAttribute('href', '/dashboard');
+    a.setAttribute('href', '/console');
   });
   var si = document.querySelector('.signin');
-  if (si) { si.setAttribute('href', '/dashboard'); si.textContent = 'Dashboard'; }
+  if (si) { si.setAttribute('href', '/console'); si.textContent = 'Console'; }
 }).catch(function(){});
 </script>
 <script>(function(){var l=document.getElementById('nxPageLoader');if(!l)return;

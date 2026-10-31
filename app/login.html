@@ -181,7 +181,7 @@ async function submit(){
     if(r.status===200&&j.ok){
       if(j.need_2fa){ show2FA(j.tmp); return; }
       if(j.terms_notice){ try{ sessionStorage.setItem('nexus_terms_notice','1'); }catch(e){} }
-      location.href='/dashboard';return;
+      location.href='/console';return;
     }
     if(j.error==='maintenance mode is on'){ err.textContent='Maintenance mode is on — friends are paused right now. Please try again later.'; }
     else if(j.error==='account suspended'){ err.textContent='This account has been suspended. Please contact the admin.'; }
@@ -209,7 +209,7 @@ async function submit2FA(){
   try{
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tmp:_tmp,code:code})});
     const j=await r.json();
-    if(r.status===200&&j.ok){ tfaSuccess(); setTimeout(()=>{location.href='/dashboard';},750); return; }
+    if(r.status===200&&j.ok){ tfaSuccess(); setTimeout(()=>{location.href='/console';},750); return; }
     throw 0;
   }catch(e){
     err2.style.display='block';
