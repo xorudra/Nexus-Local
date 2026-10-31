@@ -417,6 +417,7 @@ overflow-y:auto;padding:1rem 1rem 0.5rem;margin-bottom:0;display:flex;flex-direc
 @keyframes ax-grow-x{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 #token-meter{margin:0 0 0.625rem}
 #token-meter[hidden]{display:none}
+.m-newchat{display:none;background:transparent;border:none;color:#f2f2f2;cursor:pointer;padding:0.5rem;border-radius:50%;align-items:center;justify-content:center}
 
 /* Full-dashboard composer (owner order 2026-10-31): hero removed — the
    Task Composer fills the viewport, only the token usage meter stays. */
@@ -607,20 +608,38 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 #attach-preview{margin-top:0.625rem}
 #attach-preview:empty{margin-top:0}
 @media(max-width:35em){
-.pill-pickers{grid-template-columns:1fr 1fr}
-.composer{margin:0.625rem;padding:0.875rem}
-.composer h2{font-size:0.875rem;margin-bottom:0.5rem}
+/* ChatGPT-like minimal mobile (owner order 2026-10-31) */
+.header{background:transparent;border-bottom:none;padding:0.625rem 1rem}
+.header .wordmark{display:none}
+.header .logout{display:none}
+.m-newchat{display:flex}
+.composer{margin:0;background:transparent;padding:0.5rem 0.75rem;box-shadow:none;animation:none;border-radius:0}
+.composer .eyebrow{display:none}
+.composer h2{display:none}
+.chat-bar{display:none !important}
+#lane-strip{display:none}
 .msg{max-width:94%}
 .input-row{gap:0.25rem}
 #composer-send{width:36px;height:36px}
 #composer-mic{width:36px !important;height:36px !important}
 #attach-plus{width:36px;height:36px;font-size:1.375rem}
 #composer-message{padding:0.375rem 0.375rem}
-.thread{min-height:55vh;max-height:70vh}
+.thread{background:transparent;min-height:55vh;max-height:70vh}
 .thread-empty{padding:1.25rem 0.875rem}
 .thread-empty svg{width:40px;margin-bottom:0.5rem}
 .thread-empty p{font-size:0.75rem}
-.composer-box{padding:0.125rem 0.625rem 0.625rem}
+.composer-box{background:transparent;padding:0.25rem 0 0}
+#token-meter{margin:0 0 0.375rem}
+#token-meter .rlm{background:transparent;padding:0.25rem 0.75rem}
+#token-meter .rlm-head{font-size:0.6875rem}
+#token-meter .rlm-bar{display:none}
+#token-meter .rlm-foot{font-size:0.625rem;margin-top:0.125rem}
+.input-pill{border-radius:999px;background:#1c1c1f;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.input-pill:focus-within{box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 0 1.5px rgba(56,189,248,.5)}
+.pill-pickers{display:flex;overflow-x:auto;gap:0.125rem;border:none;margin:0 0 0.5rem;padding:0.125rem 0.25rem;scrollbar-width:none}
+.pill-pickers::-webkit-scrollbar{display:none}
+.pill-pickers .cs{flex:none}
+.pill-pickers .cs-btn{background:transparent;font-size:0.6875rem;color:#8a8a92;padding:0.3125rem 0.5rem;min-height:0;border-radius:999px}
 }
 
 /* ===== Saved chats: bar + slide-in panel ===== */
@@ -1011,6 +1030,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 <div class="header">
     <span class="wordmark">Nexus</span>
     <span class="spacer"></span>
+    <button class="m-newchat" id="m-newchat" aria-label="New chat" title="New chat"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
     <button class="logout" id="logout-btn">Logout</button>
 </div>
 
@@ -1381,6 +1401,7 @@ document.getElementById('chats-open').addEventListener('click', openChats);
 document.getElementById('chats-close').addEventListener('click', closeChats);
 document.getElementById('chats-backdrop').addEventListener('click', closeChats);
 document.getElementById('chat-new').addEventListener('click', () => newChat());
+document.getElementById('m-newchat').addEventListener('click', () => newChat());
 document.getElementById('chats-new').addEventListener('click', () => newChat());
 refreshChatList();
 
