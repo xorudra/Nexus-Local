@@ -541,6 +541,10 @@ button.trace-line{cursor:pointer}
 .composer,.composer-box,.input-pill,.cs-btn,.rlm{border:none !important;box-shadow:none !important;background:transparent !important}
 .input-pill:focus-within{box-shadow:0 0 0 1.5px rgba(56,189,248,.5) !important}
 .composer-box{background:transparent}
+/* ChatGPT-like centered layout on desktop (owner order 2026-10-31) */
+@media(min-width:35.01em){
+.composer{max-width:768px;margin-left:auto;margin-right:auto;width:100%}
+}
 /* Selects as one connected bar on desktop (owner order 2026-10-31) */
 @media(min-width:35.01em){
 .pill-pickers{gap:0 !important;background:rgba(255,255,255,.04);border-radius:12px;padding:0.25rem}
