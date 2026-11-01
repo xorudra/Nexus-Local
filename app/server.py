@@ -6356,8 +6356,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # Show current keys (masked) with fields to update. Viewers may
             # look (owner's choice) but every POST stays refused for them.
-            current = getattr(Handler, 'keys', {})
-            sidebar = (Path(__file__).parent / "sidebar.html").read_text(encoding="utf-8")
+            try:
+                current = getattr(Handler, 'keys', {}) or {}
+            except Exception:
+                current = {}
+            try:
+                sidebar = (Path(__file__).parent / "sidebar.html").read_text(encoding="utf-8")
+            except Exception:
+                sidebar = ""
             def masked(k):
                 v = current.get(k, "")
                 return f"***{v[-4:]}" if v and len(v) > 4 else ("set" if v else "not set")
