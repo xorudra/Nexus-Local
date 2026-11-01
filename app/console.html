@@ -2147,7 +2147,7 @@ function renderRateLimitMeter(o) {
     const limit = o.limit, remaining = o.remaining;
     const used = Math.max(0, limit - remaining);
     const share = limit > 0 ? remaining / limit : 0;
-    const exhausted = remaining <= 0;
+    const exhausted = !o.noExhaust && remaining <= 0;
     const label = o.label || 'Rate limit';
     const remainingLabel = o.remainingLabel || 'remaining';
     const resetsLabel = o.resetsLabel || 'resets';
@@ -2195,6 +2195,7 @@ function updateTokenMeter(data) {
         label: 'Token usage',
         remainingLabel: 'tokens today',
         tone: '#34d399',
+        noExhaust: true,
         footer: reqToday + ' request' + (reqToday === 1 ? '' : 's') + ' today',
     });
 }
