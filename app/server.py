@@ -6416,7 +6416,7 @@ class Handler(BaseHTTPRequestHandler):
                     "<button type='submit'>Save Changes</button>"
                     "</form></div>"
                     "<p class='back'><a href='/'>← Back to Dashboard</a></p>"
-                    "</div>" + _NX_LOADER_JS + "</body></html>")
+                    "</div><script>" + _NX_LOADER_JS + "</script></body></html>")
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
