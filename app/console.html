@@ -2171,7 +2171,7 @@ function renderRateLimitMeter(o) {
         + (o.resetAt ? '<span class="rlm-reset">' + _rlmEsc(resetsLabel) + ' ' + _rlmEsc(_rlmRel(o.resetAt, reference)) + '</span>' : '')
         + '</div>'
         + '<p class="rlm-counts" style="margin:0"><span class="rlm-remaining" style="color:' + tone + '">'
-        + _rlmNum.format(remaining) + '</span><span class="rlm-of">/ ' + _rlmNum.format(limit) + ' ' + _rlmEsc(remainingLabel) + '</span></p>'
+        + _rlmNum.format(remaining) + '</span>' + (o.hideLimit ? '<span class="rlm-of"> ' + _rlmEsc(remainingLabel) + '</span>' : '<span class="rlm-of">/ ' + _rlmNum.format(limit) + ' ' + _rlmEsc(remainingLabel) + '</span>') + '</p>'
         + '<div class="rlm-bar" role="meter" aria-valuenow="' + remaining + '" aria-valuemin="0" aria-valuemax="' + limit + '"'
         + (typeof label === 'string' ? ' aria-label="' + _rlmEsc(label) + '"' : '') + '>'
         + '<div class="rlm-fill" style="width:' + (share * 100).toFixed(1) + '%;background:' + tone + '"></div>'
@@ -2196,6 +2196,7 @@ function updateTokenMeter(data) {
         remainingLabel: 'tokens today',
         tone: '#34d399',
         noExhaust: true,
+        hideLimit: true,
         footer: reqToday + ' request' + (reqToday === 1 ? '' : 's') + ' today',
     });
 }
