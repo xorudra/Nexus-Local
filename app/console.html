@@ -1925,7 +1925,8 @@ function renderUsage(data) {
     if (combinedUsage) combinedUsage.innerHTML = '<h3>Combined Usage</h3>'
         + '<div class="usage">Resets vary by provider — see individual cards below</div>'
         + sparkline(ch.requests, 'Combined 7-day requests')
-        + '<div class="trend-today">' + totReqToday + ' requests · ' + totTokToday.toLocaleString() + ' tokens today</div>';
+        + '<div class="trend-today">' + totReqToday + ' requests · ' + totTokToday.toLocaleString() + ' tokens today</div>'
+        + '<div class="trend-today" style="opacity:.7">Yesterday: ' + (ch.requests[5]||0) + ' requests · ' + (ch.tokens[5]||0).toLocaleString() + ' tokens</div>';
     providers.forEach(function(p) {
         const div = document.createElement('div');
         div.className = 'card';
