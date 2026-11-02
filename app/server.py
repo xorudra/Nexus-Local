@@ -9039,8 +9039,15 @@ class Handler(BaseHTTPRequestHandler):
                         resp_data = json.loads(_read_capped(resp))
                         reply = resp_data["choices"][0]["message"]["content"]
                         usage = resp_data.get("usage", {})
-                        _meter(usage.get("prompt_tokens", 0),
-                               usage.get("completion_tokens", 0))
+                        _pt = usage.get("prompt_tokens", 0) or 0
+                        _ct = usage.get("completion_tokens", 0) or 0
+                        # Estimate tokens when provider doesn't return usage
+                        # (e.g., keyless Pollinations): ~1 token per 4 chars
+                        if not _pt and msgs:
+                            _pt = sum(len(str(m.get("content", ""))) for m in msgs if isinstance(m, dict)) // 4
+                        if not _ct and reply:
+                            _ct = len(reply) // 4
+                        _meter(_pt, _ct)
                         return (True, reply)
                 except HTTPError as e:
                     if e.code == 503:
