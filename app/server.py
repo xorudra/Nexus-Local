@@ -8722,9 +8722,9 @@ class Handler(BaseHTTPRequestHandler):
                         elif _user_msg:
                             _prompt_text = str(_user_msg)
                         if _prompt_text:
-                            _pt = len(_prompt_text) // 4
+                            _pt = max(1, len(_prompt_text) // 4)
                     if not _ct and _reply_text:
-                        _ct = len(str(_reply_text)) // 4
+                        _ct = max(1, len(str(_reply_text)) // 4)
                     _urow = {
                         "ts": datetime.datetime.now().isoformat(),
                         "provider": prov, "model": mdl,
