@@ -6341,7 +6341,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(500, "internal error")
             return
         # Settings page - update keys after login
-        if parsed.path == "/settings":
+        if parsed.path == "/updatekeys":
             info = self._session_info()
             if not info:
                 self.send_response(302)
@@ -6411,7 +6411,7 @@ class Handler(BaseHTTPRequestHandler):
                     "<h1>Update Keys</h1>"
                     "<p class='sub'>Only fill in the keys you want to change</p></div>"
                     "<div class='card'>"
-                    "<form method='POST' action='/settings'>" + rows +
+                    "<form method='POST' action='/updatekeys'>" + rows +
                     "<label>Confirm Password<input type='password' name='password' required></label>"
                     "<button type='submit'>Save Changes</button>"
                     "</form></div>"
@@ -7152,7 +7152,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if info.get("admin"):
                 self.send_response(302)
-                self.send_header("Location", "/settings")
+                self.send_header("Location", "/updatekeys")
                 self.end_headers()
                 return
             if info.get("viewer"):
@@ -7604,7 +7604,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/login")
             self.end_headers()
             return
-        if parsed.path == "/settings":
+        if parsed.path == "/updatekeys":
             info = self._session_info()
             if not info:
                 self._set_json_headers(401)

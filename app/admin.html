@@ -569,7 +569,7 @@ function renderVaultPanel(){
   const vm=(S&&S.vault_meta)||{};
   $("#vl").innerHTML=
     `<div class="vr">🔒 <b>API service key</b><span class="sub">/v1 external API</span><code>${V1?(V1.configured?'••••••••'+esc(V1.last4||''):'not configured'):'—'}</code><a class="ib" href="/api-access" style="text-decoration:none">Manage</a></div>`+
-    `<div class="vr">🔒 <b>Shared provider keys</b><span class="sub">${keyedN} providers configured</span><code>master vault</code><a class="ib" href="/settings" style="text-decoration:none">Update keys</a></div>`+
+    `<div class="vr">🔒 <b>Shared provider keys</b><span class="sub">${keyedN} providers configured</span><code>master vault</code><a class="ib" href="/updatekeys" style="text-decoration:none">Update keys</a></div>`+
     L.access.map(a=>{
       const entries=vm[a.label]||[];
       const rows=entries.map(en=>`<div class="vr" style="padding-left:1.625rem">🔒 <b>${esc(a.label)}</b><span class="sub">${esc(en.provider)}</span><code>••••••••${esc(en.last4)}</code></div>`).join('');
