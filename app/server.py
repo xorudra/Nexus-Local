@@ -8707,11 +8707,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not akey and prov not in RELAY_KEYLESS:
                     return (False, 400, f"no key configured for {prov}")
 
-                def _meter(_pt=0, _ct=0):
+                def _meter(_pt=0, _ct=0, _reply_text=""):
                     # Every successful lane appends exactly one usage
                     # row — the per-user/global caps and provider_limits
                     # all read this ledger, so a lane that skips its row
                     # is a lane that escapes them.
+                    # Estimate tokens when provider doesn't return usage
+                    # (~1 token per 4 chars for English text)
+                    if not _pt and _user_msg:
+                        _pt = len(str(_user_msg)) // 4
+                    if not _ct and _reply_text:
+                        _ct = len(str(_reply_text)) // 4
                     _urow = {
                         "ts": datetime.datetime.now().isoformat(),
                         "provider": prov, "model": mdl,
@@ -8744,11 +8750,13 @@ class Handler(BaseHTTPRequestHandler):
                             resp_data = json.loads(_read_capped(resp))
                             _cu = resp_data.get("usage") or {}
                             _ct2 = _cu.get("tokens") or {}
+                            _reply_t = resp_data.get("text", "")
                             _meter(_ct2.get("input_tokens",
                                             _cu.get("input_tokens", 0)),
                                    _ct2.get("output_tokens",
-                                            _cu.get("output_tokens", 0)))
-                            return (True, resp_data.get("text", ""))
+                                            _cu.get("output_tokens", 0)),
+                                   _reply_t)
+                            return (True, _reply_t)
                     except HTTPError as e:
                         return (False, e.code, f"provider returned an error ({e.code})")
                     except Exception:
@@ -8786,7 +8794,8 @@ class Handler(BaseHTTPRequestHandler):
                                 if isinstance(b, dict) and b.get("type") == "text")
                             _au = resp_data.get("usage") or {}
                             _meter(_au.get("input_tokens", 0),
-                                   _au.get("output_tokens", 0))
+                                   _au.get("output_tokens", 0),
+                                   _txt)
                             return (True, _txt)
                     except HTTPError as e:
                         return (False, e.code, f"provider returned an error ({e.code})")
@@ -9041,13 +9050,7 @@ class Handler(BaseHTTPRequestHandler):
                         usage = resp_data.get("usage", {})
                         _pt = usage.get("prompt_tokens", 0) or 0
                         _ct = usage.get("completion_tokens", 0) or 0
-                        # Estimate tokens when provider doesn't return usage
-                        # (e.g., keyless Pollinations): ~1 token per 4 chars
-                        if not _pt and msgs:
-                            _pt = sum(len(str(m.get("content", ""))) for m in msgs if isinstance(m, dict)) // 4
-                        if not _ct and reply:
-                            _ct = len(reply) // 4
-                        _meter(_pt, _ct)
+                        _meter(_pt, _ct, reply)
                         return (True, reply)
                 except HTTPError as e:
                     if e.code == 503:
