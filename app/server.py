@@ -8714,8 +8714,15 @@ class Handler(BaseHTTPRequestHandler):
                     # is a lane that escapes them.
                     # Estimate tokens when provider doesn't return usage
                     # (~1 token per 4 chars for English text)
-                    if not _pt and _user_msg:
-                        _pt = len(str(_user_msg)) // 4
+                    if not _pt:
+                        # Use msgs from _attempt scope, fallback to _user_msg
+                        _prompt_text = ""
+                        if msgs:
+                            _prompt_text = " ".join(str(m.get("content", "")) for m in msgs if isinstance(m, dict))
+                        elif _user_msg:
+                            _prompt_text = str(_user_msg)
+                        if _prompt_text:
+                            _pt = len(_prompt_text) // 4
                     if not _ct and _reply_text:
                         _ct = len(str(_reply_text)) // 4
                     _urow = {
