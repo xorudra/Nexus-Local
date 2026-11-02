@@ -9627,19 +9627,14 @@ class Handler(BaseHTTPRequestHandler):
             if _answered:
                 # Fallback: ensure tokens are logged for API requests
                 # (provider paths may log 0 if they don't return usage)
-                try:
-                    _fb_reply = str(_answered[2] or "")
-                    _fb_msg = str(message or "")
-                    _fb_pt = max(1, len(_fb_msg) // 4) if _fb_msg else 1
-                    _fb_ct = max(1, len(_fb_reply) // 4) if _fb_reply else 1
-                    # Only log fallback if not already logged by provider path
-                    # (check via a marker - we use a separate function to avoid double-log)
-                    _append_usage({"ts": datetime.datetime.now().isoformat(),
-                                   "provider": _answered[0], "model": _answered[1],
-                                   "prompt_tokens": _fb_pt, "completion_tokens": _fb_ct,
-                                   "user": _chat_label, "ok": True, "fallback": True})
-                except Exception:
-                    pass
+                _fb_reply = str(_answered[2] or "")
+                _fb_msg = str(message or "")
+                _fb_pt = max(1, len(_fb_msg) // 4) if _fb_msg else 1
+                _fb_ct = max(1, len(_fb_reply) // 4) if _fb_reply else 1
+                _append_usage({"ts": datetime.datetime.now().isoformat(),
+                               "provider": _answered[0], "model": _answered[1],
+                               "prompt_tokens": _fb_pt, "completion_tokens": _fb_ct,
+                               "user": _chat_label, "ok": True, "fallback": True})
                 self._set_json_headers(200)
                 self.wfile.write(json.dumps({"reply": _answered[2],
                                              "used_provider": _answered[0],
