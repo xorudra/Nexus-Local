@@ -13,14 +13,14 @@
 <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>:root{color-scheme:dark}
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#050505;color:#e8e8ee;font-family:'Inter','Segoe UI',system-ui,sans-serif;min-height:100vh;padding:1.25rem}
+body{background: #000000;color:#e8e8ee;font-family:'Inter','Segoe UI',system-ui,sans-serif;min-height:100vh;padding:1.25rem}
 h1{font-family:'Space Grotesk',sans-serif;color:#f2f2f2;font-size:1.375rem;margin-bottom:0.5rem}
 .sub{color:#8e8e8e;font-size:0.875rem;margin:0 auto 1.25rem;max-width:1560px;line-height:1.5}
-.card{background:#121216;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:1.25rem;margin:0 auto 1rem;max-width:1560px}
+.card{background: #000000;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:1.25rem;margin:0 auto 1rem;max-width:1560px}
 .card h2{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:0.875rem;color:#f2f2f2;margin-bottom:0.875rem}
 .row{display:flex;gap:0.625rem;margin-bottom:0.75rem;flex-wrap:wrap}
 label{font-size:0.8125rem;color:#8e8e8e;display:block;margin-bottom:0.25rem}
-input{flex:1;min-width:200px;background:#050505;border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e8e8ee;padding:0.625rem 0.75rem;font-size:0.875rem}
+input{flex:1;min-width:200px;background: #000000;border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e8e8ee;padding:0.625rem 0.75rem;font-size:0.875rem}
 input:focus{outline:none;border-color:#f2f2f2}
 button{background:linear-gradient(135deg,#f2f2f2,#8e8e8e);border:none;border-radius:8px;color:#050505;padding:0.625rem 1.375rem;font-size:0.875rem;font-weight:600;cursor:pointer}
 button:hover{filter:brightness(1.1)}
@@ -30,7 +30,7 @@ button:hover{filter:brightness(1.1)}
 #msg{min-height:20px;font-size:0.8125rem;margin-top:0.5rem}
 .prov{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.625rem;flex-wrap:wrap}
 .prov label{min-width:170px;margin:0}
-details.exp{background:#050505;border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:0.875rem 1rem;margin-bottom:0.75rem}
+details.exp{background: #000000;border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:0.875rem 1rem;margin-bottom:0.75rem}
 details.exp summary{color:#d9d9de;cursor:pointer;font-size:0.9375rem;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center}
 details.exp summary::-webkit-details-marker{display:none}
 details.exp summary::after{content:'▸';color:#f2f2f2;transition:transform .15s}
@@ -42,18 +42,18 @@ details.exp .cnt{font-size:0.6875rem;color:#8e8e8e;font-weight:400;margin-left:0
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
-<body><div id="nxPageLoader" aria-hidden="true"><div class="nx-pl-bars"><i data-base="0.82"></i><i data-base="0.55"></i><i data-base="0.97"></i><i data-base="0.43"></i><i data-base="0.71"></i><i data-base="0.88"></i><i data-base="0.49"></i><i data-base="1.00"></i><i data-base="0.63"></i><i data-base="0.77"></i><i data-base="0.46"></i><i data-base="0.91"></i><i data-base="0.58"></i></div></div><style>#nxPageLoader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:#0a0a0a;transition:opacity .3s ease}#nxPageLoader.nx-pl-hide{opacity:0;pointer-events:none}.nx-pl-bars{display:flex;gap:.25rem}.nx-pl-bars i{display:block;width:.375rem;height:2.25rem;background:#779FFF;border-radius:9999px;transform-origin:center}@media (prefers-reduced-motion:reduce){#nxPageLoader{transition-duration:.05s}}</style>
+<body><div id="nxPageLoader" aria-hidden="true"><div class="nx-pl-bars"><i data-base="0.82"></i><i data-base="0.55"></i><i data-base="0.97"></i><i data-base="0.43"></i><i data-base="0.71"></i><i data-base="0.88"></i><i data-base="0.49"></i><i data-base="1.00"></i><i data-base="0.63"></i><i data-base="0.77"></i><i data-base="0.46"></i><i data-base="0.91"></i><i data-base="0.58"></i></div></div><style>#nxPageLoader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background: #000000;transition:opacity .3s ease}#nxPageLoader.nx-pl-hide{opacity:0;pointer-events:none}.nx-pl-bars{display:flex;gap:.25rem}.nx-pl-bars i{display:block;width:.375rem;height:2.25rem;background:#779FFF;border-radius:9999px;transform-origin:center}@media (prefers-reduced-motion:reduce){#nxPageLoader{transition-duration:.05s}}</style>
 <!-- Nexus Sidebar -->
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
 /* Nexus sidebar — shadcn-style composition (brand header, grouped nav,
    footer, collapsible-to-icons) in the original Purple Gotham theme.
    Desktop >=1100px: pinned rail, content offset. Below: slide-over. */
-.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background:#141418;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:1.125rem;line-height:1;display:none;align-items:center;justify-content:center}
+.nexus-burger{position:fixed;top:14px;left:14px;z-index:1001;background: #000000;border:1px solid rgba(255,255,255,.35);border-radius:8px;width:40px;height:40px;cursor:pointer;color:#f2f2f2;font-size:1.125rem;line-height:1;display:none;align-items:center;justify-content:center}
 .nexus-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;display:block;opacity:0;pointer-events:none;transition:opacity .25s cubic-bezier(.2,.9,.25,1);backdrop-filter:blur(3px) saturate(120%);-webkit-backdrop-filter:blur(3px) saturate(120%)}
 @media (prefers-reduced-transparency: reduce){.nexus-overlay{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.78)}}
 .nexus-overlay.show{display:block}
-.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background:#050505;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s cubic-bezier(.2,.9,.25,1),left .25s cubic-bezier(.2,.9,.25,1)}
+.nexus-sidebar{position:fixed;top:0;left:0;width:260px;height:100dvh;background: #000000;border-right:1px solid rgba(255,255,255,.16);z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;transition:width .2s cubic-bezier(.2,.9,.25,1),left .25s cubic-bezier(.2,.9,.25,1)}
 .nexus-side-head{display:flex;align-items:center;gap:0.5625rem;padding:1rem 0.75rem 0.75rem}
 .nexus-brand{display:flex;align-items:center;gap:0.625rem;text-decoration:none;flex:1;min-width:0}
 .nexus-brand .bt{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:1.03125rem;letter-spacing:.15em;white-space:nowrap;line-height:1;overflow:hidden;text-overflow:ellipsis}
