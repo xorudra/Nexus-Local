@@ -53,10 +53,7 @@ body {
     background: linear-gradient(#ffffff,#a8a8b0);
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
-@keyframes logoGlow {
-    0%, 100% { filter: drop-shadow(0 0 4px rgba(255,255,255,.4)); }
-    50% { filter: drop-shadow(0 0 12px rgba(255,255,255,.8)); }
-}
+@keyframes logoGlow{0%,100%{filter:none}50%{filter:none}}
 
 .header .local-tag {
     font-family: 'Space Grotesk', sans-serif;
@@ -312,8 +309,7 @@ body {
     font-family: 'Space Grotesk', sans-serif; font-weight: 600;
 }
 @keyframes titleFlicker {
-    0%, 100% { text-shadow: 0 0 8px rgba(255,255,255,.5); }
-    50% { text-shadow: 0 0 20px rgba(255,255,255,.9), 0 0 40px rgba(255,255,255,.4); }
+    0%,100%{text-shadow:none}50%{text-shadow:none}
 }
 
 .composer h2 span.accent {
@@ -620,10 +616,9 @@ padding:0.625rem 0.875rem;cursor:pointer;border-radius:8px;text-align:left;font-
 font-family:inherit;line-height:1.6;resize:none;min-height:26px;max-height:140px;padding:0.375rem 0.25rem;width:100%}
 #composer-message::placeholder{color:#9a9aa6}
 #composer-send{width:44px;height:44px;border-radius:50%;background:linear-gradient(#ffffff,#a8a8b0);
-border:1px solid #050505;box-shadow:0 0 22px rgba(255,255,255,.32),inset 0 1px 0 rgba(255,255,255,.5);
+border:1px solid #050505;box-shadow:none;
 cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .15s;flex:none}
-#composer-send:hover{filter:brightness(1.07);box-shadow:0 0 34px rgba(255,255,255,.48),inset 0 1px 0 rgba(255,255,255,.5)}
-#composer-send:disabled{opacity:.35;cursor:wait;box-shadow:none}
+#composer-send:hover{filter:brightness(1.07);box-shadow:none}
 #attach-preview{margin-top:0.625rem}
 #attach-preview:empty{margin-top:0}
 @media(max-width:35em){
@@ -716,16 +711,15 @@ background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org
 /* Gotham cinematic effects */
 @keyframes fogDrift{0%{background-position:0 0}100%{background-position:200px 0}}
 @keyframes msgSlideIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pulseGlow{0%,100%{box-shadow:0 0 8px rgba(255,255,255,.3)}50%{box-shadow:0 0 24px rgba(255,255,255,.7),0 0 48px rgba(255,255,255,.3)}}
-@keyframes batSignal{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+@keyframes pulseGlow{0%,100%{box-shadow:none}50%{box-shadow:none}}50%{box-shadow:none;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
 body::before{content:"";position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:0;
 background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(255,255,255,.08),transparent)}
 .msg{animation:msgSlideIn .3s ease-out}
 #composer-send{transition:transform .15s cubic-bezier(.2,.9,.25,1)}
-#composer-send:hover{box-shadow:0 0 32px rgba(255,255,255,.9),0 0 64px rgba(255,255,255,.4);transform:scale(1.08)}
+#composer-send:hover{box-shadow:none}
 .refresh{transition:all .2s cubic-bezier(.2,.9,.25,1)}
-.refresh:hover:not(:disabled){box-shadow:0 0 20px rgba(255,255,255,.6);transform:translateY(-1px)}
-select:focus,input:focus{border-color:#f2f2f2;box-shadow:0 0 12px rgba(255,255,255,.35);outline:none}
+.refresh:hover:not(:disabled){box-shadow:none;transform:translateY(-1px)}
+select:focus,input:focus{border-color:#f2f2f2;box-shadow:none;outline:none}
 
 </style>
 </head>
