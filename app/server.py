@@ -194,6 +194,7 @@ _SETTINGS_DEFAULTS = {
     "session_minutes": None,  # None = follow NEXUS_SESSION_EXPIRY env
     "retention_days": 30,
     "instance_name": "Nexus",
+    "obscura_bin": "/opt/obscura/obscura",  # headless-browser binary for the agent render_fetch tool
     # Console v2 (owner design 2026-10-10): every default below
     # reproduces the pre-v2 behaviour until the admin changes it.
     "global_cap": 0,            # instance-wide friend requests/day; 0 = off
@@ -9259,6 +9260,29 @@ class Handler(BaseHTTPRequestHandler):
                     text = _clean(text)
                     text = _re_a.sub(r"\s+", " ", text)
                     return text[:8000] if text else "Page had no readable text."
+                def _tool_render_fetch(url):
+                    # Rendered fetch via the local Obscura binary (headless
+                    # browser for AI agents): handles JavaScript-heavy pages
+                    # that plain fetch_url cannot read. Zero provider tokens —
+                    # the binary runs on this box; the model only reads the
+                    # returned text. Same _safe_url gate as fetch_url; the
+                    # binary's own SSRF guard stays on (no private-network).
+                    if not _safe_url(url):
+                        return "Blocked: URL is not a public web address."
+                    _bin = (_SETTINGS.get("obscura_bin") or "/opt/obscura/obscura").strip()
+                    try:
+                        _p = _sp_a.run([_bin, "fetch", str(url)[:2000], "--dump", "markdown",
+                                        "--obey-robots", "--timeout", "40"],
+                                       capture_output=True, text=True, timeout=45)
+                    except FileNotFoundError:
+                        return "render_fetch is not installed on this server."
+                    except _sp_a.TimeoutExpired:
+                        return "render_fetch timed out."
+                    _out = (_p.stdout or "").strip()
+                    if _p.returncode != 0 and not _out:
+                        return "render_fetch failed."
+                    _out = _re_a.sub(r"\s+", " ", _out)
+                    return _out[:8000] if _out else "Page had no readable text."
                 def _check_pow(base, exp):
                     # Bound the power BEFORE computing it: a model-supplied
                     # tower like 9**9**9 must never pin a handler thread.
@@ -9298,11 +9322,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("unsupported expression")
                 def _tool_calc(expr):
                     return str(_calc(_ast_a.parse(str(expr)[:200], mode="eval")))
-                _TOOLS = {"web_search": _tool_search, "fetch_url": _tool_fetch, "calculate": _tool_calc}
+                _TOOLS = {"web_search": _tool_search, "fetch_url": _tool_fetch, "render_fetch": _tool_render_fetch, "calculate": _tool_calc}
                 _sys = ("You are Nexus Agent, an assistant with tools. To use a tool, reply with ONLY a fenced block like:\n"
                         "```tool\n{\"name\": \"web_search\", \"args\": {\"query\": \"...\"}}\n```\n"
-                        "Tools: web_search {query} - search the web; fetch_url {url} - read a web page; calculate {expression} - exact math.\n"
-                        "Use tools when facts may be current or external, or for exact math. One tool per reply. "
+                        "Tools: web_search {query} - search the web; fetch_url {url} - read a web page; render_fetch {url} - read a JavaScript-heavy page (rendered in a headless browser); calculate {expression} - exact math.\n"
+                        "Use tools when facts may be current or external, or for exact math. Prefer render_fetch over fetch_url when a page needs JavaScript to show its content. One tool per reply. "
                         "When you have enough information, answer normally with the final answer (no tool block).")
                 _msgs = ([{"role": "system", "content": _sys}]
                          + [{"role": h["role"], "content": h["content"]}
@@ -9379,7 +9403,7 @@ class Handler(BaseHTTPRequestHandler):
                         _tname, _targs = "", {}
                     _fn = _TOOLS.get(_tname)
                     if not _fn:
-                        _tres = "Unknown tool. Available: web_search, fetch_url, calculate."
+                        _tres = "Unknown tool. Available: web_search, fetch_url, render_fetch, calculate."
                         _used_tools.append(_tname or "?")
                         _arg = ""
                     else:
