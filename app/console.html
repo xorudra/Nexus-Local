@@ -304,11 +304,7 @@ body {
     font-family: 'Space Grotesk', sans-serif; font-weight: 600;
 }
 @keyframes titleFlicker {
-    0%,100%{text-shadow:none}50%{text-shadow:none}
-}
-
-.composer h2 span.accent {
-    color: #f2f2f2;
+    0%,100%{text-shadow: none;
 }
 
 
@@ -530,12 +526,7 @@ button.trace-line{cursor:pointer}
 .composer-box{background: #000000;border:none;border-radius:0 0 20px 20px;padding:0.25rem 0.75rem 0.75rem}
 /* Borderless composer (owner order 2026-10-31): no borders or shadows on desktop either */
 .composer,.composer-box,.input-pill,.cs-btn,.rlm{border:none !important;box-shadow:none !important;background:transparent !important}
-.input-pill:focus-within{box-shadow:0 0 0 1.5px rgba(56,189,248,.5) !important}
-.composer-box{background:transparent}
-/* ChatGPT-like centered layout on desktop (owner order 2026-10-31) */
-/* Full-width composer (owner order 2026-10-31): no empty space on sides */
-@media(min-width:35.01em){
-.composer{max-width:none;margin-left:0;margin-right:0;box-sizing:border-box;overflow-x:clip}
+.input-pill:focus-within{box-shadow: none;margin-left:0;margin-right:0;box-sizing:border-box;overflow-x:clip}
 .pill-pickers{grid-template-columns:1.1fr 1.4fr 0.9fr 1fr !important}
 .pill-pickers .cs-btn{padding:0.75rem 1rem !important;font-size:0.875rem !important;min-height:48px !important}
 }
@@ -551,9 +542,7 @@ button.trace-line{cursor:pointer}
 color:#f2f2f2;padding:0.5625rem 0.75rem;font-size:0.8125rem;font-family:inherit;appearance:none}
 select.picker{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23f2f2f2' fill='none' stroke-width='1.6'/%3E%3C/svg%3E");
 background-repeat:no-repeat;background-position:right 12px center;padding-right:2rem;cursor:pointer}
-.picker:focus{outline:none;border-color:#f2f2f2;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
-.picker::placeholder{color:#9a9aa6}
-.input-pill{position:relative;display:flex;flex-direction:column;background:rgba(16,16,18,.9);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:none;border-radius:24px;padding:0.5rem;transition:border-color .2s,box-shadow .2s}
+.picker:focus{outline:none;border-color:#f2f2f2;box-shadow: none;display:flex;flex-direction:column;background:rgba(16,16,18,.9);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border:none;border-radius:24px;padding:0.5rem;transition:border-color .2s,box-shadow .2s}
 .input-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:0.375rem;align-items:center;width:100%;min-height:50px}
 .pill-pickers{display:grid;grid-template-columns:repeat(4,1fr);gap:0.375rem;width:100%;margin-bottom:0.5rem}
 .pill-pickers .picker{padding:0.4375rem 1.5rem 0.4375rem 0.625rem;font-size:0.75rem;border-radius:9px;background-position:right 8px center}
@@ -587,13 +576,7 @@ background-repeat:no-repeat;background-position:right 12px center;padding-right:
 .ask-row{display:flex;gap:0.625rem;justify-content:flex-end;margin-top:1rem}
 #ask-cancel{background:none;border:1px solid rgba(255,255,255,.12);color:#8e8e8e;border-radius:8px;padding:0.5625rem 1.125rem;font-size:0.875rem;cursor:pointer;font-family:inherit;width:auto}
 #ask-ok{background:linear-gradient(135deg,#f2f2f2,#8e8e8e);border:none;border-radius:8px;color:#050505;padding:0.5625rem 1.375rem;font-size:0.875rem;font-weight:600;cursor:pointer;font-family:inherit;width:auto}
-.input-pill:focus-within{border-color:rgba(56,189,248,.55);box-shadow:0 0 0 3px rgba(56,189,248,.14),0 0 32px rgba(56,189,248,.10)}
-
-/* AnimatedAIChat port (owner order 2026-10-31): vanilla, Nexus cyan theme.
-   Glassy composer card with cyan focus glow + entrance rise.
-   (The "/" command palette was removed 2026-10-31 at owner order —
-   "we don't need yet". The code is in git history if he wants it back.) */
-@keyframes nx-rise{from{opacity:0;transform:translateY(14px)}}
+.input-pill:focus-within{border-color:rgba(56,189,248,.55);box-shadow: none;transform:translateY(14px)}}
 .composer-box{animation:nx-rise .55s cubic-bezier(.2,.7,.2,1) both}
 .attach-wrap{position:relative}
 #attach-plus{width:40px;height:40px;border-radius:50%;background:transparent;border:none;color:#8a8a92;

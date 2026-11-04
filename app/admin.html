@@ -96,9 +96,7 @@ th,td{text-align:left;padding:0.5625rem 0.5rem;border-bottom:1px solid var(--lin
 .liveBtn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:0.4375rem;font-size:0.75rem;color:var(--mu)}
 .liveDot{width:8px;height:8px;border-radius:50%;background:#35d07f;animation:lpulse 2.4s infinite;flex:none}
 .liveDot.off{background:#8e8e8e;animation:none}
-@keyframes lpulse{0%{box-shadow:0 0 0 0 rgba(53,208,127,.45)}70%{box-shadow:0 0 0 7px rgba(53,208,127,0)}100%{box-shadow:0 0 0 0 rgba(53,208,127,0)}}
-@media (prefers-reduced-motion:reduce){.liveDot{animation:none}}
-.pal .box{width:min(520px,92vw);align-self:flex-start;border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:0.625rem}
+70%{box-shadow: none;align-self:flex-start;border-radius:18px;background:var(--bg);border:1px solid var(--line);padding:0.625rem}
 .pal button{all:unset;display:block;box-sizing:border-box;width:100%;padding:0.5625rem 0.75rem;border-radius:10px;cursor:pointer}.pal button:hover,.pal button.on{background:var(--line)}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);transform:translate(-50%,20px);padding:0.625rem 1.125rem;border-radius:999px;background:var(--tx);color:var(--bg);opacity:0;transition:.3s;z-index:60;pointer-events:none}#toast.on{opacity:1;transform:translate(-50%,0)}
 button:focus-visible,.ib:focus-visible,.tl:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
