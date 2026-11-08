@@ -400,7 +400,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
     if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page){a.classList.add('active');a.setAttribute('aria-current','page');}
   });
   // Role-gated items (same behaviour as before): admins see Update
-  // Keys / Admin / API Access; friends see My Keys instead.
+  // Keys / Admin / API Access; friends see My Keys + API Access instead.
   fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})})
   .then(function(r){
     if(r.ok){
@@ -409,10 +409,12 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
       });
     } else {
       var m=document.getElementById('nav-mykeys'); if(m) m.style.display='';
+      var a=document.getElementById('nav-api'); if(a) a.style.display='';
     }
   })
   .catch(function(){
     var m=document.getElementById('nav-mykeys'); if(m) m.style.display='';
+    var a=document.getElementById('nav-api'); if(a) a.style.display='';
   });
 })();
 </script>
@@ -462,19 +464,20 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
     <div class="card-head">
       <div class="tt">
         <h2>Endpoint status</h2>
-        <p class="desc">When the vault is locked (no admin login since the last restart),
+        <p class="desc" id="endpoint-desc">When the vault is locked (no admin login since the last restart),
         only keyless lanes answer until you sign in.</p>
       </div>
     </div>
     <div class="card-body" style="padding-top:0.5rem">
       <div class="kv"><span class="k">Base URL</span><span class="v" id="base-url">—</span></div>
-      <div class="kv"><span class="k">Service key</span><span class="v" id="key-hint">—</span></div>
-      <div class="kv"><span class="k">Connected consumer</span><span class="v" id="consumer">—</span></div>
-      <div class="kv"><span class="k">Provider vault</span><span class="v" id="vault">—</span></div>
+      <div class="kv" id="kv-model" style="display:none"><span class="k">Model</span><span class="v">nexus-auto</span></div>
+      <div class="kv" id="kv-key"><span class="k">Service key</span><span class="v" id="key-hint">—</span></div>
+      <div class="kv" id="kv-consumer"><span class="k">Connected consumer</span><span class="v" id="consumer">—</span></div>
+      <div class="kv" id="kv-vault"><span class="k">Provider vault</span><span class="v" id="vault">—</span></div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="lanes-card">
     <div class="card-head">
       <div class="tt">
         <h2>Supply lanes</h2>
@@ -525,6 +528,23 @@ function fmtUsed(ts){
 }
 function rowHtml(k){
   var badge=k.disabled?'<span class="kbadge off">Disabled</span>':'<span class="kbadge on">Active</span>';
+  if(IS_FRIEND){
+    // Own key, public shape only: masked last4, no Copy (the full
+    // key is shown once, at creation), no rotate, no set-limit.
+    // Daily limits ride under the name — same table, same columns.
+    var req=(k.req_limit?k.req_used+'/'+k.req_limit:k.req_used+'/∞');
+    var tok=(k.tok_limit?k.tok_used+'/'+k.tok_limit:k.tok_used+'/∞');
+    var joined='<div class="keyrow"><div class="joined"><input type="text" readonly value="••••••••'+esc(k.last4)+'" aria-label="Service key (last 4 digits)"></div></div>';
+    var sw=k.disabled?'<span class="u">—</span>'
+      :'<button type="button" class="switch" role="switch" aria-checked="true" data-act="toggle" data-id="'+esc(k.id)+'" aria-label="Disable key"><span class="knob"></span></button>';
+    var act='<button type="button" class="icon-btn ghost" data-act="delete" data-id="'+esc(k.id)+'" title="Delete key" aria-label="Delete key">'+TRASH_SVG+'</button>';
+    return '<tr><td class="keycell"><div class="keyname">'+esc(k.name)+'</div><div class="u" style="font-size:0.78125rem;margin-top:0.25rem">'+req+' req · '+tok+' tok today</div>'+joined+'</td>'
+      +'<td>'+badge+'</td>'
+      +'<td class="u">'+(k.created?fmtDate(k.created):'—')+'</td>'
+      +'<td class="u">'+(k.last_used?fmtUsed(k.last_used):'Never')+'</td>'
+      +'<td>'+sw+'</td>'
+      +'<td>'+act+'</td></tr>';
+  }
   var joined='<div class="keyrow"><div class="joined"><input type="text" readonly value="'+esc(masked(k.key_full))+'" aria-label="Service key (masked; Copy copies the full key)">'
     +'<button type="button" class="copyseg" data-act="copy" data-id="'+esc(k.id)+'">'+COPY_SVG+'Copy</button></div>';
   var sw, act;
@@ -550,23 +570,36 @@ function renderKeys(){
   document.getElementById('keys-rows').innerHTML=rows.length?rows.map(rowHtml).join('')
     :'<tr><td colspan="6" class="u">'+(KEYS.length?'No keys match your search.':'No keys yet — generate one above.')+'</td></tr>';
 }
+var IS_FRIEND=false;
 function loadInfo(){
   fetch('/api/v1-access').then(function(r){return r.json()}).then(function(d){
+    IS_FRIEND=(d.role==='friend');
     KEYS=d.keys||[];
     renderKeys();
     document.getElementById('base-url').textContent=d.base_url;
-    document.getElementById('key-hint').textContent=d.enabled?('••••••••'+d.key_last4+' (first enabled key)'):'not set';
-    if(!d.can_generate){var gb=document.getElementById('gen-btn');gb.disabled=true;gb.title='Needs the server restore key';}
-    document.getElementById('consumer').textContent=d.consumer;
-    document.getElementById('vault').textContent=d.vault_unlocked?'unlocked':'locked (keyless lanes only)';
-    document.getElementById('lanes').innerHTML=d.lanes.map(function(l){
-      return '<tr><td>'+esc(l.lane)+'</td><td>'+esc(l.model)+'</td><td class="'+(l.ready?'ready':'notready')+'">'+(l.ready?'ready':'needs unlock')+'</td></tr>';
-    }).join('');
     document.getElementById('example').textContent=
 'curl '+d.base_url+'/chat/completions \\\n'+
 '  -H "Authorization: Bearer <your service key>" \\\n'+
 '  -H "Content-Type: application/json" \\\n'+
 '  -d \'{"model": "nexus-auto", "messages": [{"role": "user", "content": "Hello"}]}\'';
+    if(!d.can_generate){var gb=document.getElementById('gen-btn');gb.disabled=true;gb.title='Needs the server restore key';}
+    if(IS_FRIEND){
+      // Friends see the public endpoint + nexus-auto only: no
+      // service-key hint, consumer or vault rows, no supply lanes
+      // (admin config), no live test (it spends the admin's key).
+      ['kv-key','kv-consumer','kv-vault'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none';});
+      var mr=document.getElementById('kv-model'); if(mr) mr.style.display='';
+      var lc=document.getElementById('lanes-card'); if(lc) lc.style.display='none';
+      var tb=document.getElementById('test-btn'); if(tb) tb.style.display='none';
+      var ed=document.getElementById('endpoint-desc'); if(ed) ed.textContent='Your keys call the shared Nexus endpoint, capped per key per day.';
+      return;
+    }
+    document.getElementById('key-hint').textContent=d.enabled?('••••••••'+d.key_last4+' (first enabled key)'):'not set';
+    document.getElementById('consumer').textContent=d.consumer;
+    document.getElementById('vault').textContent=d.vault_unlocked?'unlocked':'locked (keyless lanes only)';
+    document.getElementById('lanes').innerHTML=d.lanes.map(function(l){
+      return '<tr><td>'+esc(l.lane)+'</td><td>'+esc(l.model)+'</td><td class="'+(l.ready?'ready':'notready')+'">'+(l.ready?'ready':'needs unlock')+'</td></tr>';
+    }).join('');
   }).catch(function(){
     document.getElementById('keys-rows').innerHTML='<tr><td colspan="6" class="u">Could not load the keys.</td></tr>';
   });
@@ -582,6 +615,24 @@ document.getElementById('keys-rows').addEventListener('click',function(e){
     if(navigator.clipboard){navigator.clipboard.writeText(val);}
     else if(inp){inp.value=val;inp.select();document.execCommand('copy');inp.value=masked(val);}
     document.getElementById('gen-result').textContent='Copied — the full key is on your clipboard.';
+    return;
+  }
+  if(IS_FRIEND){
+    // Friend keys: disable / delete through /api/mykeys, no master
+    // password, no rotate, no re-enable (delete it and make a new
+    // one instead).
+    if(act==='toggle'){
+      var kk=null; KEYS.forEach(function(x){if(x.id===id)kk=x;});
+      if(!kk||kk.disabled){document.getElementById('gen-result').textContent='Disabled keys stay disabled — delete it and generate a new one.';return;}
+      friendKeyState(id,'v1disable','✓ Key disabled.');
+      return;
+    }
+    if(act==='delete'){
+      var k=null; KEYS.forEach(function(x){if(x.id===id)k=x;});
+      if(!confirm('Delete key "'+(k?k.name:'')+'"? Anything using it stops connecting, and this cannot be undone.')){return;}
+      friendKeyState(id,'v1delete','✓ Key deleted.');
+      return;
+    }
     return;
   }
   if(act==='toggle'){
@@ -617,6 +668,26 @@ function keyState(id,act,msg){
     else{ out.textContent='✗ '+(d.error||'action failed'); }
   }).catch(function(){ out.textContent='✗ Request failed.'; });
 }
+function friendKeyState(id,action,msg){
+  // Friend's own key, through /api/mykeys — no master password.
+  var out=document.getElementById('gen-result');
+  fetch('/api/mykeys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:action,id:id})})
+  .then(function(r){return r.json()}).then(function(d){
+    if(d.ok){ out.textContent=msg||'✓ Done.'; loadInfo(); }
+    else{ out.textContent='✗ '+(d.error||'action failed'); }
+  }).catch(function(){ out.textContent='✗ Request failed.'; });
+}
+function copyV1Full(){
+  // Copy the shown-once key without wiping it from the page.
+  var el=document.getElementById('v1full'), btn=document.getElementById('v1copy');
+  if(!el||!btn){return;}
+  function done(ok){
+    btn.textContent=ok?'Copied':'Copy failed — select the key and copy it manually.';
+    setTimeout(function(){btn.innerHTML=COPY_SVG+'Copy';},2000);
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(el.value).then(function(){done(true);},function(){done(false);});}
+  else{el.select();try{document.execCommand('copy');done(true);}catch(e){done(false);}}
+}
 function toggleCreate(){
   var row=document.getElementById('create-row');
   var show=row.style.display==='none';
@@ -626,6 +697,23 @@ function toggleCreate(){
 function createKey(){
   var name=document.getElementById('new-name').value.trim();
   var out=document.getElementById('gen-result');
+  if(IS_FRIEND){
+    // Friend's own key, through /api/mykeys — shown once, at
+    // creation, then never again (same flow as My Keys had).
+    out.textContent='Creating…';
+    fetch('/api/mykeys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'v1generate',name:name})})
+    .then(function(r){return r.json()}).then(function(d){
+      if(d.ok){
+        out.innerHTML='<p style="color:#7dff9a;margin:0 0 0.5rem">Copy this now — it is shown only once.</p><div class="keyrow"><div class="joined"><input id="v1full" type="text" readonly value="'+esc(d.key)+'"><button type="button" class="copyseg" id="v1copy" onclick="copyV1Full()">'+COPY_SVG+'Copy</button></div></div>';
+        document.getElementById('new-name').value='';
+        toggleCreate();
+        loadInfo();
+      }else{
+        out.textContent='✗ '+(d.error||'creation failed');
+      }
+    }).catch(function(){out.textContent='✗ Create request failed.';});
+    return;
+  }
   if(!_mpw && !askMaster()){ out.textContent='✗ Cancelled.'; return; }
   out.textContent='Creating…';
   fetch('/api/v1-access/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,master_pw:_mpw})})

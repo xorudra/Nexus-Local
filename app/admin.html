@@ -257,6 +257,16 @@ async function mut(action,body){
   if(MOD())return apiS(action,body||{});
   return withMaster(mpw=>apiS(action,Object.assign({},body||{},{master_pw:mpw})));
 }
+/* /v1 key mutations (owner order 2026-11-07, per-user API keys):
+   admin-only endpoints under /api/v1-access, master password proof
+   each time — same shape as the API Access page's own calls. */
+async function v1KeyMut(path,body){
+  return withMaster(async mpw=>{
+    const res=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({master_pw:mpw},body||{}))});
+    const j=await res.json().catch(()=>null);
+    return {status:res.status,j};
+  });
+}
 async function setSettings(patch,okMsg){
   const r=await withMaster(mpw=>apiS('settings_set',{master_pw:mpw,patch}));
   if(r&&r.j&&r.j.ok){S=r.j.settings;if(okMsg)toast(okMsg);renderAll();return true}
@@ -512,6 +522,23 @@ function ago(ts){
   return Math.round(s/86400)+'d ago';
 }
 function utOf(label){return UT?UT.users.find(u=>u.label===label):null}
+/* Active API Keys on a user card (owner order 2026-11-07): the keys
+   this friend generated, with today's usage against their limits.
+   Revoke / Set limit are owner-only (ADMIN); moderators see the list. */
+function v1KeysHtml(a){
+  const list=a.v1keys||[];
+  const head=`<div style="margin-top:0.625rem;border-top:1px solid var(--line);padding-top:0.5rem"><div class="sub" style="margin-bottom:0.25rem">Active API Keys</div>`;
+  if(!list.length)return head+`<div class="sub">No API keys yet.</div></div>`;
+  const rows=list.map(k=>{
+    const st=k.disabled?'<span class="chip on">disabled</span>':'<span class="chip">active</span>';
+    const req=(k.req_limit?fmt(k.req_used)+'/'+fmt(k.req_limit):fmt(k.req_used)+'/∞');
+    const tok=(k.tok_limit?fmt(k.tok_used)+'/'+fmt(k.tok_limit):fmt(k.tok_used)+'/∞');
+    const last=k.last_used?ago(k.last_used):'never';
+    const btns=(ADMIN()&&!k.disabled)?`<span style="display:flex;gap:0.375rem"><button class="ib" data-u="kl" data-l="${esc(a.label)}" data-k="${esc(k.id)}" data-rl="${k.req_limit||0}" data-tl="${k.tok_limit||0}">Set limit</button><button class="ib" data-u="kr" data-l="${esc(a.label)}" data-k="${esc(k.id)}">Revoke</button></span>`:'';
+    return `<div style="display:flex;justify-content:space-between;gap:0.5rem;padding:0.375rem 0;align-items:flex-start"><div style="min-width:0"><b>${esc(k.name)}</b> <code>••••${esc(k.last4)}</code> ${st}<div class="sub">${req} req · ${tok} tok today · last used ${last}</div></div>${btns}</div>`;
+  }).join('');
+  return head+rows+`</div>`;
+}
 function renderFriends(){
   const online=new Set(L.sessions.map(s=>s.label));
   const roleName=r=>r==='moderator'?'Moderator':r==='viewer'?'Viewer':'Friend';
@@ -527,7 +554,7 @@ function renderFriends(){
     const dnames='SMTWTFS';const today=new Date().getDay();
     const bars=days.map((v,j)=>{const h=Math.max(8,v/Math.max(...days,1)*38);return `<rect x="${j*22}" y="${38-h}" width="16" height="${h}" rx="3" fill="currentColor" opacity="${j===6?1:.4}"/><text x="${j*22+8}" y="50" font-size="9" text-anchor="middle" fill="currentColor" opacity=".6">${dnames[(today+1+j)%7]}</text>`}).join('');
     const hide=(UF&&!(a.label+' '+roleName(a.role)).toLowerCase().includes(UF))?'display:none':'';
-    return `<div class="uc${a.suspended?' sx':''}" data-card="${esc(a.label)}" style="${hide}"><div class="uf front"><div class="row" style="align-items:center"><div class="av">${esc(a.label[0].toUpperCase())}</div><div><b>${esc(a.label)}</b>${a.suspended?' <span class="chip on" style="padding:0.125rem 0.5rem;font-size:0.6875rem">Suspended</span>':''}<div class="sub">${roleName(a.role)} · ${a.keys||0} keys · ${online.has(a.label)?'online now':'offline'}</div></div></div><div class="rw" style="margin-top:0.625rem"><span class="sub">${fmt(req)}/${cap?fmt(cap):'∞'}</span><div class="bar"><i style="width:${pctv}%"></i></div></div><div class="row" style="margin-top:0.5rem;flex-wrap:wrap"><button class="ib" data-u="fl" data-l="${esc(a.label)}">Usage ⟳</button><span data-mut style="display:contents"><button class="ib" data-u="sus" data-l="${esc(a.label)}">${a.suspended?'Restore':'Suspend'}</button><button class="ib" data-u="ed" data-l="${esc(a.label)}">Edit</button><button class="ib" data-u="rst" data-l="${esc(a.label)}">Reset pw</button>${ADMIN()?`<button class="ib" data-u="del" data-l="${esc(a.label)}">Remove</button>`:''}</span></div></div><div class="uf bk"><div class="row" style="justify-content:space-between;align-items:center"><b>${esc(a.label)} · usage</b><button class="ib" data-u="fl" data-l="${esc(a.label)}">Back ⟲</button></div><div class="sub mono" style="margin:0.375rem 0 0.125rem">${fmt(req)}/${cap?fmt(cap):'∞'} today</div><div class="sub">${u?fmt(u.tokens):0} tokens today · top: ${esc(top)}</div>${u&&u.last_prompt?`<div class="sub" style="margin-top:0.25rem">Last prompt: “${esc(u.last_prompt)}”</div>`:''}<svg viewBox="0 0 154 52" style="width:100%;height:56px;margin:0.375rem 0;color:var(--tx)" role="img" aria-label="Requests, last 7 days">${bars}</svg><span data-mut style="display:contents"><button class="ib" data-u="ru" data-l="${esc(a.label)}">Reset usage</button></span></div></div>`;
+    return `<div class="uc${a.suspended?' sx':''}" data-card="${esc(a.label)}" style="${hide}"><div class="uf front"><div class="row" style="align-items:center"><div class="av">${esc(a.label[0].toUpperCase())}</div><div><b>${esc(a.label)}</b>${a.suspended?' <span class="chip on" style="padding:0.125rem 0.5rem;font-size:0.6875rem">Suspended</span>':''}<div class="sub">${roleName(a.role)} · ${a.keys||0} keys · ${online.has(a.label)?'online now':'offline'}</div></div></div><div class="rw" style="margin-top:0.625rem"><span class="sub">${fmt(req)}/${cap?fmt(cap):'∞'}</span><div class="bar"><i style="width:${pctv}%"></i></div></div><div class="row" style="margin-top:0.5rem;flex-wrap:wrap"><button class="ib" data-u="fl" data-l="${esc(a.label)}">Usage ⟳</button><span data-mut style="display:contents"><button class="ib" data-u="sus" data-l="${esc(a.label)}">${a.suspended?'Restore':'Suspend'}</button><button class="ib" data-u="ed" data-l="${esc(a.label)}">Edit</button><button class="ib" data-u="rst" data-l="${esc(a.label)}">Reset pw</button>${ADMIN()?`<button class="ib" data-u="del" data-l="${esc(a.label)}">Remove</button>`:''}</span></div>${v1KeysHtml(a)}</div><div class="uf bk"><div class="row" style="justify-content:space-between;align-items:center"><b>${esc(a.label)} · usage</b><button class="ib" data-u="fl" data-l="${esc(a.label)}">Back ⟲</button></div><div class="sub mono" style="margin:0.375rem 0 0.125rem">${fmt(req)}/${cap?fmt(cap):'∞'} today</div><div class="sub">${u?fmt(u.tokens):0} tokens today · top: ${esc(top)}</div>${u&&u.last_prompt?`<div class="sub" style="margin-top:0.25rem">Last prompt: “${esc(u.last_prompt)}”</div>`:''}<svg viewBox="0 0 154 52" style="width:100%;height:56px;margin:0.375rem 0;color:var(--tx)" role="img" aria-label="Requests, last 7 days">${bars}</svg><span data-mut style="display:contents"><button class="ib" data-u="ru" data-l="${esc(a.label)}">Reset usage</button></span></div></div>`;
   }).join('')||'<div class="empty">No users match.</div>';
   renderUsagePanel();renderSessions();renderVaultPanel();
   $("#ku").innerHTML=L.access.map(a=>`<option value="${esc(a.label)}">${esc(a.label)}</option>`).join('')||'<option value="">No friends yet</option>';
@@ -628,6 +655,21 @@ document.addEventListener('click',async e=>{
     const r=await apiS('revoke',{label,master_pw:v[0]});
     if(r.j&&r.j.ok){toast('Access revoked: '+label);loadAllSoft()}
     else toast((r.j&&r.j.error)||'Failed');
+  }
+  if(act==='kr'){
+    const v=await dlg('Revoke this API key? It stops working immediately.',[]);
+    if(!v)return;
+    const r=await v1KeyMut('/api/v1-access/disable',{id:b.dataset.k});
+    if(r&&r.j&&r.j.ok){toast('API key revoked');loadAllSoft()}
+    else if(r&&r.j)toast(r.j.error||'Failed');
+  }
+  if(act==='kl'){
+    const v=await dlg('Set daily limits for this API key',[['Requests per day (0 = unlimited)','rl',b.dataset.rl||'0','number'],['Tokens per day (0 = unlimited)','tl',b.dataset.tl||'0','number']]);
+    if(!v)return;
+    const rl=parseInt(v[0],10),tl=parseInt(v[1],10);
+    const r=await v1KeyMut('/api/v1-access/set-limit',{id:b.dataset.k,req_limit:isNaN(rl)?0:rl,tok_limit:isNaN(tl)?0:tl});
+    if(r&&r.j&&r.j.ok){toast('Limits saved');loadAllSoft()}
+    else if(r&&r.j)toast(r.j.error||'Failed');
   }
 });
 $("#us").addEventListener('input',e=>{UF=e.target.value.trim().toLowerCase();renderFriends()});

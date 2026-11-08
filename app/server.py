@@ -2210,6 +2210,13 @@ USERKEYS_DIR.mkdir(exist_ok=True)
 import re as _re
 _LABEL_RE = _re.compile(r"^[a-zA-Z0-9_]{1,30}$")
 
+
+def _label_reserved(label):
+    """Labels no friend account may take: the owner's, the service-key
+    owner marker ("admin" — admin-owned /v1 keys are matched by that
+    string), and the vault-internal namespace."""
+    return label in ("rudra", "admin") or (label or "").startswith("_")
+
 def _userkey_path(label):
     # Vault filename is the lowercased label with anything unsafe stripped,
     # so a label can never traverse out of USERKEYS_DIR.
@@ -4676,10 +4683,31 @@ def _load_v1key():
         _load_v1key_locked(d)
 
 
+def _v1_backfill(entry):
+    """Per-user API keys (owner order 2026-11-07): entries gain an
+    owner, daily request/token limits and today's counters. Legacy
+    entries backfill to the admin-owned, unlimited shape. Returns
+    True when anything was added (the file is then rewritten)."""
+    changed = False
+    today = datetime.date.today().isoformat()
+    for field, default in (("owner", "admin"), ("req_limit", 0),
+                           ("tok_limit", 0), ("req_used", 0),
+                           ("tok_used", 0)):
+        if field not in entry:
+            entry[field] = default
+            changed = True
+    if "used_day" not in entry:
+        entry["used_day"] = today
+        changed = True
+    return changed
+
+
 def _load_v1key_locked(d):
     if isinstance(d, dict) and isinstance(d.get("keys"), list):
         _V1KEYS["keys"] = [k for k in d["keys"]
                            if isinstance(k, dict) and k.get("key")]
+        if any(_v1_backfill(k) for k in _V1KEYS["keys"]):
+            _save_v1keys()
     elif isinstance(d, dict) and d.get("key"):
         created = d.get("created")
         if not created:
@@ -4691,21 +4719,27 @@ def _load_v1key_locked(d):
                             "name": "Nexus service key",
                             "key": d["key"], "created": created,
                             "last_used": None, "disabled": False}]
+        _v1_backfill(_V1KEYS["keys"][0])
         _save_v1keys()
 
 
-def _create_v1key(name):
+def _create_v1key(name, owner="admin", req_limit=0, tok_limit=0):
     """Mint a new named service key alongside the existing ones,
     persist the list, and make it effective immediately. Returns the
     entry, or None when this host has no restore key to store it
-    under."""
+    under. Per-user API keys (owner order 2026-11-07): an entry
+    carries its owner and daily request/token limits (0 = unlimited);
+    admin-created keys default to owner "admin", unlimited."""
     if not RESTORE_KEY:
         return None
+    today = datetime.date.today().isoformat()
     entry = {"id": secrets.token_hex(4),
              "name": (name or "").strip()[:60] or "Service key",
              "key": "nxk-" + secrets.token_hex(24),
              "created": int(time.time()), "last_used": None,
-             "disabled": False}
+             "disabled": False, "owner": owner,
+             "req_limit": req_limit, "tok_limit": tok_limit,
+             "req_used": 0, "tok_used": 0, "used_day": today}
     with _V1KEYS_LOCK:
         _V1KEYS["keys"].append(entry)
         if not _save_v1keys():
@@ -4715,6 +4749,122 @@ def _create_v1key(name):
             _V1KEYS["keys"].remove(entry)
             return None
     return entry
+
+
+# Per-user API keys (owner order 2026-11-07): friends mint their own
+# /v1 keys on My Keys; each key is capped per day and the owner can
+# revoke it or change its limits from the user card.
+_V1_MAX_KEYS_PER_USER = 3
+_V1_FRIEND_REQ_LIMIT = 200
+_V1_FRIEND_TOK_LIMIT = 100000
+
+
+def _v1_roll_day(entry):
+    """Reset a key's per-day counters when the day has turned. The
+    in-memory value is authoritative; the file catches up on the
+    next throttled save (a restart resets today's counters)."""
+    today = datetime.date.today().isoformat()
+    if entry.get("used_day") != today:
+        entry["used_day"] = today
+        entry["req_used"] = 0
+        entry["tok_used"] = 0
+
+
+def _v1_public_key(entry):
+    """A service key as any non-admin surface may see it: no secret,
+    counters rolled to today."""
+    _v1_roll_day(entry)
+    return {"id": entry["id"], "name": entry.get("name", ""),
+            "owner": entry.get("owner", "admin"),
+            "last4": (entry.get("key") or "")[-4:],
+            "created": entry.get("created"),
+            "last_used": entry.get("last_used"),
+            "disabled": bool(entry.get("disabled")),
+            "req_limit": entry.get("req_limit", 0),
+            "tok_limit": entry.get("tok_limit", 0),
+            "req_used": entry.get("req_used", 0),
+            "tok_used": entry.get("tok_used", 0)}
+
+
+def _v1_key_limit_error(entry):
+    """Per-key daily limits: an error string when this key has spent
+    its day, else None. Rolls the day's counters first. 0 = unlimited;
+    the env fallback has no entry and no limits."""
+    if not isinstance(entry, dict):
+        return None
+    _v1_roll_day(entry)
+    if entry.get("req_limit", 0) and entry.get("req_used", 0) >= entry["req_limit"]:
+        return "request limit reached for this key"
+    if entry.get("tok_limit", 0) and entry.get("tok_used", 0) >= entry["tok_limit"]:
+        return "token limit reached for this key"
+    return None
+
+
+def _v1_count_use(entry, out):
+    """Count one completed /v1 call against a key's daily limits."""
+    _v1_roll_day(entry)
+    entry["req_used"] = entry.get("req_used", 0) + 1
+    usage = (out or {}).get("usage") or {}
+    try:
+        tok = int(usage.get("prompt_tokens") or 0) \
+            + int(usage.get("completion_tokens") or 0)
+    except (TypeError, ValueError):
+        tok = 0
+    entry["tok_used"] = entry.get("tok_used", 0) + tok
+    now = time.time()
+    if now - _V1KEYS_TOUCH["at"] > 60:
+        _V1KEYS_TOUCH["at"] = now
+        _save_v1keys()
+
+
+def _v1keys_for(owner):
+    """A user's own keys, public shape only — never the secret."""
+    return [_v1_public_key(k) for k in _V1KEYS["keys"]
+            if k.get("owner") == owner]
+
+
+def _v1keys_generate(owner, name):
+    """Mint a friend-owned key (max 3 active per user). Returns
+    (status, payload); the full secret is in the payload only here —
+    it is shown once, at creation."""
+    active = [k for k in _V1KEYS["keys"]
+              if k.get("owner") == owner and not k.get("disabled")]
+    if len(active) >= _V1_MAX_KEYS_PER_USER:
+        return 400, {"error": "at most 3 active API keys per user — "
+                              "disable or delete one first"}
+    entry = _create_v1key(name, owner=owner,
+                          req_limit=_V1_FRIEND_REQ_LIMIT,
+                          tok_limit=_V1_FRIEND_TOK_LIMIT)
+    if entry is None:
+        return 500, {"error": "key storage is unavailable "
+                              "(no server restore key)"}
+    return 200, {"ok": True, "key": entry["key"], "id": entry["id"],
+                 "name": entry["name"],
+                 "req_limit": entry["req_limit"],
+                 "tok_limit": entry["tok_limit"]}
+
+
+def _v1keys_mutate(owner, key_id, action):
+    """Disable or delete one of a friend's own keys. 404 when the id
+    is unknown or belongs to someone else (no existence leak)."""
+    with _V1KEYS_LOCK:
+        entry = None
+        for k in _V1KEYS["keys"]:
+            if k["id"] == key_id and k.get("owner") == owner:
+                entry = k
+                break
+        if entry is None:
+            return 404, {"error": "no such key"}
+        _snap = [dict(k) for k in _V1KEYS["keys"]]
+        if action == "delete":
+            _V1KEYS["keys"].remove(entry)
+        else:
+            entry["disabled"] = True
+        if not _save_v1keys():
+            _V1KEYS["keys"] = _snap
+            return 500, {"error": "key change could not be saved — "
+                                  "it will not survive a restart"}
+    return 200, {"ok": True}
 
 
 def _v1_key_source():
@@ -5388,6 +5538,13 @@ class Handler(BaseHTTPRequestHandler):
             if _auth10.startswith("Bearer ") else None
         _v1_label = "v1:" + (_match10.get("id")
                              if isinstance(_match10, dict) else "env")
+        # Per-key daily limits (owner order 2026-11-07): a key that
+        # spent its day is refused before it reserves a slot.
+        _limit_err = _v1_key_limit_error(_match10)
+        if _limit_err:
+            self._set_json_headers(429)
+            self.wfile.write(json.dumps({"error": {"message": _limit_err, "type": "rate_limit_error"}}).encode())
+            return
         self._cap_res = _inflight_add(_v1_label)
         if _inflight_n(user=_v1_label) > 4:
             self._set_json_headers(429)
@@ -5427,18 +5584,45 @@ class Handler(BaseHTTPRequestHandler):
             return
         code, out, _lane = _v1_chat(messages, data.get("model") or "nexus-auto",
                                     data.get("temperature"))
+        if code == 200 and isinstance(_match10, dict):
+            _v1_count_use(_match10, out)
         self._set_json_headers(code)
         self.wfile.write(json.dumps(out).encode())
 
     def _v1_access_info(self):
-        """Admin-only status for the API Access page. The admin sees the
-        full service key here (owner order 2026-10-09: "allow admin to
-        generate api key and see api key") — this endpoint is admin-gated,
-        and the key is never written to logs, chat or any other surface."""
+        """Status for the API Access page, role-aware (owner order
+        2026-11-08: friends get the same page as the admin). The admin
+        gets exactly the old response (every key with its full secret,
+        lanes, endpoint status). A friend gets only their own keys in
+        the public shape — never key_full, never another user's keys,
+        no lanes or provider internals. Viewers and moderators get
+        403; the moderator scope question is still undecided."""
         info = self._session_info()
-        if not info or not info.get("admin"):
+        if not info:
             self._set_json_headers(403)
             self._send_body(json.dumps({"error": "admin only"}).encode())
+            return
+        kind = self._console_kind()[0]
+        if kind in ("viewer", "moderator"):
+            self._set_json_headers(403)
+            self._send_body(json.dumps({"error": "admin only"}).encode())
+            return
+        if kind is None:
+            # Plain friend: their own keys only (the public shape
+            # carries no secret; the admin-owned keys are invisible).
+            label = info.get("label", "")
+            if not _LABEL_RE.match(label):
+                self._set_json_headers(400)
+                self._send_body(json.dumps({"error": "invalid label"}).encode())
+                return
+            proto = self.headers.get("X-Forwarded-Proto", "http")
+            host = self.headers.get("Host", "nexus-local.onrender.com")
+            self._set_json_headers()
+            self._send_body(json.dumps({
+                "role": "friend",
+                "keys": _v1keys_for(label),
+                "base_url": f"{proto}://{host}/v1",
+                "can_generate": bool(RESTORE_KEY)}).encode())
             return
         if not self._ip_gate():
             # Audit run-6 critic: the session-mint guard set honors
@@ -5471,7 +5655,8 @@ class Handler(BaseHTTPRequestHandler):
                          "key_full": env, "key_last4": env[-4:],
                          "created": None, "last_used": None,
                          "disabled": False, "source": "env"})
-        body = {"enabled": bool(key),
+        body = {"role": "admin",
+                "enabled": bool(key),
                 "keys": keys,
                 "key_last4": key[-4:] if key else "",
                 "key_full": key,
@@ -5589,6 +5774,70 @@ class Handler(BaseHTTPRequestHandler):
         _audit("Vault", f"/v1 service key {verb}: {entry['name']}")
         self._set_json_headers()
         self._send_body(json.dumps({"ok": True}).encode())
+
+    def _v1_access_set_limit(self):
+        """Admin-only: set one stored key's daily request/token limits
+        (owner order 2026-11-07, per-user API keys). 0 = unlimited.
+        Same gate as the other key mutations: admin session, IP
+        allowlist, master-password proof."""
+        info = self._session_info()
+        if not info or not info.get("admin"):
+            self._set_json_headers(403)
+            self._send_body(json.dumps({"error": "admin only"}).encode())
+            return
+        if not self._ip_gate():
+            return
+        data = {}
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length:
+                data = json.loads(self.rfile.read(length) or b"{}")
+        except Exception:
+            data = {}
+        if _master_proof((data or {}).get("master_pw")) is None:
+            self._set_json_headers(401)
+            self._send_body(json.dumps({"error": "master password required"}).encode())
+            return
+        req_limit = data.get("req_limit")
+        tok_limit = data.get("tok_limit")
+        if req_limit is None and tok_limit is None:
+            self._set_json_headers(400)
+            self._send_body(json.dumps({"error": "req_limit or tok_limit required"}).encode())
+            return
+        for value, lo, hi, field in ((req_limit, 0, 100000, "req_limit"),
+                                     (tok_limit, 0, 10000000, "tok_limit")):
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) \
+                    or not lo <= value <= hi:
+                self._set_json_headers(400)
+                self._send_body(json.dumps({"error": f"{field} must be an integer {lo}-{hi}"}).encode())
+                return
+        with _V1KEYS_LOCK:
+            entry = None
+            for k in _V1KEYS["keys"]:
+                if k["id"] == data.get("id", ""):
+                    entry = k
+                    break
+            if entry is None:
+                self._set_json_headers(404)
+                self._send_body(json.dumps({"error": "no such key"}).encode())
+                return
+            _snap = [dict(k) for k in _V1KEYS["keys"]]
+            if req_limit is not None:
+                entry["req_limit"] = req_limit
+            if tok_limit is not None:
+                entry["tok_limit"] = tok_limit
+            if not _save_v1keys():
+                _V1KEYS["keys"] = _snap
+                self._set_json_headers(500)
+                self._send_body(json.dumps({"error": "limit change could not be saved — it will not survive a restart"}).encode())
+                return
+        _audit("Vault", f"/v1 service key limits set: {entry['name']} "
+                        f"({entry.get('req_limit', 0)} req/day, "
+                        f"{entry.get('tok_limit', 0)} tok/day)")
+        self._set_json_headers()
+        self._send_body(json.dumps({"ok": True, "key": _v1_public_key(entry)}).encode())
 
     def _v1_access_test(self):
         """Admin-only live self-test: one tiny nexus-auto completion
@@ -7119,15 +7368,27 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(500, "internal error")
             return
         if parsed.path == "/api-access":
-            # Admin-only: the external /v1 API's status page. The service
-            # key itself is never rendered — status + last 4 only.
+            # The external /v1 API's status page, the SAME page for
+            # admin and friends (owner order 2026-11-08: "same to
+            # same, no different new page"). Admins see every key;
+            # friends see only their own — the info endpoint
+            # enforces it. Viewers never reach key pages, and
+            # moderators keep the old 403 until the owner decides
+            # their /api-access scope.
             info = self._session_info()
             if not info:
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.end_headers()
                 return
-            if not info.get("admin"):
+            _kind = self._console_kind()[0]
+            if _kind == "viewer":
+                self.send_response(403)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>Not available with read-only access</h1>")
+                return
+            if _kind == "moderator":
                 self.send_response(403)
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
@@ -7341,6 +7602,9 @@ class Handler(BaseHTTPRequestHandler):
                            "/api/v1-access/delete",
                            "/api/v1-access/rotate"):
             self._v1_access_keystate(parsed.path.rsplit("/", 1)[1])
+            return
+        if parsed.path == "/api/v1-access/set-limit":
+            self._v1_access_set_limit()
             return
         if parsed.path == "/setup":
             key_path = Path(__file__).parent / "keys.enc"
@@ -9754,8 +10018,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers(400)
                 self.wfile.write(json.dumps({"error": "username must be a-z, 0-9, _ (max 30 chars)"}).encode())
                 return
-            if label == "rudra" or label.startswith("_"):
-                # "rudra" is the owner's label; a leading underscore is
+            if _label_reserved(label):
+                # "rudra" is the owner's label, "admin" is the
+                # service-key owner marker, and a leading underscore is
                 # the vault-internal namespace ("_owner" is the owner's
                 # integrations-vault identity) — never registrable.
                 self._set_json_headers(400)
@@ -10452,6 +10717,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "suspended": _friend_blocked(l) == "suspended",
                                 "role": _friend_role(l),
                                 "keys": len(_vm.get(l) or []),
+                                "v1keys": _v1keys_for(l) if _kind in ("admin", "moderator") else [],
                                 "cap": (_SETTINGS.get("user_caps") or {}).get(l)} for l in sorted(access.keys())],
                     "sessions": sessions,
                     "maintenance": bool(_SETTINGS.get("maintenance")),
@@ -11538,8 +11804,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "master password required to persist"}).encode())
                     return
                 access = _load_access()
-                if label in access or label.lower() == "rudra" \
-                        or label.startswith("_"):
+                if label in access or _label_reserved(label):
                     self._set_json_headers(400)
                     self.wfile.write(json.dumps({"error": "label already exists or is reserved"}).encode())
                     return
@@ -12936,6 +13201,27 @@ class Handler(BaseHTTPRequestHandler):
                 self._set_json_headers()
                 self.wfile.write(json.dumps({"ok": True,
                     "configured": sorted([k for k in vault.keys() if not k.startswith("_")])}).encode())
+                return
+            # Per-user API keys (owner order 2026-11-07): friends mint
+            # their own /v1 keys here. Viewers never reach this route
+            # (the dispatcher refuses their POSTs); admins use
+            # /api-access. The full secret is returned only at
+            # creation — every other response carries the public shape.
+            if action == "v1keys":
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"keys": _v1keys_for(label)}).encode())
+                return
+            if action == "v1generate":
+                status, payload = _v1keys_generate(label, data.get("name") or "")
+                self._set_json_headers(status)
+                self.wfile.write(json.dumps(payload).encode())
+                return
+            if action in ("v1disable", "v1delete"):
+                status, payload = _v1keys_mutate(
+                    label, data.get("id", ""),
+                    "delete" if action == "v1delete" else "disable")
+                self._set_json_headers(status)
+                self.wfile.write(json.dumps(payload).encode())
                 return
             self._set_json_headers(400)
             self.wfile.write(json.dumps({"error": "unknown action"}).encode())

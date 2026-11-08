@@ -580,7 +580,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
     if((p==='/'&&a.dataset.page==='dashboard')||p==='/'+a.dataset.page){a.classList.add('active');a.setAttribute('aria-current','page');}
   });
   // Role-gated items (same behaviour as before): admins see Update
-  // Keys / Admin / API Access; friends see My Keys instead.
+  // Keys / Admin / API Access; friends see My Keys + API Access instead.
   fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list'})})
   .then(function(r){
     if(r.ok){
@@ -589,10 +589,12 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
       });
     } else {
       var m=document.getElementById('nav-mykeys'); if(m) m.style.display='';
+      var a=document.getElementById('nav-api'); if(a) a.style.display='';
     }
   })
   .catch(function(){
     var m=document.getElementById('nav-mykeys'); if(m) m.style.display='';
+    var a=document.getElementById('nav-api'); if(a) a.style.display='';
   });
 })();
 </script>
