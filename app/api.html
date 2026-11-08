@@ -60,6 +60,11 @@ body{margin:0;font-family:'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .keys-table td{padding:0.5rem;color:#d9d9de;font-family:inherit;font-size:0.875rem;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
 .keys-table td:first-child{padding-left:1rem}
 .keys-table tbody tr:last-child td{border-bottom:none}
+.models{word-break:break-word}
+.mdl{padding:0.0625rem 0}
+.mdl.def{color:#fafafa;font-weight:600}
+details.more{margin-top:0.25rem}
+details.more summary{cursor:pointer;color:#a1a1a1}
 .keys-table tbody tr:hover{background:rgba(38,38,38,.5)}
 .keys-table .keycell{min-width:384px}
 .keys-table .u{color:#a1a1a1}
@@ -106,7 +111,7 @@ pre{background: #000000;border:1px solid rgba(255,255,255,.1);border-radius:8px;
 #gen-result:empty{display:none}
 #test-result{margin-top:0.875rem;font-size:0.84375rem;line-height:1.55;color:#d9d9de;white-space:pre-wrap}
 .note{font-size:0.78125rem;color:#8e8e8e;line-height:1.55}
-@media(max-width:68.6875em){.head-card{padding-left:4.125rem}}
+@media(max-width:68.6875em){.wrap>.card:first-child .card-head{padding-left:4.125rem}}
 @media(max-width:40em){.card-head{padding:1rem 1.125rem 0.75rem}.card-body{padding:0.875rem 1.125rem 1.125rem}.card-foot{padding:0.125rem 1.125rem 1rem}.head-card{padding-top:0.875rem;padding-bottom:0.875rem;padding-right:1.125rem}.wrap{padding:1.125rem 0.875rem 3rem}.head-actions{width:100%}.searchwrap{flex:1;min-width:0}.searchwrap #key-search{width:100%}}
 </style>
 </head>
@@ -422,12 +427,6 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 
 
 <div class="wrap" role="main">
-  <div class="head-card">
-    <h1>API Access</h1>
-    <div class="crumb"><a href="/">Home</a> / <b>API Access</b></div>
-  </div>
-  <div class="dots"></div>
-
   <div class="card">
     <div class="card-head">
       <div class="tt">
@@ -489,7 +488,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
       </div>
     </div>
     <div class="keys-body">
-      <div class="tblwrap"><table><thead><tr><th>Lane</th><th>Default model</th><th>Ready</th></tr></thead>
+      <div class="tblwrap"><table><thead><tr><th>Lane</th><th>Models</th><th>Ready</th></tr></thead>
       <tbody id="lanes"><tr><td colspan="3">loading…</td></tr></tbody></table></div>
     </div>
   </div>
@@ -598,7 +597,13 @@ function loadInfo(){
     document.getElementById('consumer').textContent=d.consumer;
     document.getElementById('vault').textContent=d.vault_unlocked?'unlocked':'locked (keyless lanes only)';
     document.getElementById('lanes').innerHTML=d.lanes.map(function(l){
-      return '<tr><td>'+esc(l.lane)+'</td><td>'+esc(l.model)+'</td><td class="'+(l.ready?'ready':'notready')+'">'+(l.ready?'ready':'needs unlock')+'</td></tr>';
+      var ms=(l.models&&l.models.length?l.models:[l.model]);
+      var cell='<div class="mdl def">'+esc(ms[0])+' <span class="u">(default)</span></div>';
+      if(ms.length>1){
+        cell+='<details class="more"><summary>+'+(ms.length-1)+' more</summary><div class="models">'
+          +ms.slice(1).map(function(m){return '<div class="mdl">'+esc(m)+'</div>';}).join('')+'</div></details>';
+      }
+      return '<tr><td>'+esc(l.lane)+'</td><td class="models">'+cell+'</td><td class="'+(l.ready?'ready':'notready')+'">'+(l.ready?'ready':'needs unlock')+'</td></tr>';
     }).join('');
   }).catch(function(){
     document.getElementById('keys-rows').innerHTML='<tr><td colspan="6" class="u">Could not load the keys.</td></tr>';

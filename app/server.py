@@ -4953,6 +4953,43 @@ def _v1_route(model):
     return list(_V1_LANES)
 
 
+def _v1_refresh_models_cache():
+    """Refresh the shared /v1/models cache (300s TTL): ask each lane's
+    relay for its live model list. Same fetch GET /v1/models already
+    did; the admin page reuses it so the Supply lanes table shows
+    every model, not just each lane's default."""
+    now = time.time()
+    if now - _V1_MODELS_CACHE["at"] <= 300:
+        return
+    live = []
+    for lane, _d in _V1_LANES:
+        try:
+            data = _v1_relay_call(lane, "/models", timeout=5)
+            for m in data.get("data", []):
+                if isinstance(m, dict) and m.get("id"):
+                    live.append(f"{lane}/{m['id']}")
+        except Exception:
+            continue
+    _V1_MODELS_CACHE.update(at=now, ids=live)
+
+
+def _v1_models_by_lane():
+    """Live model roster grouped by lane: each lane's default model
+    first, then the relay's live list for that lane (deduped). Same
+    source as GET /v1/models."""
+    _v1_refresh_models_cache()
+    by_lane = {}
+    for lane, default in _V1_LANES:
+        models = [default]
+        for entry in _V1_MODELS_CACHE["ids"]:
+            if entry.startswith(lane + "/"):
+                mdl = entry[len(lane) + 1:]
+                if mdl and mdl not in models:
+                    models.append(mdl)
+        by_lane[lane] = models
+    return by_lane
+
+
 def _v1_chat(messages, model, temperature=None):
     """Run a chat completion across the relay lanes until one answers.
     Returns (status_code, openai_shaped_dict, lane_used). The caller's
@@ -5492,19 +5529,8 @@ class Handler(BaseHTTPRequestHandler):
     def _v1_models(self):
         if not self._v1_gate():
             return
+        _v1_refresh_models_cache()
         ids = ["nexus-auto"] + [f"{lane}/{mdl}" for lane, mdl in _V1_LANES]
-        now = time.time()
-        if now - _V1_MODELS_CACHE["at"] > 300:
-            live = []
-            for lane, _d in _V1_LANES:
-                try:
-                    data = _v1_relay_call(lane, "/models", timeout=5)
-                    for m in data.get("data", []):
-                        if isinstance(m, dict) and m.get("id"):
-                            live.append(f"{lane}/{m['id']}")
-                except Exception:
-                    continue
-            _V1_MODELS_CACHE.update(at=now, ids=live)
         for extra in _V1_MODELS_CACHE["ids"]:
             if extra not in ids:
                 ids.append(extra)
@@ -5632,7 +5658,9 @@ class Handler(BaseHTTPRequestHandler):
         proto = self.headers.get("X-Forwarded-Proto", "http")
         host = self.headers.get("Host", "nexus-local.onrender.com")
         unlocked = getattr(Handler, "keys", None) is not None
+        _lane_models = _v1_models_by_lane()
         lanes = [{"lane": lane, "model": mdl,
+                  "models": _lane_models.get(lane, [mdl]),
                   "ready": (lane in RELAY_KEYLESS) or unlocked}
                  for lane, mdl in _V1_LANES]
         # The keys table (owner's supplied design, 2026-10-15;

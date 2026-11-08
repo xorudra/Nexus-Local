@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -470,6 +471,54 @@ class ApiAccessPageTests(_V1KeyMixin, unittest.TestCase):
         st, d = self._get("/api/v1-access", session={"label": "friendone"})
         self.assertEqual(st, 200, d)
         self.assertEqual(len(d["keys"]), 3)
+
+    def test_admin_v1_access_lanes_list_every_model(self):
+        # Supply lanes (owner order 2026-11-08): each lane lists every
+        # model, default first, from the same roster as GET /v1/models.
+        orig = dict(server._V1_MODELS_CACHE)
+        server._V1_MODELS_CACHE.update({
+            "at": time.time(),
+            "ids": ["groq/openai/gpt-oss-20b",
+                    "groq/qwen/qwen3.8-27b",
+                    "openrouter/foo/bar"]})
+        self.addCleanup(lambda: server._V1_MODELS_CACHE.update(orig))
+        st, d = self._get("/api/v1-access", session={"admin": True})
+        self.assertEqual(st, 200, d)
+        lanes = {l["lane"]: l for l in d["lanes"]}
+        groq = lanes["groq"]
+        self.assertEqual(groq["model"], "openai/gpt-oss-20b")
+        self.assertEqual(groq["models"][0], "openai/gpt-oss-20b")
+        self.assertIn("qwen/qwen3.8-27b", groq["models"])
+        self.assertEqual(len(groq["models"]),
+                         len(set(groq["models"])))
+        self.assertIn("foo/bar", lanes["openrouter"]["models"])
+        self.assertEqual(lanes["relay_gemini"]["models"],
+                         ["gemini-3.5-flash-lite"])
+
+    def test_models_by_lane_groups_live_roster(self):
+        orig = dict(server._V1_MODELS_CACHE)
+        server._V1_MODELS_CACHE.update({
+            "at": time.time(),
+            "ids": ["nvidia/a", "nvidia/b", "nvidia/a"]})
+        self.addCleanup(lambda: server._V1_MODELS_CACHE.update(orig))
+        by_lane = server._v1_models_by_lane()
+        self.assertEqual(by_lane["nvidia"][0],
+                         "nvidia/nemotron-3-ultra-550b-a55b")
+        self.assertIn("a", by_lane["nvidia"])
+        self.assertIn("b", by_lane["nvidia"])
+        self.assertEqual(len(by_lane["nvidia"]),
+                         len(set(by_lane["nvidia"])))
+
+    def test_api_access_page_has_no_header_card(self):
+        # Owner order 2026-11-08: the "API Access" title + breadcrumb
+        # head-card (and its dots divider) are removed; Supply lanes
+        # stay.
+        st, body = self._get("/api-access", session={"admin": True})
+        self.assertEqual(st, 200)
+        self.assertNotIn(b'<div class="head-card">', body)
+        self.assertNotIn(b'<div class="dots">', body)
+        self.assertIn(b"Supply lanes", body)
+        self.assertIn(b"Models", body)
 
 
 if __name__ == "__main__":
