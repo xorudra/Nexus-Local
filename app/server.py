@@ -8951,15 +8951,22 @@ class Handler(BaseHTTPRequestHandler):
                                  if routing_eff == "quality" else
                                  ["groq", "relay_groq", "pollinations", "relay_pollinations"])
                 else:  # quality
-                    # Prefer reliable providers first (Google often 503s, nvidia 403s on all chat).
+                    # Quality-first (owner order 2026-11-09): when no model is
+                    # picked, Auto tries the BEST & STRONGEST free models
+                    # first — Nemotron 3 Ultra 550B, then the strong paid
+                    # lanes (only when keys are configured), then the fast
+                    # mid-tier, then the rest. Failover + the health check
+                    # below still demote any lane that is actually failing,
+                    # so an unreliable lane never blocks the list.
                     # Keyless lanes ride at the tail: without them an
                     # Auto request while the vault is locked (every
                     # restart, until the owner signs in) found NO
                     # candidates at all and died on a misleading 400.
                     pref_list = ["relay_openrouter", "openrouter",
-                                 "mistral",
-                                 "relay_gemini", "google", "cohere",
-                                 "openai", "anthropic",
+                                 "relay_nvidia", "nvidia",
+                                 "anthropic", "openai", "cohere",
+                                 "relay_gemini", "google", "mistral",
+                                 "relay_groq", "groq",
                                  "pollinations", "relay_pollinations"]
                 for cand in pref_list:
                     if (_ekeys or {}).get(cand) or cand in RELAY_KEYLESS:
