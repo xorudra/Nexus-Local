@@ -487,6 +487,10 @@ button.trace-line{cursor:pointer}
 .trace-ldesc{font-family:'JetBrains Mono',monospace;font-size:0.71875rem;color:#8e8e8e;padding-top:0.3125rem}
 .trace-chev{margin-left:auto;flex:none;color:#8e8e8e;transition:transform .2s cubic-bezier(.4,0,.2,1);margin-top:0.25rem}
 .trace-row.open .trace-chev{transform:rotate(90deg)}
+.trace-summary{cursor:pointer}
+.trace.open .trace-summary .trace-chev{transform:rotate(90deg)}
+.trace-body{display:none}
+.trace.open .trace-body{display:block}
 .trace-detail{display:none;margin:0.375rem 0 0.125rem 1.9375rem}
 .trace-row.open .trace-detail{display:block}
 .trace-code{background:#0a0a0c;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:0.5rem 0.625rem;font-family:'JetBrains Mono',monospace;font-size:0.75rem;line-height:1.55;white-space:pre-wrap;word-break:break-word;color:#d9d9de;max-height:256px;overflow-y:auto}
@@ -1621,10 +1625,34 @@ function finalStepRow(s){
 function buildTrace(steps){
   const el = document.createElement('div');
   el.className = 'trace';
-  const ordered = [...steps].sort((a, b) => (b.ok ? 1 : 0) - (a.ok ? 1 : 0));
-  el.innerHTML = ordered.map(finalStepRow).join('');
+  const ok = steps.filter(s => s && s.ok);
+  const failed = steps.filter(s => s && s.ok === false);
+  if (!ok.length) {
+    el.innerHTML = steps.map(finalStepRow).join('');
+  } else {
+    const fnEl = failoverNotice(steps);
+    const failoverHtml = fnEl ? '<div class="msg-failover">' + esc(fnEl.textContent) + '</div>' : '';
+    const summaryHtml = ok.map(s => {
+      const desc = shortModelName(s.m) + (typeof s.ms === 'number' ? (s.m ? ' · ' : '') + (s.ms / 1000).toFixed(1) + 's' : '');
+      const role = s.role ? (s.role.charAt(0).toUpperCase() + s.role.slice(1)) + ' · ' : '';
+      return '<span class="trace-ico">' + TRACE_ICO_OK + '</span>'
+        + '<span class="trace-title">' + esc(role + 'Answered by ' + shortProvider(s.p)) + '</span>'
+        + (desc ? '<span class="trace-ldesc">' + esc(desc) + '</span>' : '');
+    }).join('');
+    el.innerHTML = '<div class="trace-line trace-summary" role="button" tabindex="0" aria-expanded="false">'
+      + summaryHtml + TRACE_CHEV + '</div>'
+      + '<div class="trace-body">' + failoverHtml + failed.map(finalStepRow).join('') + '</div>';
+    const summary = el.querySelector('.trace-summary');
+    const toggle = () => {
+      const open = el.classList.toggle('open');
+      summary.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+    summary.addEventListener('click', toggle);
+    summary.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  }
   el.querySelectorAll('button.trace-line').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
       const row = btn.closest('.trace-row');
       row.classList.toggle('open');
       btn.setAttribute('aria-expanded', row.classList.contains('open') ? 'true' : 'false');
@@ -1800,10 +1828,8 @@ function addMsg(kind,text,meta,trace,fb,provider){
   const bodyHtml = kind === 'ai' ? md(text) : esc(text).replace(/\n/g,'<br>');
   div.innerHTML='<div class="msg-body">'+bodyHtml+'</div>';
   if (kind === 'ai' || kind === 'user') div.insertBefore(buildMsgAvatar(kind, provider), div.firstChild);
-  if (kind === 'ai' && Array.isArray(trace) && trace.length){
-    const fnEl = failoverNotice(trace);
-    if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body'));
-    if (trace.some(t => t && t.ok === false)) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
+  if (kind === 'ai' && Array.isArray(trace) && trace.length && trace.some(t => t && t.ok === false)){
+    div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
   }
   if (kind === 'ai') {
     div._rawText = text;
@@ -1815,14 +1841,14 @@ function addAudioMsg(src,meta,trace,provider){
   const div=document.createElement('div');div.className='msg msg-ai';
   div.innerHTML='<div class="msg-body"><audio controls src="'+src+'" style="width:100%;max-width:340px"></audio></div>';
   div.insertBefore(buildMsgAvatar('ai', provider), div.firstChild);
-  if (Array.isArray(trace) && trace.length){ const fnEl = failoverNotice(trace); if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body')); if (trace.some(t => t && t.ok === false)) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body')); }
+  if (Array.isArray(trace) && trace.length && trace.some(t => t && t.ok === false)){ div.insertBefore(buildTrace(trace), div.querySelector('.msg-body')); }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addVideoMsg(src,meta,trace,provider){
   const div=document.createElement('div');div.className='msg msg-ai';
   div.innerHTML='<div class="msg-body"><video controls src="'+src+'" style="width:100%;max-width:420px;border-radius:12px"></video></div>';
   div.insertBefore(buildMsgAvatar('ai', provider), div.firstChild);
-  if (Array.isArray(trace) && trace.length){ const fnEl = failoverNotice(trace); if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body')); if (trace.some(t => t && t.ok === false)) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body')); }
+  if (Array.isArray(trace) && trace.length && trace.some(t => t && t.ok === false)){ div.insertBefore(buildTrace(trace), div.querySelector('.msg-body')); }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addTyping(){
