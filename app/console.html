@@ -1608,7 +1608,7 @@ function traceStepRow(st,title,desc,detail){
 }
 function traceName(p){ return p === 'auto' ? 'Auto routing' : friendlyName(p || ''); }
 function finalStepRow(s){
-  const desc = shortModel(s.m) + (typeof s.ms === 'number' ? (s.m ? ' · ' : '') + (s.ms / 1000).toFixed(1) + 's' : '');
+  const desc = shortModelName(s.m) + (typeof s.ms === 'number' ? (s.m ? ' · ' : '') + (s.ms / 1000).toFixed(1) + 's' : '');
   const role = s.role ? (s.role.charAt(0).toUpperCase() + s.role.slice(1)) + ' · ' : '';
   return s.ok
     ? traceStepRow('done', role + 'Answered by ' + shortProvider(s.p), desc, '')
@@ -1859,7 +1859,7 @@ function shortProvider(p){
   if (p === 'freellmapi') return 'FreeLLMAPI';
   return p.charAt(0).toUpperCase() + p.slice(1);
 }
-function shortModel(m){
+function shortModelName(m){
   let s = (m || '').split('/').pop();
   s = s.replace(/:free$/, '');
   s = s.replace(/-a\d+b$/, '');
@@ -2347,7 +2347,7 @@ async function runChat(provider, model, msg, mode, history){
             const dispModel = j.used_model || model;
             const okStep = (j.trace || []).find(t => t && t.ok);
             const secs = okStep && typeof okStep.ms === 'number' ? (okStep.ms / 1000).toFixed(1) + 's' : '';
-            const metaStr = shortProvider(dispProvider) + ' · ' + shortModel(dispModel) + (secs ? ' · ' + secs : '');
+            const metaStr = shortProvider(dispProvider) + ' · ' + shortModelName(dispModel) + (secs ? ' · ' + secs : '');
             if (j.handover) addMsg('system', '↪ ' + friendlyName(j.from_provider || 'Previous provider') + ' hit a limit or stopped — ' + friendlyName(dispProvider) + ' continued this chat with the same shared memory.');
             if (j.audio) { const d = addAudioMsg(j.audio, metaStr, j.trace, dispProvider); const e = {r:'ai', t:'🔊 Voice reply — audio itself is not stored in saved chats', m: metaStr, p: dispProvider, ...(j.trace ? {tr: j.trace} : {})}; chatLog.push(e); d._entry = e; }
             else if (j.video) { const d = addVideoMsg(j.video, metaStr, j.trace, dispProvider); const e = {r:'ai', t:'🎬 Video reply — video itself is not stored in saved chats', m: metaStr, p: dispProvider, ...(j.trace ? {tr: j.trace} : {})}; chatLog.push(e); d._entry = e; }
