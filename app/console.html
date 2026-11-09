@@ -397,6 +397,8 @@ overflow-y:auto;padding:1rem 1rem 0.5rem;margin-bottom:0;display:flex;flex-direc
 .thread-empty{text-align:center;color:#9a9aa6;margin:auto;padding:1.75rem 1.25rem}
 .thread-empty svg{width:44px;opacity:.35;margin-bottom:0.5rem}
 .thread-empty p{font-size:0.8125rem;line-height:1.6;margin:0}
+.empty-sug{background:transparent;border:1px solid #333;color:#d4d4d8;border-radius:999px;padding:0.45rem 0.95rem;font-size:0.8rem;cursor:pointer;font-family:inherit}
+.empty-sug:hover{border-color:#38bdf8;color:#fff}
 
 /* RateLimitMeter — vanilla port (owner order 2026-10-31): shared-memory meter.
    Same props/logic/tones as the React component, zero dependencies. */
@@ -1046,8 +1048,14 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
     <div id="token-meter" hidden></div>
     <div class="thread" id="composer-thread">
         <div class="thread-empty" id="thread-empty">
-            <svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#f2f2f2"/></svg>
+            <p style="font-size:1.05rem;color:#fff;margin-bottom:0.35rem">What can I help with?</p>
             <p>Pick a provider below and say hello.<br>Your chats stay in this session.</p>
+            <div class="empty-suggestions" style="display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:center;margin-top:1.1rem">
+                <button type="button" class="empty-sug" data-prompt="Write a short story about a robot learning to paint">Write a story</button>
+                <button type="button" class="empty-sug" data-prompt="Explain quantum computing in simple terms">Explain something</button>
+                <button type="button" class="empty-sug" data-prompt="Help me debug this code: ">Debug code</button>
+                <button type="button" class="empty-sug" data-prompt="Give me 5 ideas for a weekend project">Brainstorm ideas</button>
+            </div>
         </div>
     </div>
     <div id="lane-strip" title="Provider lane health — tap for details">
@@ -1131,6 +1139,7 @@ const composerProviders = document.getElementById('composer-provider');
 const composerSend = document.getElementById('composer-send');
 const thread = document.getElementById('composer-thread');
 function hideEmpty(){const e=document.getElementById('thread-empty');if(e)e.style.display='none';}
+document.querySelectorAll('.empty-sug').forEach(function(b){b.addEventListener('click',function(){var inp=document.getElementById('composer-message');if(inp){inp.value=b.getAttribute('data-prompt');inp.focus();}});});
 
 // ===== Saved chats (per user, encrypted server-side, auto-saved) =====
 let chatLog = [];
