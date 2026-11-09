@@ -1040,6 +1040,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
         <span id="chat-title">New chat</span>
         <button id="chat-new" title="Start a new chat">＋ New</button>
     </div>
+    <div id="token-meter" hidden></div>
     <div class="thread" id="composer-thread">
         <div class="thread-empty" id="thread-empty">
             <h2>What are we building today?</h2>
@@ -1050,7 +1051,6 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
             </div>
         </div>
     </div>
-    <div id="token-meter" hidden></div>
     <div class="composer-box">
         <div class="pill-pickers">
                 <select id="composer-provider" class="picker" aria-label="Provider" onchange="loadModels(this.value)" title="Provider"></select>
