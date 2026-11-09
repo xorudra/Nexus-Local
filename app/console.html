@@ -450,11 +450,6 @@ padding:0.25rem 0;font-size:0.875rem;line-height:1.6;word-wrap:break-word}
 border-radius:10px;padding:0.5rem 0.875rem;font-size:0.8125rem}
 .msg-meta{font-size:0.6875rem;color:#f2f2f2;margin-bottom:0.25rem;letter-spacing:.08em;font-family:'Space Grotesk',sans-serif}
 .msg-failover{font-size:0.71875rem;color:#a1a1aa;margin:0.125rem 0 0.375rem;font-family:'Space Grotesk',sans-serif}
-#lane-strip{display:flex;flex-wrap:wrap;align-items:center;gap:0.4375rem;background: #000000;border:1px solid #17171a;border-top:none;border-left:none;border-right:none;padding:0.375rem 0.75rem;cursor:pointer;font-family:'Space Grotesk',sans-serif}
-#lane-dots{display:none}
-.lane-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
-#lane-summary{font-size:0.6875rem;color:#a1a1aa;letter-spacing:.04em}
-#lane-detail{flex-basis:100%;font-size:0.71875rem;color:#d4d4d8;line-height:1.7;padding-top:0.125rem}
 /* Trace — the steps behind a reply (shadcn Trace design, owner-
    pasted 2026-10-15): a rail timeline between the provider label
    and the answer. One row per attempt: status icon on the rail,
@@ -616,7 +611,6 @@ cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
 .composer .eyebrow{display:none}
 .composer h2{display:none}
 .chat-bar{display:none !important}
-#lane-strip{display:none}
 .msg{max-width:94%}
 .input-row{gap:0.25rem}
 #composer-send{width:36px;height:36px}
@@ -1060,11 +1054,6 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
                 <button type="button" class="empty-sug" data-prompt="Search the web for " data-mode="search"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Search the web</button>
             </div>
         </div>
-    </div>
-    <div id="lane-strip" title="Provider lane health — tap for details">
-        <span id="lane-dots" aria-hidden="true"></span>
-        <span id="lane-summary">Checking lanes…</span>
-        <div id="lane-detail" hidden></div>
     </div>
     <div class="composer-box">
         <div class="pill-pickers">
@@ -1774,61 +1763,6 @@ document.getElementById('composer-model').addEventListener('change', (ev) => {
     try { if (ev.target.value) localStorage.setItem('nexus-fav-model', ev.target.value); } catch (e) {}
 });
 
-// Lane health strip: live per-lane state from /api/lane-health,
-// refreshed every minute and after every send. Wave-2 fix (same day,
-// from the second MiroFish sim): the always-visible wall of red/purple
-// dots made Nexus feel broken even while failover worked — so the
-// strip now leads with one calm readiness line, and the dots + per-lane
-// states live in the tap-for-details view, in plainer words.
-const LANE_STATE_WORD = {up: 'available', limited: 'busy right now — rate limit, recovers on its own', down: 'resting — Nexus routes around it', off: 'not set up', locked: 'unlocks after admin sign-in'};
-const LANE_STATE_COLOR = {up: '#4ade80', limited: '#fbbf24', down: '#f87171', off: '#52525b', locked: '#a78bfa'};
-let laneFavGuardDone = false;
-async function refreshLaneHealth() {
-    const sum = document.getElementById('lane-summary');
-    if (!sum) return;
-    try {
-        const r = await fetch('/api/lane-health');
-        if (!r.ok) return;
-        const j = await r.json();
-        const lanes = j.lanes || [];
-        const counts = {};
-        lanes.forEach(l => { counts[l.state] = (counts[l.state] || 0) + 1; });
-        const ready = counts.up || 0, busy = counts.limited || 0;
-        // Favourite guard (wave-2 fix): a restored favourite lane that
-        // is resting must not trap the user on a dead pick — fall back
-        // to Auto once per page load, only before the user picks
-        // anything themselves, and say so in the summary line.
-        let favNote = '';
-        if (!laneFavGuardDone) {
-            laneFavGuardDone = true;
-            try {
-                const fp = localStorage.getItem('nexus-fav-provider');
-                const lane = fp && lanes.find(l => l.provider === fp);
-                if (!composerTouched && fp && composerProviders.value === fp && lane && lane.state !== 'up' && lane.state !== 'limited') {
-                    composerProviders.value = 'auto';
-                    loadModels('auto');
-                    favNote = ' · your usual lane is resting, so Auto is on';
-                }
-            } catch (e) {}
-        }
-        if (ready) sum.textContent = 'Ready — ' + ready + ' lane' + (ready === 1 ? '' : 's') + ' available now' + (busy ? ' · ' + busy + ' busy' : '') + favNote + ' · tap for lane details';
-        else if (busy) sum.textContent = 'Lanes are busy right now — Nexus will keep trying for you' + favNote;
-        else sum.textContent = 'No lane is available right now · tap for lane details';
-        const dots = '<div style="margin-bottom:0.25rem">' + lanes.map(l =>
-            '<span class="lane-dot" style="background:' + (LANE_STATE_COLOR[l.state] || '#52525b') + ';margin-right:0.1875rem"></span>').join('') + '</div>';
-        const bad = lanes.filter(l => l.state !== 'up');
-        document.getElementById('lane-detail').innerHTML = dots + (bad.length
-            ? bad.map(l => '<div>' + esc(friendlyName(l.provider)) + ' — ' + (LANE_STATE_WORD[l.state] || l.state) + '</div>').join('')
-            : '<div>All lanes available.</div>');
-    } catch (e) {}
-}
-document.getElementById('lane-strip').addEventListener('click', () => {
-    const d = document.getElementById('lane-detail');
-    d.hidden = !d.hidden;
-});
-refreshLaneHealth();
-setInterval(refreshLaneHealth, 60000);
-
 async function setRouting(mode) {
     try {
         await fetch('/api/routing', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({set: mode})});
@@ -1857,15 +1791,15 @@ async function loadModels(provider, preselect) {
             modelSel.innerHTML = '<option value="">No models found</option>';
             return;
         }
-        const ph = document.createElement('option');
-        ph.value = ''; ph.textContent = 'Select model... (' + models.length + ')';
-        modelSel.appendChild(ph);
         models.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m; opt.textContent = m;
             modelSel.appendChild(opt);
         });
-        if (preselect && [...modelSel.options].some(o => o.value === preselect)) modelSel.value = preselect;
+        // Best model first: pre-select the provider's default (best) model
+        // unless a favourite was saved for this device.
+        const best = (preselect && [...modelSel.options].some(o => o.value === preselect)) ? preselect : (data.default || '');
+        if (best && [...modelSel.options].some(o => o.value === best)) modelSel.value = best;
     } catch (e) {
         console.error('Model load', e);
         modelSel.innerHTML = '<option value="">Could not load models</option>';
@@ -2262,7 +2196,6 @@ composerSend.addEventListener('click', async () => {
     } finally {
         composerSend.disabled = false;
         clearAttachment();
-        refreshLaneHealth();
     }
 });
 

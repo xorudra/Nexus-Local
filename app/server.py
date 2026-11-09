@@ -4631,10 +4631,12 @@ def _oauth_public_base(headers):
 # — while keyless lanes keep working.
 # ---------------------------------------------------------------------------
 _V1_LANES = [
-    ("relay_gemini", "gemini-3.5-flash-lite"),
+    # Best-first order (owner order 2026-11-09): nexus-auto tries the
+    # strongest free model first, then falls back down the list.
     ("relay_openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free"),
-    ("relay_groq", "openai/gpt-oss-20b"),
     ("relay_nvidia", "nvidia/nemotron-3-ultra-550b-a55b"),
+    ("relay_gemini", "gemini-3.5-flash-lite"),
+    ("relay_groq", "openai/gpt-oss-20b"),
     # FreeLLMAPI provider key set (owner order 2026-10-09: "in supply lane
     # also add FreeLLMAPI providers") — same relay, the vault's plain slots.
     ("google", "gemini-3.5-flash-lite"),
@@ -4643,6 +4645,33 @@ _V1_LANES = [
     ("nvidia", "nvidia/nemotron-3-ultra-550b-a55b"),
     ("relay_pollinations", "openai"),
 ]
+# Best (default) model per provider — the strongest free model on each
+# lane. Single source of truth: the chat auto-select and /api/models both
+# read it (owner order 2026-11-09: best models as defaults).
+_DEFAULT_MODELS = {
+    "groq": "openai/gpt-oss-20b",
+    "relay_groq": "openai/gpt-oss-20b",
+    "google": "gemini-3.5-flash-lite",
+    "relay_gemini": "gemini-3.5-flash-lite",
+    "openrouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "relay_openrouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia": "nvidia/nemotron-3-ultra-550b-a55b",
+    "relay_nvidia": "nvidia/nemotron-3-ultra-550b-a55b",
+    "mistral": "mistral-small-latest",
+    "cohere": "command-a-03-2025",
+    "openai": "gpt-5-mini",
+    "anthropic": "claude-sonnet-4-5",
+    "codex": "gpt-5.1-codex-max",
+    "claude_oauth": "claude-sonnet-4-5-20250929",
+    "gemini_cli": "gemini-2.5-pro",
+    "zhipu": "glm-4.5",
+    "ovh": "Meta-Llama-3_3-70B-Instruct",
+    "cloudflare": "@cf/qwen/qwen3.8-27b",
+    "kilo": "kilo-auto/free",
+    "pollinations": "openai",
+    "relay_pollinations": "openai",
+}
+
 _V1_MODELS_CACHE = {"at": 0.0, "ids": []}
 
 # The service keys an admin creates on the API Access page live in
@@ -7375,7 +7404,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self._send_body(js.dumps({"models": models}).encode())
+            self._send_body(js.dumps({"models": models, "default": _DEFAULT_MODELS.get(provider, "")}).encode())
             return
         if parsed.path == "/admin":
             _ainfo = self._session_info()
@@ -8900,30 +8929,6 @@ class Handler(BaseHTTPRequestHandler):
             # Per-session routing mode (each user has their own)
             _sess = SESSIONS.get(self._get_session() or "", {})
             routing = _sess.get("routing", "quality") if isinstance(_sess, dict) else "quality"
-            # Default models for auto-selection (known working)
-            _DEFAULT_MODELS = {
-                "groq": "openai/gpt-oss-20b",
-                "relay_groq": "openai/gpt-oss-20b",
-                "google": "gemini-3.5-flash-lite",
-                "relay_gemini": "gemini-3.5-flash-lite",
-                "openrouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
-                "relay_openrouter": "nvidia/nemotron-3-ultra-550b-a55b:free",
-                "nvidia": "nvidia/nemotron-3-ultra-550b-a55b",
-                "relay_nvidia": "nvidia/nemotron-3-ultra-550b-a55b",
-                "mistral": "mistral-small-latest",
-                "cohere": "command-a-03-2025",
-                "openai": "gpt-5-mini",
-                "anthropic": "claude-sonnet-4-5",
-                "codex": "gpt-5.1-codex-max",
-                "claude_oauth": "claude-sonnet-4-5-20250929",
-                "gemini_cli": "gemini-2.5-pro",
-                "zhipu": "glm-4.5",
-                "ovh": "Meta-Llama-3_3-70B-Instruct",
-                "cloudflare": "@cf/openai/gpt-oss-120b",
-                "kilo": "kilo-auto/free",
-                "pollinations": "openai",
-                "relay_pollinations": "openai",
-            }
             # Auto provider selection when provider is "auto"
             # Returns a LIST of (provider, model) to try in order (fallback)
             _auto_candidates = []
