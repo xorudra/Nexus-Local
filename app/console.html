@@ -395,6 +395,8 @@ body {
 .thread{background: #000000;border:none;border-radius:12px 12px 0 0;min-height:380px;max-height:72vh;
 overflow-y:auto;padding:1rem 1rem 0.5rem;margin-bottom:0;display:flex;flex-direction:column;gap:0.75rem}
 .thread-empty{text-align:center;color:#9a9aa6;margin:auto!important;padding:0.5rem 1rem;display:flex!important;flex-direction:column;align-items:center;justify-content:center;width:100%;max-width:680px;align-self:center;box-sizing:border-box}
+.composer.is-empty .eyebrow,.composer.is-empty h2,.composer.is-empty .chat-bar,.composer.is-empty #token-meter{display:none!important}
+.composer.is-empty .thread{flex:1;min-height:0}
 .thread-empty h2{font-size:1.6rem;font-weight:500;color:#fff;margin:0 0 1.25rem;letter-spacing:-0.01em}
 .thread-empty p{font-size:0.8125rem;line-height:1.6;margin:0}
 .empty-sug-list{display:flex!important;flex-direction:column!important;gap:0.25rem;width:100%;max-width:560px;margin-top:0.5rem}
@@ -1138,7 +1140,9 @@ const logoutBtn = document.getElementById('logout-btn');
 const composerProviders = document.getElementById('composer-provider');
 const composerSend = document.getElementById('composer-send');
 const thread = document.getElementById('composer-thread');
-function hideEmpty(){const e=document.getElementById('thread-empty');if(e)e.style.display='none';}
+function hideEmpty(){const e=document.getElementById('thread-empty');if(e)e.style.display='none';var c=document.getElementById('composer-card');if(c)c.classList.remove('is-empty');}
+function showEmpty(){const e=document.getElementById('thread-empty');if(e)e.style.display='';var c=document.getElementById('composer-card');if(c)c.classList.add('is-empty');}
+if(!document.querySelector('#composer-thread .msg')){var cc=document.getElementById('composer-card');if(cc)cc.classList.add('is-empty');}
 document.querySelectorAll('.empty-sug').forEach(function(b){b.addEventListener('click',function(){var inp=document.getElementById('composer-message');if(inp){inp.value=b.getAttribute('data-prompt');inp.focus();}var mode=document.getElementById('composer-mode');if(mode){var m=b.getAttribute('data-mode');if(m){mode.value=m;mode.dispatchEvent(new Event('change'));}}});});
 
 // ===== Saved chats (per user, encrypted server-side, auto-saved) =====
@@ -1304,7 +1308,7 @@ async function openChat(id){
     if (chatLog.length) {
         hideEmpty();
         chatLog.forEach(m => addMsg(m.r === 'user' ? 'user' : 'ai', m.t, m.m, m.tr));
-    } else if (e) { e.style.display = ''; }
+    } else { showEmpty(); }
     closeChats();
     refreshChatList();
 }
@@ -1313,8 +1317,7 @@ function newChat(fromDelete){
     chatLog = [];
     setChatTitle('New chat');
     thread.querySelectorAll('.msg').forEach(n => n.remove());
-    const e = document.getElementById('thread-empty');
-    if (e) e.style.display = '';
+    showEmpty();
     if (!fromDelete) closeChats();
     refreshChatList();
 }
