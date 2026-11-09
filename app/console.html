@@ -1604,7 +1604,7 @@ function traceStepRow(st,title,desc,detail){
     + '<span class="trace-title">' + esc(title) + '</span>'
     + (desc ? '<span class="trace-ldesc">' + esc(desc) + '</span>' : '');
   if (detail){
-    return '<div class="trace-row open" data-st="' + st + '"><button type="button" class="trace-line" aria-expanded="true">'
+    return '<div class="trace-row" data-st="' + st + '"><button type="button" class="trace-line" aria-expanded="false">'
       + line + TRACE_CHEV + '</button>'
       + '<div class="trace-detail"><div class="trace-code err">' + esc(detail) + '</div></div></div>';
   }
@@ -1797,7 +1797,7 @@ async function retryMessage(aiDiv){
 function addMsg(kind,text,meta,trace,fb,provider){
   const div=document.createElement('div');div.className='msg msg-'+kind;
   const bodyHtml = kind === 'ai' ? md(text) : esc(text).replace(/\n/g,'<br>');
-  div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body">'+bodyHtml+'</div>';
+  div.innerHTML='<div class="msg-body">'+bodyHtml+'</div>';
   if (kind === 'ai' || kind === 'user') div.insertBefore(buildMsgAvatar(kind, provider), div.firstChild);
   if (kind === 'ai' && Array.isArray(trace) && trace.length){
     const fnEl = failoverNotice(trace);
@@ -1812,14 +1812,14 @@ function addMsg(kind,text,meta,trace,fb,provider){
 }
 function addAudioMsg(src,meta,trace,provider){
   const div=document.createElement('div');div.className='msg msg-ai';
-  div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><audio controls src="'+src+'" style="width:100%;max-width:340px"></audio></div>';
+  div.innerHTML='<div class="msg-body"><audio controls src="'+src+'" style="width:100%;max-width:340px"></audio></div>';
   div.insertBefore(buildMsgAvatar('ai', provider), div.firstChild);
   if (Array.isArray(trace) && trace.length){ const fnEl = failoverNotice(trace); if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body')); if (trace.some(t => t && t.ok === false)) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body')); }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
 function addVideoMsg(src,meta,trace,provider){
   const div=document.createElement('div');div.className='msg msg-ai';
-  div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body"><video controls src="'+src+'" style="width:100%;max-width:420px;border-radius:12px"></video></div>';
+  div.innerHTML='<div class="msg-body"><video controls src="'+src+'" style="width:100%;max-width:420px;border-radius:12px"></video></div>';
   div.insertBefore(buildMsgAvatar('ai', provider), div.firstChild);
   if (Array.isArray(trace) && trace.length){ const fnEl = failoverNotice(trace); if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body')); if (trace.some(t => t && t.ok === false)) div.insertBefore(buildTrace(trace), div.querySelector('.msg-body')); }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
