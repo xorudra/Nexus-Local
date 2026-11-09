@@ -394,11 +394,13 @@ body {
 /* ===== Task Composer: chat UI ===== */
 .thread{background: #000000;border:none;border-radius:12px 12px 0 0;min-height:380px;max-height:72vh;
 overflow-y:auto;padding:1rem 1rem 0.5rem;margin-bottom:0;display:flex;flex-direction:column;gap:0.75rem}
-.thread-empty{text-align:left;color:#9a9aa6;margin:0;padding:1.75rem 0}
-.thread-empty svg{width:44px;opacity:.35;margin-bottom:0.5rem}
+.thread-empty{text-align:center;color:#9a9aa6;margin:auto;padding:1rem 1.25rem;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:340px;width:100%;max-width:720px}
+.thread-empty h2{font-size:1.75rem;font-weight:500;color:#fff;margin:0 0 1.75rem;letter-spacing:-0.01em}
 .thread-empty p{font-size:0.8125rem;line-height:1.6;margin:0}
-.empty-sug{background:transparent;border:1px solid #333;color:#d4d4d8;border-radius:999px;padding:0.45rem 0.95rem;font-size:0.8rem;cursor:pointer;font-family:inherit}
-.empty-sug:hover{border-color:#38bdf8;color:#fff}
+.empty-sug-list{display:flex;flex-direction:column;gap:0.25rem;width:100%;max-width:560px;margin-top:0.5rem}
+.empty-sug{display:flex;align-items:center;gap:0.85rem;background:transparent;border:none;color:#d4d4d8;border-radius:10px;padding:0.7rem 0.85rem;font-size:0.95rem;cursor:pointer;font-family:inherit;text-align:left;width:100%}
+.empty-sug:hover{background:#1a1a1a;color:#fff}
+.empty-sug svg{flex:none;width:20px;height:20px;stroke:#8e8e93}
 
 /* RateLimitMeter — vanilla port (owner order 2026-10-31): shared-memory meter.
    Same props/logic/tones as the React component, zero dependencies. */
@@ -1048,13 +1050,11 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
     <div id="token-meter" hidden></div>
     <div class="thread" id="composer-thread">
         <div class="thread-empty" id="thread-empty">
-            <p style="font-size:1.05rem;color:#fff;margin-bottom:0.35rem">What can I help with?</p>
-            <p>Pick a provider below and say hello.<br>Your chats stay in this session.</p>
-            <div class="empty-suggestions" style="display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:flex-start;margin-top:1.1rem">
-                <button type="button" class="empty-sug" data-prompt="Write a short story about a robot learning to paint">Write a story</button>
-                <button type="button" class="empty-sug" data-prompt="Explain quantum computing in simple terms">Explain something</button>
-                <button type="button" class="empty-sug" data-prompt="Help me debug this code: ">Debug code</button>
-                <button type="button" class="empty-sug" data-prompt="Give me 5 ideas for a weekend project">Brainstorm ideas</button>
+            <h2>What&apos;s on the agenda today?</h2>
+            <div class="empty-sug-list">
+                <button type="button" class="empty-sug" data-prompt="Create an image of " data-mode="image"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-3.5-3.5L6 23"/></svg>Create an image or sticker</button>
+                <button type="button" class="empty-sug" data-prompt="Write "><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Write or edit</button>
+                <button type="button" class="empty-sug" data-prompt="Search the web for " data-mode="search"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Search the web</button>
             </div>
         </div>
     </div>
@@ -1139,7 +1139,7 @@ const composerProviders = document.getElementById('composer-provider');
 const composerSend = document.getElementById('composer-send');
 const thread = document.getElementById('composer-thread');
 function hideEmpty(){const e=document.getElementById('thread-empty');if(e)e.style.display='none';}
-document.querySelectorAll('.empty-sug').forEach(function(b){b.addEventListener('click',function(){var inp=document.getElementById('composer-message');if(inp){inp.value=b.getAttribute('data-prompt');inp.focus();}});});
+document.querySelectorAll('.empty-sug').forEach(function(b){b.addEventListener('click',function(){var inp=document.getElementById('composer-message');if(inp){inp.value=b.getAttribute('data-prompt');inp.focus();}var mode=document.getElementById('composer-mode');if(mode){var m=b.getAttribute('data-mode');if(m){mode.value=m;mode.dispatchEvent(new Event('change'));}}});});
 
 // ===== Saved chats (per user, encrypted server-side, auto-saved) =====
 let chatLog = [];
