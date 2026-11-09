@@ -3976,14 +3976,21 @@ def _write_access_enc(d):
 
 
 def _boot_restore_access():
-    """At startup: rebuild access.json from access.enc (restore key). The
-    mirror is the source of truth at boot: access.json is a runtime working
-    file, and a stale copy baked into a deploy once shadowed the mirror and
-    hid the real friend list behind a leftover test entry (2026-10-09).
+    """At startup: rebuild access.json from access.enc (restore key).
+    The mirror is the source of truth at boot ONLY when it is at least as
+    new as the working file: a stale mirror (e.g. unwritten since Nov 1
+    while passwords changed) must never overwrite a newer access.json
+    (2026-11-09: the Nov 8 restart wiped passwords added Nov 1-8).
     Falls back silently to whatever access.json holds (then the classic
     restore-at-admin-login) when no restore key/file exists."""
     try:
         if RESTORE_KEY and ACCESS_ENC_PATH.exists():
+            # Never let a stale mirror clobber a newer working file.
+            try:
+                if ACCESS_PATH.exists() and ACCESS_PATH.stat().st_mtime > ACCESS_ENC_PATH.stat().st_mtime:
+                    return
+            except Exception:
+                pass
             d = decrypt_keys(ACCESS_ENC_PATH, RESTORE_KEY)
             # A successfully decrypted EMPTY mirror is authoritative
             # too (audit run-5): the last friend was revoked and the
