@@ -394,7 +394,7 @@ body {
 /* ===== Task Composer: chat UI ===== */
 .thread{background: #000000;border:none;border-radius:12px 12px 0 0;min-height:380px;max-height:72vh;
 overflow-y:auto;padding:1rem 1rem 0.5rem;margin-bottom:0;display:flex;flex-direction:column;gap:0.75rem}
-.thread-empty{text-align:center;color:#9a9aa6;margin:auto;padding:1.75rem 1.25rem}
+.thread-empty{text-align:left;color:#9a9aa6;margin:0;padding:1.75rem 0}
 .thread-empty svg{width:44px;opacity:.35;margin-bottom:0.5rem}
 .thread-empty p{font-size:0.8125rem;line-height:1.6;margin:0}
 .empty-sug{background:transparent;border:1px solid #333;color:#d4d4d8;border-radius:999px;padding:0.45rem 0.95rem;font-size:0.8rem;cursor:pointer;font-family:inherit}
@@ -1050,7 +1050,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
         <div class="thread-empty" id="thread-empty">
             <p style="font-size:1.05rem;color:#fff;margin-bottom:0.35rem">What can I help with?</p>
             <p>Pick a provider below and say hello.<br>Your chats stay in this session.</p>
-            <div class="empty-suggestions" style="display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:center;margin-top:1.1rem">
+            <div class="empty-suggestions" style="display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:flex-start;margin-top:1.1rem">
                 <button type="button" class="empty-sug" data-prompt="Write a short story about a robot learning to paint">Write a story</button>
                 <button type="button" class="empty-sug" data-prompt="Explain quantum computing in simple terms">Explain something</button>
                 <button type="button" class="empty-sug" data-prompt="Help me debug this code: ">Debug code</button>
