@@ -443,6 +443,12 @@ padding:0.25rem 0;font-size:0.875rem;line-height:1.6;word-wrap:break-word}
 .msg-system .msg-body{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#b8b8c0;
 border-radius:10px;padding:0.5rem 0.875rem;font-size:0.8125rem}
 .msg-meta{font-size:0.6875rem;color:#f2f2f2;margin-bottom:0.25rem;letter-spacing:.08em;font-family:'Space Grotesk',sans-serif}
+/* Message actions (Retry / Like / Dislike / Copy / Share) under AI replies */
+.msg-actions{display:flex;gap:0.125rem;margin-top:0.375rem;flex-wrap:wrap}
+.msg-act{display:inline-flex;align-items:center;gap:0.3125rem;background:transparent;border:1px solid transparent;border-radius:8px;color:#8e8e93;padding:0.375rem 0.5rem;font-size:0.75rem;cursor:pointer;font-family:inherit;line-height:1}
+.msg-act:hover{background:rgba(255,255,255,.06);color:#f2f2f2;border-color:rgba(255,255,255,.08)}
+.msg-act.active{color:#38bdf8;border-color:rgba(56,189,248,.35);background:rgba(56,189,248,.08)}
+.msg-act svg{width:15px;height:15px;flex:none}
 .msg-failover{font-size:0.71875rem;color:#a1a1aa;margin:0.125rem 0 0.375rem;font-family:'Space Grotesk',sans-serif}
 /* Trace — the steps behind a reply (shadcn Trace design, owner-
    pasted 2026-10-15): a rail timeline between the provider label
@@ -1281,13 +1287,13 @@ async function openChat(id){
     const j = await chatsApi('get', {id});
     if (!j || !j.chat) return;
     currentChatId = j.chat.id;
-    chatLog = (j.chat.messages || []).map(m => ({r: m.r, t: m.t, ...(m.m ? {m: m.m} : {}), ...(m.p ? {p: m.p} : {}), ...(m.tr ? {tr: m.tr} : {})}));
+    chatLog = (j.chat.messages || []).map(m => ({r: m.r, t: m.t, ...(m.m ? {m: m.m} : {}), ...(m.p ? {p: m.p} : {}), ...(m.tr ? {tr: m.tr} : {}), ...(m.fb ? {fb: m.fb} : {})}));
     setChatTitle(j.chat.title || 'Chat');
     thread.querySelectorAll('.msg').forEach(n => n.remove());
     const e = document.getElementById('thread-empty');
     if (chatLog.length) {
         hideEmpty();
-        chatLog.forEach(m => addMsg(m.r === 'user' ? 'user' : 'ai', m.t, m.m, m.tr));
+        chatLog.forEach(m => { const d = addMsg(m.r === 'user' ? 'user' : 'ai', m.t, m.m, m.tr, m.fb); d._entry = m; });
     } else { showEmpty(); }
     closeChats();
     refreshChatList();
@@ -1643,7 +1649,97 @@ function failoverNotice(trace){
   else el.textContent = names + (failed.length > 1 ? ' were' : ' was') + ' busy — no lane could answer this time.';
   return el;
 }
-function addMsg(kind,text,meta,trace){
+// Message actions under AI replies: Retry, Like, Dislike, Copy, Share.
+// Icons are inline lucide-style SVGs (no external dependency).
+const MSG_ACT_ICONS = {
+  retry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+  like: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>',
+  dislike: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></svg>'
+};
+function buildMsgActions(div, fb){
+  const row = document.createElement('div');
+  row.className = 'msg-actions';
+  const defs = [
+    {act:'retry', label:'Retry'},
+    {act:'like', label:'Like', fb:'like'},
+    {act:'dislike', label:'Dislike', fb:'dislike'},
+    {act:'copy', label:'Copy'},
+    {act:'share', label:'Share'}
+  ];
+  defs.forEach(d => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'msg-act';
+    b.title = d.label;
+    if (d.fb) b.dataset.fb = d.fb;
+    b.innerHTML = MSG_ACT_ICONS[d.act] + '<span class="msg-act-label">' + d.label + '</span>';
+    if (d.fb && fb === d.fb) b.classList.add('active');
+    b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (d.act === 'retry') retryMessage(div);
+      else if (d.act === 'copy') copyMsgText(b, div._rawText || '');
+      else if (d.act === 'share') shareMsgText(b, div._rawText || '');
+      else if (d.fb) setFeedback(div, d.fb);
+    });
+    row.appendChild(b);
+  });
+  return row;
+}
+function setFeedback(div, val){
+  const entry = div._entry;
+  if (entry) {
+    entry.fb = (entry.fb === val) ? '' : val;
+    scheduleSave();
+  }
+  div.querySelectorAll('.msg-act[data-fb]').forEach(b => {
+    b.classList.toggle('active', !!entry && entry.fb === b.dataset.fb);
+  });
+}
+async function copyMsgText(btn, text){
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e2) {}
+    ta.remove();
+  }
+  const label = btn.querySelector('.msg-act-label');
+  if (label) { const old = label.textContent; label.textContent = 'Copied'; setTimeout(() => { label.textContent = old; }, 1500); }
+}
+async function shareMsgText(btn, text){
+  if (navigator.share) {
+    try { await navigator.share({text}); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  copyMsgText(btn, text);
+}
+async function retryMessage(aiDiv){
+  const entry = aiDiv._entry;
+  const idx = entry ? chatLog.indexOf(entry) : -1;
+  if (idx <= 0) return;
+  const userEntry = chatLog[idx - 1];
+  if (!userEntry || userEntry.r !== 'user') return;
+  // Remove this AI message and everything after it from the thread.
+  let n = aiDiv.nextSibling;
+  const toRemove = [aiDiv];
+  while (n) { const nxt = n.nextSibling; if (n.classList && n.classList.contains('msg')) toRemove.push(n); n = nxt; }
+  toRemove.forEach(d => d.remove());
+  // Truncate the log to just before the AI message (keeps the user msg).
+  chatLog.length = idx;
+  scheduleSave();
+  // Re-send the user message with the current composer picks.
+  let provider = composerProviders.value || 'auto';
+  let model = document.getElementById('composer-model').value || '';
+  if (provider !== 'auto' && !model) { provider = 'auto'; model = ''; }
+  if (provider === 'auto') model = '';
+  const mode = document.getElementById('composer-mode').value;
+  hideEmpty();
+  await runChat(provider, model, userEntry.t, mode, chatLog.slice(0, -1));
+}
+function addMsg(kind,text,meta,trace,fb){
   const div=document.createElement('div');div.className='msg msg-'+kind;
   const bodyHtml = kind === 'ai' ? md(text) : esc(text).replace(/\n/g,'<br>');
   div.innerHTML=(meta?'<div class="msg-meta">'+esc(meta)+'</div>':'')+'<div class="msg-body">'+bodyHtml+'</div>';
@@ -1651,6 +1747,10 @@ function addMsg(kind,text,meta,trace){
     const fnEl = failoverNotice(trace);
     if (fnEl) div.insertBefore(fnEl, div.querySelector('.msg-body'));
     div.insertBefore(buildTrace(trace), div.querySelector('.msg-body'));
+  }
+  if (kind === 'ai') {
+    div._rawText = text;
+    div.appendChild(buildMsgActions(div, fb));
   }
   thread.appendChild(div);thread.scrollTop=thread.scrollHeight;return div;
 }
@@ -2139,14 +2239,20 @@ composerSend.addEventListener('click', async () => {
     addMsg('user', msg);
     chatLog.push({r:'user', t: msg}); scheduleSave();
     composerMsg.value = ''; composerMsg.style.height = 'auto';
+    const mode = document.getElementById('composer-mode').value;
+    await runChat(provider, model, msg, mode, chatLog.slice(0, -1));
+});
+
+// The API-call half of sending, shared by the send button and Retry:
+// renders the reply and appends it to chatLog. The caller owns adding
+// the user message to the thread + log first.
+async function runChat(provider, model, msg, mode, history){
     const liveTrace = startLiveTrace(provider, model);
     composerSend.disabled = true;
     try {
-        const mode = document.getElementById('composer-mode').value;
-        // Shared memory: send the conversation so far (chatLog's last
-        // entry is the message just typed) — Nexus rebuilds it for
-        // whichever provider answers, so a switch mid-chat keeps context.
-        const payload = { provider, model, message: msg, mode, history: chatLog.slice(0, -1) };
+        // Shared memory: send the conversation so far — Nexus rebuilds it
+        // for whichever provider answers, so a switch mid-chat keeps context.
+        const payload = { provider, model, message: msg, mode, history };
         if (attachedImage) payload.image = attachedImage;
         if (attachedFile) payload.file = attachedFile;
         if (attachedLink) payload.link = attachedLink;
@@ -2172,9 +2278,9 @@ composerSend.addEventListener('click', async () => {
             const dispModel = j.used_model || model;
             const metaStr = friendlyName(dispProvider) + '  ·  ' + dispModel + '  ·  ' + mode;
             if (j.handover) addMsg('system', '↪ ' + friendlyName(j.from_provider || 'Previous provider') + ' hit a limit or stopped — ' + friendlyName(dispProvider) + ' continued this chat with the same shared memory.');
-            if (j.audio) { addAudioMsg(j.audio, metaStr, j.trace); chatLog.push({r:'ai', t:'🔊 Voice reply — audio itself is not stored in saved chats', m: metaStr, p: dispProvider, ...(j.trace ? {tr: j.trace} : {})}); }
-            else if (j.video) { addVideoMsg(j.video, metaStr, j.trace); chatLog.push({r:'ai', t:'🎬 Video reply — video itself is not stored in saved chats', m: metaStr, p: dispProvider, ...(j.trace ? {tr: j.trace} : {})}); }
-            else { addMsg('ai', j.reply, metaStr, j.trace); chatLog.push({r:'ai', t: j.reply, m: metaStr, p: dispProvider, ...(j.trace ? {tr: j.trace} : {})}); }
+            if (j.audio) { const d = addAudioMsg(j.audio, metaStr, j.trace); const e = {r:'ai', t:'🔊 Voice reply — audio itself is not stored in saved chats', m: metaStr, p: dispProvider, ...(j.trace ? {tr: j.trace} : {})}; chatLog.push(e); d._entry = e; }
+            else if (j.video) { const d = addVideoMsg(j.video, metaStr, j.trace); const e = {r:'ai', t:'🎬 Video reply — video itself is not stored in saved chats', m: metaStr, p: dispProvider, ...(j.trace ? {tr: j.trace} : {})}; chatLog.push(e); d._entry = e; }
+            else { const d = addMsg('ai', j.reply, metaStr, j.trace); const e = {r:'ai', t: j.reply, m: metaStr, p: dispProvider, ...(j.trace ? {tr: j.trace} : {})}; chatLog.push(e); d._entry = e; }
             scheduleSave();
             announce(friendlyName(dispProvider) + ' replied');
             fetchQuotas();
@@ -2187,7 +2293,7 @@ composerSend.addEventListener('click', async () => {
         composerSend.disabled = false;
         clearAttachment();
     }
-});
+}
 
 // Voice input: record from mic, transcribe via /api/transcribe (Groq Whisper),
 // drop the text into the composer.
