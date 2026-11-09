@@ -1621,7 +1621,8 @@ function finalStepRow(s){
 function buildTrace(steps){
   const el = document.createElement('div');
   el.className = 'trace';
-  el.innerHTML = steps.map(finalStepRow).join('');
+  const ordered = [...steps].sort((a, b) => (b.ok ? 1 : 0) - (a.ok ? 1 : 0));
+  el.innerHTML = ordered.map(finalStepRow).join('');
   el.querySelectorAll('button.trace-line').forEach(btn => {
     btn.addEventListener('click', () => {
       const row = btn.closest('.trace-row');
