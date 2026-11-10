@@ -5653,25 +5653,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def _v1_access_info(self):
         """Status for the API Access page, role-aware (owner order
-        2026-11-08: friends get the same page as the admin). The admin
-        gets exactly the old response (every key with its full secret,
-        lanes, endpoint status). A friend gets only their own keys in
-        the public shape — never key_full, never another user's keys,
-        no lanes or provider internals. Viewers and moderators get
-        403; the moderator scope question is still undecided."""
+        2026-11-08: friends get the same page as the admin; owner
+        order 2026-11-10: moderators too). The admin gets exactly the
+        old response (every key with its full secret, lanes, endpoint
+        status). A friend or moderator gets only their own keys in the
+        public shape — never key_full, never another user's keys, no
+        lanes or provider internals. Viewers get 403."""
         info = self._session_info()
         if not info:
             self._set_json_headers(403)
             self._send_body(json.dumps({"error": "admin only"}).encode())
             return
         kind = self._console_kind()[0]
-        if kind in ("viewer", "moderator"):
+        if kind == "viewer":
             self._set_json_headers(403)
             self._send_body(json.dumps({"error": "admin only"}).encode())
             return
-        if kind is None:
-            # Plain friend: their own keys only (the public shape
-            # carries no secret; the admin-owned keys are invisible).
+        if kind in (None, "moderator"):
+            # Plain friend or moderator: their own keys only (the
+            # public shape carries no secret; the admin-owned keys
+            # are invisible).
             label = info.get("label", "")
             if not _LABEL_RE.match(label):
                 self._set_json_headers(400)
