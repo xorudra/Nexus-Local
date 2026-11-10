@@ -6096,7 +6096,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path in ("/favicon.ico", "/favicon.svg",
                            "/favicon-32.png", "/apple-touch-icon.png",
-                           "/Nexus.apk"):
+                           "/Nexus.apk", "/nexus-demo.mp4"):
             # Public brand icons — browsers fetch them before login.
             # Small sizes use a zoomed bat so the silhouette survives
             # at tab size; the SVG and touch icon carry the full mark.
@@ -6111,6 +6111,7 @@ class Handler(BaseHTTPRequestHandler):
                                           "image/png"),
                 "/Nexus.apk": ("Nexus.apk",
                                "application/vnd.android.package-archive"),
+                "/nexus-demo.mp4": ("nexus-demo.mp4", "video/mp4"),
             }
             _fname, _ctype = _icons[parsed.path]
             try:
