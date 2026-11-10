@@ -7433,12 +7433,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api-access":
             # The external /v1 API's status page, the SAME page for
-            # admin and friends (owner order 2026-11-08: "same to
-            # same, no different new page"). Admins see every key;
-            # friends see only their own — the info endpoint
-            # enforces it. Viewers never reach key pages, and
-            # moderators keep the old 403 until the owner decides
-            # their /api-access scope.
+            # admin, friends and moderators (owner order 2026-11-08:
+            # "same to same, no different new page"; moderator access
+            # added by owner order 2026-11-10). Admins see every key;
+            # friends and moderators see only their own — the info
+            # endpoint enforces it. Viewers never reach key pages.
             info = self._session_info()
             if not info:
                 self.send_response(302)
@@ -7451,12 +7450,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
                 self._send_body(b"<h1>Not available with read-only access</h1>")
-                return
-            if _kind == "moderator":
-                self.send_response(403)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self._send_body(b"<h1>Admin only</h1>")
                 return
             try:
                 content = (Path(__file__).parent / "api.html").read_text(encoding="utf-8")
