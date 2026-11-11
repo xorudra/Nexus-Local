@@ -1836,6 +1836,7 @@ async function retryMessage(aiDiv){
   await runChat(provider, model, userEntry.t, mode, chatLog.slice(0, -1));
 }
 function addMsg(kind,text,meta,trace,fb,provider){
+  hideEmpty();
   const div=document.createElement('div');div.className='msg msg-'+kind;
   const bodyHtml = kind === 'ai' ? md(text) : esc(text).replace(/\n/g,'<br>');
   div.innerHTML='<div class="msg-body">'+bodyHtml+'</div>';
