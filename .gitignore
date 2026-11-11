@@ -35,3 +35,7 @@ app/audit.jsonl
 # sidecar is runtime state in the app data dir, never a
 # tracked file (the flag's sync channel is settings.enc)
 app/access_diverged.json
+
+# Profile 2026-11-10: uploaded avatars are per-user runtime files
+# (like access.json), never tracked and never friend-blob synced.
+app/avatars/

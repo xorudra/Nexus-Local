@@ -2258,7 +2258,11 @@ def _save_userkeys(label, keys_dict, password):
         meta = [{"provider": str(k), "last4": str(v)[-4:]}
                 for k, v in sorted((keys_dict or {}).items())
                 if isinstance(v, str) and len(v) >= 8
-                and not str(k).endswith("_url")]
+                and not str(k).endswith("_url")
+                # Profile 2026-11-10: underscore-prefixed INTERNAL keys
+                # (e.g. _totp_secret) are never provider keys — their
+                # last-4 would leak into the plaintext settings mirror.
+                and not str(k).startswith("_")]
         with _SETTINGS_LOCK:
             vm = dict(_SETTINGS.get("vault_meta") or {})
             vm[label] = meta
@@ -2270,6 +2274,94 @@ def _save_userkeys(label, keys_dict, password):
         _save_settings()
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Profile (owner order 2026-11-10): avatar + friend 2FA. Friend 2FA is
+# a SEPARATE flow from the admin's — it lives only on /profile and the
+# /api/profile/* endpoints, proved by the friend's own password. The
+# admin /api-access page and the admin 2fa_* actions are untouched and
+# stay admin-only; friends never reach them.
+# ---------------------------------------------------------------------------
+
+def _verify_friend_password(label, password):
+    """Verify a friend's login password against access.json, using the
+    shared throttle ledger (_pw_throttled/_pw_failed: 10 failures per
+    label per 15 min). Upgrades legacy hashes in place. Returns True
+    on a match. Used by the /api/profile/* endpoints, which re-auth
+    the password so a stolen session alone cannot enrol 2FA or change
+    the avatar."""
+    if _pw_throttled("friend", label):
+        return False
+    access = _load_access()
+    stored = access.get(label)
+    if stored is None:
+        return False
+    ok, needs_up = _verify_password(password, stored)
+    if not ok:
+        _pw_failed("friend", label)
+        return False
+    _PW_FAILS.pop(("friend", label), None)
+    if needs_up:
+        with _ACCESS_LOCK:
+            a2 = _load_access()
+            if a2.get(label) == stored:
+                a2[label] = _hash_password(password)
+                _save_access(a2)
+    return True
+
+
+AVATARS_DIR = Path(__file__).parent / "avatars"
+AVATARS_DIR.mkdir(exist_ok=True)
+_PROFILE_2FA_FAILS = []  # failed friend-2FA confirm/disable guesses,
+# account-wide, 10 in 10 min (mirrors _2FA_FAILS_CONSOLE)
+_PROFILE_2FA_ATTEMPTS = {}  # label -> [timestamps], 10 in 5 min
+
+
+def _avatar_path(label):
+    """Avatar file for a label, same sanitisation as _userkey_path:
+    the filename is derived from the session label only, never from
+    user input, so no traversal is possible."""
+    safe = _re.sub(r"[^a-z0-9_]", "", (label or "").lower())[:30]
+    return AVATARS_DIR / f"{safe}.png"
+
+
+def _process_avatar(raw):
+    """Validate and normalise an uploaded avatar. PNG/JPEG/WebP only,
+    magic-byte checked (never the extension), 256 KB cap, square-crop
+    + downscale to at most 512x512, EXIF stripped (the output is a
+    fresh Pillow image). Returns PNG bytes. Raises ValueError."""
+    if len(raw) > 256 * 1024:
+        raise ValueError("avatar is larger than 256 KB")
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        fmt = "PNG"
+    elif raw[:3] == b"\xff\xd8\xff":
+        fmt = "JPEG"
+    elif raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        fmt = "WEBP"
+    else:
+        raise ValueError("unsupported image format (PNG, JPEG or WebP only)")
+    from PIL import Image
+    import io
+    try:
+        im = Image.open(io.BytesIO(raw))
+        im.load()
+    except Exception:
+        raise ValueError("unreadable image")
+    if im.format != fmt:
+        raise ValueError("image contents do not match the file format")
+    if im.width * im.height > 16_000_000:
+        raise ValueError("image is too large")
+    im = im.convert("RGB")
+    w, h = im.size
+    side = min(w, h)
+    im = im.crop(((w - side) // 2, (h - side) // 2,
+                  (w + side) // 2, (h + side) // 2))
+    if side > 512:
+        im = im.resize((512, 512), Image.LANCZOS)
+    out = io.BytesIO()
+    im.save(out, format="PNG")
+    return out.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -4032,7 +4124,20 @@ def _totp_verify(secret_b32, code, window=1):
         pass
     return False
 
-_TOTP_LAST_STEP = {"v": -1}  # highest TOTP step accepted at login (replay guard)
+_TOTP_LAST_STEPS = {}  # label -> highest TOTP step accepted (replay guard)
+
+
+def _totp_step_used(label, step):
+    """True if this 30-second step was already accepted for this label.
+    Per-label (Profile 2026-11-10): a single global let an admin code
+    burn a friend's window and vice versa. Admin key is "Rudra"."""
+    return step <= _TOTP_LAST_STEPS.get(label or "", -1)
+
+
+def _totp_burn_step(label, step):
+    key = label or ""
+    if step > _TOTP_LAST_STEPS.get(key, -1):
+        _TOTP_LAST_STEPS[key] = step
 
 def _totp_match_step(secret_b32, code, window=1):
     """Return the timestep a code matches, or None. Lets the login flow
@@ -7493,6 +7598,66 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, "internal error")
             return
+        if parsed.path == "/profile":
+            # Profile page (owner order 2026-11-10): avatar + friend
+            # 2FA. Admin and friends; view passes never reach it.
+            info = self._session_info()
+            if not info:
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            if info.get("viewer"):
+                self.send_response(403)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self._send_body(b"<h1>Not available with read-only access</h1>")
+                return
+            try:
+                content = (Path(__file__).parent / "profile.html").read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.end_headers()
+                self._send_body(content.encode())
+            except Exception as e:
+                self.send_error(500, "internal error")
+            return
+        if parsed.path.startswith("/avatar/"):
+            # Avatar image (Profile 2026-11-10): any logged-in session
+            # may fetch any label's avatar (it is a profile picture,
+            # shown wherever the name is). The label is sanitised the
+            # same way as _avatar_path, so no traversal is possible;
+            # the Content-Type is pinned to image/png — the store only
+            # ever holds normalised PNGs.
+            info = self._session_info()
+            if not info:
+                self._set_json_headers(401)
+                self.wfile.write(json.dumps({"error": "not signed in"}).encode())
+                return
+            _alabel = parsed.path[len("/avatar/"):]
+            if not _re.match(r"^[a-zA-Z0-9_]{1,30}$", _alabel):
+                self._set_json_headers(404)
+                self.wfile.write(json.dumps({"error": "no avatar"}).encode())
+                return
+            _apath = _avatar_path(_alabel)
+            if not _apath.exists():
+                self._set_json_headers(404)
+                self.wfile.write(json.dumps({"error": "no avatar"}).encode())
+                return
+            try:
+                _adata = _apath.read_bytes()
+            except Exception:
+                self._set_json_headers(404)
+                self.wfile.write(json.dumps({"error": "no avatar"}).encode())
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(_adata)))
+            self.send_header("Cache-Control", "private, max-age=3600")
+            self.end_headers()
+            self._send_body(_adata)
+            return
         self._send_404_page()
 
     def _setup_save_user_keys(self, info, form=None, fresh_token=None):
@@ -8018,6 +8183,307 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(png)))
             self.end_headers()
             self._send_body(png)
+            return
+        # ---- Profile (owner order 2026-11-10): avatar + friend 2FA.
+        # SEPARATE from the admin 2FA flow: friends manage their own
+        # 2FA here with their own password as proof, on their own
+        # /profile page. The admin /api-access page and the admin
+        # 2fa_enable / 2fa_confirm / 2fa_disable actions (master_pw
+        # proof) are untouched and stay admin-only — friends never
+        # reach them.
+        if parsed.path.startswith("/api/profile/"):
+            def _profile_body():
+                try:
+                    _cl = int(self.headers.get("Content-Length", 0))
+                except Exception:
+                    _cl = 0
+                _raw = self.rfile.read(_cl) if _cl else b"{}"
+                try:
+                    _d = json.loads(_raw)
+                except Exception:
+                    _d = {}
+                return _d if isinstance(_d, dict) else {}
+
+            def _profile_guard(friend_only):
+                """Session guard for profile endpoints. Returns
+                (info, token) or None (with the error already sent).
+                friend_only=True rejects the admin (their 2FA lives in
+                the Admin console) and view passes."""
+                _info = self._session_info()
+                if not _info:
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "not signed in"}).encode())
+                    return None
+                if _info.get("viewer") or (friend_only and _info.get("admin")):
+                    self._set_json_headers(403)
+                    self.wfile.write(json.dumps(
+                        {"error": "admin 2FA is managed in the Admin console"
+                         if _info.get("admin")
+                         else "read-only access"}).encode())
+                    return None
+                return _info, self._get_session()
+
+            def _profile_2fa_rl(label):
+                """Friend-2FA guess budget, mirroring the admin console:
+                per-label 10 attempts / 5 min + global 10 / 10 min."""
+                _now = time.time()
+                _PROFILE_2FA_FAILS[:] = [t for t in _PROFILE_2FA_FAILS
+                                         if _now - t < 600]
+                if len(_PROFILE_2FA_FAILS) >= 10:
+                    return "too many attempts, try again later"
+                _atts = [t for t in _PROFILE_2FA_ATTEMPTS.get(label, [])
+                         if _now - t < 300]
+                if len(_atts) >= 10:
+                    return "too many attempts, try again later"
+                return None
+
+            def _profile_2fa_fail(label):
+                _now = time.time()
+                _PROFILE_2FA_FAILS.append(_now)
+                _PROFILE_2FA_ATTEMPTS.setdefault(label, []).append(_now)
+
+            if parsed.path == "/api/profile/status":
+                _g = _profile_guard(friend_only=False)
+                if not _g:
+                    return
+                _info, _tok = _g
+                _label = _info.get("label", "")
+                if _info.get("admin"):
+                    _uk = Handler.keys or {}
+                else:
+                    _uk = _info.get("userkeys") or {}
+                self._set_json_headers()
+                self.wfile.write(json.dumps({
+                    "ok": True, "label": _label, "admin": bool(_info.get("admin")),
+                    "role": "owner" if _info.get("admin") else _friend_role(_label),
+                    "avatar": _avatar_path(_label).exists(),
+                    "twofa": bool(_uk.get("_totp_secret")),
+                    "pending": bool(_uk.get("_totp_pending")),
+                }).encode())
+                return
+            if parsed.path == "/api/profile/2fa_enable":
+                _g = _profile_guard(friend_only=True)
+                if not _g:
+                    return
+                _info, _tok = _g
+                _data = _profile_body()
+                _label = _info.get("label", "")
+                _pw = _data.get("password") or ""
+                if not _pw or not _verify_friend_password(_label, _pw):
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                    return
+                try:
+                    _vault = _load_userkeys_strict(_label, _pw)
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "could not open your key vault"}).encode())
+                    return
+                if _vault.get("_totp_secret"):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "2FA is already enabled"}).encode())
+                    return
+                _secret = _totp_secret()
+                _vault["_totp_pending"] = _secret
+                _save_userkeys(_label, _vault, _pw)
+                _info["userkeys"] = dict(_vault)
+                _otpauth = ("otpauth://totp/NexusLocal:" + _label
+                            + "?secret=" + _secret + "&issuer=NexusLocal")
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "otpauth": _otpauth,
+                                             "pending": True}).encode())
+                return
+            if parsed.path == "/api/profile/2fa_qr":
+                _g = _profile_guard(friend_only=True)
+                if not _g:
+                    return
+                _info, _tok = _g
+                _data = _profile_body()
+                _label = _info.get("label", "")
+                _pw = _data.get("password") or ""
+                if not _pw or not _verify_friend_password(_label, _pw):
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                    return
+                try:
+                    _vault = _load_userkeys_strict(_label, _pw)
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "could not open your key vault"}).encode())
+                    return
+                _pend = _vault.get("_totp_pending") or ""
+                if not _pend:
+                    self._set_json_headers(404)
+                    self.wfile.write(json.dumps({"error": "no pending 2FA enrollment"}).encode())
+                    return
+                try:
+                    import qrcode, io
+                    _otpauth = ("otpauth://totp/NexusLocal:" + _label
+                                + "?secret=" + _pend + "&issuer=NexusLocal")
+                    _qr = qrcode.QRCode(box_size=6, border=2)
+                    _qr.add_data(_otpauth)
+                    _qr.make(fit=True)
+                    _img = _qr.make_image(fill_color="black", back_color="white")
+                    _buf = io.BytesIO()
+                    _img.save(_buf, format="PNG")
+                    _png = _buf.getvalue()
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "QR generation failed"}).encode())
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(_png)))
+                self.end_headers()
+                self._send_body(_png)
+                return
+            if parsed.path == "/api/profile/2fa_confirm":
+                _g = _profile_guard(friend_only=True)
+                if not _g:
+                    return
+                _info, _tok = _g
+                _data = _profile_body()
+                _label = _info.get("label", "")
+                _pw = _data.get("password") or ""
+                _code = _data.get("code") or ""
+                if not _pw or not _verify_friend_password(_label, _pw):
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                    return
+                _rl = _profile_2fa_rl(_label)
+                if _rl:
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": _rl}).encode())
+                    return
+                try:
+                    _vault = _load_userkeys_strict(_label, _pw)
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "could not open your key vault"}).encode())
+                    return
+                _pend = _vault.get("_totp_pending") or ""
+                if not _pend:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "no pending 2FA enrollment"}).encode())
+                    return
+                _step = _totp_match_step(_pend, _code) if _code else None
+                if _step is None or _totp_step_used(_label, _step):
+                    _profile_2fa_fail(_label)
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong code — check your authenticator app"}).encode())
+                    return
+                _totp_burn_step(_label, _step)
+                _vault["_totp_secret"] = _pend
+                _vault.pop("_totp_pending", None)
+                _save_userkeys(_label, _vault, _pw)
+                _info["userkeys"] = dict(_vault)
+                # Enabling 2FA logs out the account's OTHER sessions
+                # (owner order); the enrolling session stays alive.
+                for _t, _s in list(SESSIONS.items()):
+                    if _t != _tok and isinstance(_s, dict) \
+                            and _s.get("label") == _label \
+                            and not _s.get("admin"):
+                        _drop_chat_unlock(_s.get("chat_unlock"))
+                        del SESSIONS[_t]
+                self._set_json_headers()
+                _audit("Users", f"2FA enabled for {_label}")
+                self.wfile.write(json.dumps({"ok": True, "enabled": True}).encode())
+                return
+            if parsed.path == "/api/profile/2fa_disable":
+                _g = _profile_guard(friend_only=True)
+                if not _g:
+                    return
+                _info, _tok = _g
+                _data = _profile_body()
+                _label = _info.get("label", "")
+                _pw = _data.get("password") or ""
+                _code = _data.get("code") or ""
+                if not _pw or not _verify_friend_password(_label, _pw):
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong password"}).encode())
+                    return
+                _rl = _profile_2fa_rl(_label)
+                if _rl:
+                    self._set_json_headers(429)
+                    self.wfile.write(json.dumps({"error": _rl}).encode())
+                    return
+                try:
+                    _vault = _load_userkeys_strict(_label, _pw)
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "could not open your key vault"}).encode())
+                    return
+                _secret = _vault.get("_totp_secret") or ""
+                if not _secret:
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "2FA is not enabled"}).encode())
+                    return
+                _step = _totp_match_step(_secret, _code) if _code else None
+                if _step is None or _totp_step_used(_label, _step):
+                    _profile_2fa_fail(_label)
+                    self._set_json_headers(401)
+                    self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
+                    return
+                _totp_burn_step(_label, _step)
+                _vault.pop("_totp_secret", None)
+                _vault.pop("_totp_pending", None)
+                _save_userkeys(_label, _vault, _pw)
+                _info["userkeys"] = dict(_vault)
+                self._set_json_headers()
+                _audit("Users", f"2FA disabled for {_label}")
+                self.wfile.write(json.dumps({"ok": True, "enabled": False}).encode())
+                return
+            if parsed.path == "/api/profile/avatar":
+                _g = _profile_guard(friend_only=False)
+                if not _g:
+                    return
+                _info, _tok = _g
+                _label = _info.get("label", "")
+                _ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                if _ctype not in ("image/png", "image/jpeg", "image/webp"):
+                    self._set_json_headers(400)
+                    self.wfile.write(json.dumps({"error": "upload a PNG, JPEG or WebP image"}).encode())
+                    return
+                try:
+                    _clen = int(self.headers.get("Content-Length", 0))
+                except Exception:
+                    _clen = 0
+                _raw = self.rfile.read(_clen) if _clen else b""
+                try:
+                    _png = _process_avatar(_raw)
+                except ValueError as _e:
+                    self._set_json_headers(413 if "256 KB" in str(_e) else 400)
+                    self.wfile.write(json.dumps({"error": str(_e)}).encode())
+                    return
+                _dest = _avatar_path(_label)
+                _tmp = _dest.with_suffix(".tmp")
+                _tmp.write_bytes(_png)
+                os.chmod(_tmp, 0o600)
+                os.replace(_tmp, _dest)
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            if parsed.path == "/api/profile/avatar_reset":
+                _g = _profile_guard(friend_only=False)
+                if not _g:
+                    return
+                _info, _tok = _g
+                _profile_body()
+                _dest = _avatar_path(_info.get("label", ""))
+                try:
+                    _dest.unlink()
+                except FileNotFoundError:
+                    pass
+                except Exception:
+                    self._set_json_headers(500)
+                    self.wfile.write(json.dumps({"error": "could not remove the avatar"}).encode())
+                    return
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
+                return
+            self._set_json_headers(404)
+            self.wfile.write(json.dumps({"error": "unknown profile action"}).encode())
             return
         if parsed.path == "/api/transcribe":
             # Speech-to-text for the composer mic button (Groq Whisper).
@@ -10432,11 +10898,73 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "2FA session expired, log in again"}).encode())
                     return
-                # Pending session holds already-decrypted keys (no password stored)
+                # Two pending shapes: admin pendings hold decrypted keys
+                # ("keys"); friend pendings hold the label + password
+                # (Profile 2FA, 2026-11-10). The password stays only in
+                # server memory for the 5-minute pending window, exactly
+                # like the admin's decrypted keys above — it is needed
+                # after the code step to mint the session (chat_pw).
+                if pend.get("label"):
+                    _flabel = pend["label"]
+                    _fpw = pend.get("password") or ""
+                    _fuk = _load_userkeys(_flabel, _fpw)
+                    _fsecret = (_fuk or {}).get("_totp_secret", "")
+                    _fstep = _totp_match_step(_fsecret, data["code"]) \
+                        if _fsecret else None
+                    if _fstep is None or _totp_step_used(_flabel, _fstep):
+                        attempts.append(now)
+                        _2FA_ATTEMPTS[tmp] = attempts
+                        _2FA_FAILS_GLOBAL.append(now)
+                        for k in [k for k, v in _2FA_ATTEMPTS.items()
+                                  if not v or now - v[-1] > 300]:
+                            _2FA_ATTEMPTS.pop(k, None)
+                        self._set_json_headers(401)
+                        self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
+                        return
+                    _totp_burn_step(_flabel, _fstep)  # this code can never be replayed
+                    _PENDING_2FA.pop(tmp, None)  # consume only on success
+                    _2FA_ATTEMPTS.pop(tmp, None)
+                    _login_attempts.pop(ip, None)
+                    _ftoken = secrets.token_hex(32)
+                    _fsess = {"ts": time.time(), "label": _flabel,
+                              "admin": False, "chat_pw": _fpw}
+                    _fsess.update(_session_meta(self.headers,
+                                                self.client_address[0]))
+                    if _fuk:
+                        _fsess["userkeys"] = _fuk
+                    try:
+                        _fiv = _load_intg(_flabel, _fpw)
+                        if isinstance(_fiv, dict):
+                            _fsess["integrations"] = _fiv
+                    except Exception:
+                        pass
+                    SESSIONS[_ftoken] = _fsess
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Set-Cookie", f"session={_ftoken}; HttpOnly; Secure; SameSite=Lax; Path=/")
+                    self.end_headers()
+                    _audit("System", f"Signed in: {_flabel} (friend, 2FA)",
+                           ip=_client_ip(self.headers, ip))
+                    _fterms = False
+                    if _flabel not in (_SETTINGS.get("terms_seen") or []):
+                        with _SETTINGS_LOCK:
+                            _fseen = list(_SETTINGS.get("terms_seen") or [])
+                            _fseen.append(_flabel)
+                            _SETTINGS["terms_seen"] = _fseen
+                        _save_settings()
+                        _audit("Users", f"Terms notice shown: {_flabel}")
+                        _fterms = True
+                    self.wfile.write(json.dumps(
+                        {"ok": True, "admin": False, "label": _flabel,
+                         "role": _friend_role(_flabel),
+                         "terms_notice": _fterms}).encode())
+                    return
+                # Admin pending: the flow as before, replay guard now
+                # keyed per-label ("Rudra").
                 dec_keys = pend.get("keys")
                 secret = (dec_keys or {}).get("_totp_secret", "")
                 _step = _totp_match_step(secret, data["code"]) if secret else None
-                if _step is None or _step <= _TOTP_LAST_STEP["v"]:
+                if _step is None or _totp_step_used("Rudra", _step):
                     attempts.append(now)
                     _2FA_ATTEMPTS[tmp] = attempts
                     _2FA_FAILS_GLOBAL.append(now)
@@ -10447,7 +10975,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._set_json_headers(401)
                     self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                     return
-                _TOTP_LAST_STEP["v"] = _step  # this code can never be replayed
+                _totp_burn_step("Rudra", _step)  # this code can never be replayed
                 _PENDING_2FA.pop(tmp, None)  # consume only on success
                 _2FA_ATTEMPTS.pop(tmp, None)
                 _login_attempts.pop(ip, None)
@@ -10550,6 +11078,42 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": tmp}).encode())
                 return
+            if not is_admin:
+                # Friend 2FA (Profile 2026-11-10): the secret lives in
+                # the friend's own encrypted vault. Friends without it
+                # log in exactly as before.
+                _fuk = _load_userkeys(label, password)
+                if _fuk and _fuk.get("_totp_secret"):
+                    _totp_reset = _SETTINGS.get("totp_reset") or {}
+                    if label in _totp_reset:
+                        # Owner reset (friend_reset_2fa): the friend
+                        # verified themselves to the owner, so the next
+                        # password sign-in clears the secret while the
+                        # password is in scope — the admin cannot decrypt
+                        # the friend's vault directly.
+                        with _SETTINGS_LOCK:
+                            _tr = dict(_SETTINGS.get("totp_reset") or {})
+                            _tr.pop(label, None)
+                            _SETTINGS["totp_reset"] = _tr
+                        _save_settings()
+                        _fuk.pop("_totp_secret", None)
+                        _fuk.pop("_totp_pending", None)
+                        _save_userkeys(label, _fuk, password)
+                        _audit("Users", f"2FA reset applied for {label} at sign-in")
+                    else:
+                        _tmp = secrets.token_hex(16)
+                        _PENDING_2FA[_tmp] = {"ts": time.time(),
+                                              "label": label,
+                                              "password": password}
+                        for k in [k for k, v in _PENDING_2FA.items()
+                                  if time.time() - v["ts"] > 300]:
+                            _drop_chat_unlock(_PENDING_2FA[k].get("chat_unlock"))
+                            del _PENDING_2FA[k]
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"ok": True, "need_2fa": True, "tmp": _tmp}).encode())
+                        return
             token = secrets.token_hex(32)
             sess = {"ts": time.time(), "label": label, "admin": is_admin}
             sess.update(_session_meta(self.headers, self.client_address[0]))
@@ -10698,6 +11262,7 @@ class Handler(BaseHTTPRequestHandler):
                     "revoke", "change_master", "viewpass_create",
                     "viewpass_list", "viewpass_revoke", "2fa_status",
                     "2fa_enable", "2fa_confirm", "2fa_disable",
+                    "friend_reset_2fa",
                     "settings_set", "audit_clear", "custom_provider_save",
                     "custom_provider_remove", "factory_reset",
                     "webhook_test", "settings_restore_preview",
@@ -10892,8 +11457,8 @@ class Handler(BaseHTTPRequestHandler):
             if action in ("friend_set_cap", "friend_set_suspended",
                           "friend_role_set", "provider_health_reset",
                           "friend_vault_clear", "friend_key_add",
-                          "friend_reset_pw", "invite_create",
-                          "invite_revoke",
+                          "friend_reset_pw", "friend_reset_2fa",
+                          "invite_create", "invite_revoke",
                           "simulate_failure", "session_revoke",
                           "sessions_revoke_all", "friend_usage_reset"):
                 _derr = _dual_master(data)
@@ -11268,6 +11833,46 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             _note = " (account changed during reset - files kept)"
                     _audit("Users", f"Password reset: {stored}{_note}{_actor}")
+                    self._set_json_headers()
+                    self.wfile.write(json.dumps({"ok": True}).encode())
+                    return
+                if action == "friend_reset_2fa":
+                    # Profile 2026-11-10, owner decision: a friend who
+                    # loses their authenticator verifies themselves to
+                    # the OWNER, who resets it from Users & Vaults.
+                    # Admin-only (also in the moderator-forbidden list
+                    # above) with master proof via _dual_master. The
+                    # admin cannot decrypt the friend's vault, so this
+                    # sets a reset flag in _SETTINGS (persisted to
+                    # settings.enc, readable pre-unlock) that the login
+                    # flow honours: the next password sign-in clears
+                    # the secret while the password is in scope. The
+                    # friend's live sessions are revoked too, like a
+                    # password reset — a lost authenticator may mean a
+                    # lost device.
+                    stored = _stored_label2(data.get("label"))
+                    if not stored:
+                        self._set_json_headers(404)
+                        self.wfile.write(json.dumps({"error": "friend not found"}).encode())
+                        return
+                    _prior_tr = dict(_SETTINGS.get("totp_reset") or {})
+                    with _SETTINGS_LOCK:
+                        _tr = dict(_SETTINGS.get("totp_reset") or {})
+                        _tr[stored] = time.time()
+                        _SETTINGS["totp_reset"] = _tr
+                    if not _save_settings():
+                        with _SETTINGS_LOCK:
+                            _SETTINGS["totp_reset"] = _prior_tr
+                        self._set_json_headers(500)
+                        self.wfile.write(json.dumps({"error": "could not save the reset flag"}).encode())
+                        return
+                    _revoked = 0
+                    for tok in [t for t, s in SESSIONS.items()
+                                if isinstance(s, dict) and s.get("label") == stored]:
+                        _drop_chat_unlock(SESSIONS[tok].get("chat_unlock"))
+                        del SESSIONS[tok]
+                        _revoked += 1
+                    _audit("Users", f"2FA reset: {stored} ({_revoked} session(s) revoked){_actor}")
                     self._set_json_headers()
                     self.wfile.write(json.dumps({"ok": True}).encode())
                     return
@@ -12256,12 +12861,12 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                         return
                     _step = _totp_match_step(pending, code) if code else None
-                    if _step is None or _step <= _TOTP_LAST_STEP["v"]:
+                    if _step is None or _totp_step_used("Rudra", _step):
                         _2FA_FAILS_CONSOLE.append(_now7)
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong code — check your authenticator app"}).encode())
                         return
-                    _TOTP_LAST_STEP["v"] = _step  # burn the confirm code (anti-replay watermark, as at login)
+                    _totp_burn_step("Rudra", _step)  # burn the confirm code (anti-replay watermark, as at login)
                     keys["_totp_secret"] = pending
                     keys.pop("_totp_pending", None)
                     encrypt_keys(keys, master_pw, key_path)
@@ -12296,13 +12901,13 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(json.dumps({"error": "too many attempts, try again later"}).encode())
                         return
                     _step = _totp_match_step(secret, code) if secret else None
-                    if secret and (_step is None or _step <= _TOTP_LAST_STEP["v"]):
+                    if secret and (_step is None or _totp_step_used("Rudra", _step)):
                         _2FA_FAILS_CONSOLE.append(_now7)
                         self._set_json_headers(401)
                         self.wfile.write(json.dumps({"error": "wrong 2FA code"}).encode())
                         return
                     if _step is not None:
-                        _TOTP_LAST_STEP["v"] = _step  # burn the disable code (anti-replay watermark, as at login)
+                        _totp_burn_step("Rudra", _step)  # burn the disable code (anti-replay watermark, as at login)
                     keys.pop("_totp_secret", None)
                     keys.pop("_totp_pending", None)
                     encrypt_keys(keys, master_pw, key_path)
