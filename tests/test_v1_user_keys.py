@@ -414,14 +414,26 @@ class ApiAccessPageTests(_V1KeyMixin, unittest.TestCase):
         st, _ = self._get("/api-access", session=None)
         self.assertEqual(st, 302)
 
-    def test_moderator_get_api_access_stays_403(self):
-        # The moderator scope question is undecided: moderators keep
-        # the old 403 until the owner decides.
+    def test_moderator_get_api_access_200_own_keys_only(self):
+        # Owner order 2026-11-10: moderators use /api-access like a
+        # normal friend — their own keys only, never other users'.
         orig = dict(server._SETTINGS.get("roles") or {})
         server._SETTINGS["roles"] = dict(orig, friendone="moderator")
         self.addCleanup(lambda: server._SETTINGS.update({"roles": orig}))
-        st, _ = self._get("/api-access", session={"label": "friendone"})
-        self.assertEqual(st, 403)
+        st, body = self._get("/api-access", session={"label": "friendone"})
+        self.assertEqual(st, 200)
+        self.assertIn(b"API Access", body)
+        own_e, _ = self._mk_key(owner="friendone", name="mine")
+        other_e, _ = self._mk_key(owner="friendtwo", name="theirs")
+        st, d = self._get("/api/v1-access", session={"label": "friendone"})
+        self.assertEqual(st, 200, d)
+        self.assertEqual(d.get("role"), "friend")
+        self.assertEqual(len(d["keys"]), 1)
+        self.assertEqual(d["keys"][0]["id"], own_e["id"])
+        raw = json.dumps(d)
+        self.assertNotIn("key_full", raw)
+        self.assertNotIn(other_e["key"], raw)
+        self.assertNotIn("lanes", d)
 
     def test_friend_v1_access_returns_only_own_keys(self):
         admin_e, _ = self._mk_key(owner="admin", name="admin-key")
