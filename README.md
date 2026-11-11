@@ -4,8 +4,6 @@ Chat with every AI, from one Nexus — **23 provider lanes, one login, one share
 
 **Live:** https://nexusos.dpdns.org — a private instance. Anyone can see the home page; accounts are created by the admin for friends (no public sign-up). For your own instance with your own keys, follow the setup below.
 
-![Nexus demo](https://github.com/user-attachments/assets/a7b5285a-80f6-4971-b923-d88ead0d6cad)
-
 ## 🧊 3D Architecture
 
 [![Every model. One Nexus.](nexus-beam-v2.gif)](nexus-beam.svg)
