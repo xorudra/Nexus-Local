@@ -15,9 +15,9 @@
   --muted:#8b93a1;
   --faint:#b6bcc7;
   --line:rgba(255,255,255,.1);
-  --card:rgba(255,255,255,.035);
+  --card:#0a0a0a;
+  --card2:#101013;
   --cyan:#38bdf8;
-  --cyan-deep:#0284c7;
   --font:'Inter','Inter Fallback',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   --disp:'Space Grotesk','Inter',-apple-system,sans-serif;
   --mono:'JetBrains Mono',ui-monospace,monospace;
@@ -49,42 +49,68 @@ img,svg{display:block;max-width:100%}
 .btn-login{font-size:14px;font-weight:450;color:var(--muted);padding:8px 14px;border-radius:10px;transition:.18s}
 .btn-login:hover{color:var(--ink);background:rgba(255,255,255,.07)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:500;font-size:14px;
-  padding:8px 16px;border-radius:10px;border:1px solid transparent;cursor:pointer;
-  transition:transform .16s,box-shadow .16s,background .16s,border-color .16s;white-space:nowrap}
+  padding:8px 18px;border-radius:999px;border:1px solid transparent;cursor:pointer;
+  transition:transform .16s,background .16s,border-color .16s;white-space:nowrap}
 .btn-light{background:var(--ink);color:#000}
-.btn-light:hover{background:#fff;transform:translateY(-1px);box-shadow:0 8px 24px rgba(255,255,255,.14)}
+.btn-light:hover{background:#fff;transform:translateY(-1px)}
 .btn-light:active{transform:translateY(0)}
 .btn-cyan{background:var(--cyan);color:#04121c;font-weight:600}
-.btn-cyan:hover{background:#5cc9fa;transform:translateY(-1px);box-shadow:0 8px 26px rgba(56,189,248,.35)}
-.btn-lg{font-size:15px;padding:12px 26px;border-radius:12px}
+.btn-cyan:hover{background:#5cc9fa;transform:translateY(-1px)}
+.btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn-ghost:hover{border-color:rgba(255,255,255,.35);transform:translateY(-1px)}
+.btn-lg{font-size:15px;padding:13px 28px}
 .menu-toggle{display:none;background:none;border:1px solid var(--line);border-radius:10px;width:40px;height:40px;
   cursor:pointer;align-items:center;justify-content:center;color:var(--ink)}
 .menu-toggle svg{width:20px;height:20px}
 
 /* ---------- hero ---------- */
-.hero{text-align:center;padding:150px 0 70px;position:relative}
-.hero::before{content:"";position:absolute;inset:0;pointer-events:none;
-  background:none}
-.pill{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:400;line-height:16px;color:var(--muted);
-  background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 14px;position:relative}
-.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:none}
-.hero h1{display:block;font-family:var(--disp);font-size:96px;font-weight:600;line-height:96px;letter-spacing:-.03em;
-  padding:24px 0;margin:26px auto 0;position:relative;
-  background:linear-gradient(to right bottom,#fff 30%,rgba(255,255,255,.4));
-  -webkit-background-clip:text;background-clip:text;color:transparent}
-.hero h1 .cy{background:linear-gradient(100deg,var(--cyan),#7dd3fc);-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero .sub{font-size:20px;line-height:28px;color:var(--muted);max-width:60ch;margin:8px auto 0;font-weight:400;position:relative}
+.hero{text-align:center;padding:150px 0 30px;position:relative}
+.hero h1{font-family:var(--disp);font-size:92px;font-weight:600;line-height:1.02;letter-spacing:-.03em;margin:0 auto}
+.hero h1 .cy{color:var(--cyan)}
+.hero .sub{font-size:20px;line-height:29px;color:var(--muted);max-width:62ch;margin:26px auto 0;font-weight:400}
 .hero .sub strong{color:var(--ink);font-weight:600}
-.hero .cta-row{margin-top:32px;position:relative;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
-.hero-shot{margin:70px auto 0;max-width:1336px;border-radius:16px;overflow:hidden;position:relative;
-  border:1px solid var(--line);box-shadow:0 40px 100px -30px rgba(0,0,0,.9),0 0 90px -40px rgba(56,189,248,.28)}
-.hero-shot img{width:100%;height:auto}
-.hero-shot video{width:100%;height:auto;display:block}
+.hero .cta-row{margin-top:34px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.hero .note{margin-top:20px;font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+
+/* tilted trio (ZeroSweep-style cards, Nexus theme) */
+.trio-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:1180px;margin:64px auto 0;text-align:left;padding:0 8px}
+.tcard{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:22px 22px 20px;min-height:300px}
+.tcard.tilt-l{transform:rotate(-2deg)}
+.tcard.tilt-r{transform:rotate(2deg)}
+.tcard .tc-head{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;
+  display:flex;align-items:center;gap:8px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.tcard .tc-head .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);flex:none}
+.tc-chat{margin-top:16px;display:flex;flex-direction:column;gap:10px}
+.tc-user{align-self:flex-end;background:#f2f2f2;color:#0a0a0a;font-size:13.5px;font-weight:500;
+  padding:9px 14px;border-radius:16px 16px 4px 16px;max-width:85%}
+.tc-ai{align-self:flex-start;background:#17171b;color:var(--ink);font-size:13.5px;line-height:20px;
+  padding:10px 14px;border-radius:16px 16px 16px 4px;max-width:92%}
+.tc-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-top:2px}
+.spill{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.03em;border-radius:999px;padding:3px 9px;white-space:nowrap}
+.spill.cy{background:var(--cyan);color:#04121c}
+.spill.ol{background:transparent;color:var(--faint);border:1px solid var(--line)}
+.tc-cont{margin-top:14px;font-size:12.5px;color:var(--muted);border-top:1px dashed var(--line);padding-top:12px}
+.tc-cont strong{color:var(--cyan);font-weight:600}
+.tc-big{font-family:var(--disp);font-size:76px;font-weight:700;line-height:1;letter-spacing:-.03em;margin-top:20px}
+.tc-big small{font-size:15px;font-weight:500;color:var(--muted);letter-spacing:0;font-family:var(--font)}
+.tc-chart{margin-top:18px}
+.tc-note{font-size:13px;line-height:20px;color:var(--muted);margin-top:14px}
+.tc-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0 4px}
+.tc-row .nm{font-size:14px;font-weight:600}
+.tc-row .md{font-size:12px;color:var(--muted)}
+.tc-bar{height:5px;border-radius:99px;background:#232329;margin:8px 0 2px;overflow:hidden}
+.tc-bar i{display:block;height:100%;background:var(--cyan);border-radius:99px}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;max-width:1180px;margin:84px auto 0;
+  padding:36px 8px 6px;border-top:1px solid var(--line);text-align:left}
+.stat .v{font-family:var(--disp);font-size:34px;font-weight:700;letter-spacing:-.02em}
+.stat .l{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;margin-top:6px}
 
 /* providers strip */
-.trusted{padding:80px 0 10px;text-align:center}
-.trusted h2{font-size:14px;font-weight:600;line-height:20px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
-.logo-marquee{margin-top:38px;overflow:hidden;
+.trusted{padding:74px 0 6px;text-align:center}
+.trusted h2{font-size:13px;font-weight:600;line-height:20px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.logo-marquee{margin-top:34px;overflow:hidden;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);
   mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
 .logo-track{display:flex;gap:84px;width:max-content;align-items:center;padding:6px 42px;animation:marquee 28s linear infinite}
@@ -95,16 +121,23 @@ img,svg{display:block;max-width:100%}
 .logo-item:hover{color:#c9cfd8}
 .logo-item .pdot{width:9px;height:9px;border-radius:50%;flex:none}
 
+/* video */
+.video-sec{padding:70px 0 10px}
+.video-frame{max-width:1180px;margin:0 auto;border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.video-frame video{width:100%;height:auto;display:block;aspect-ratio:16/9;background:#000}
+.sec-label{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;text-align:center;margin-bottom:22px}
+
 /* ---------- sections ---------- */
-.section{padding:110px 0}
-.eyebrow{font-family:var(--disp);font-size:20px;font-weight:700;line-height:28px;color:var(--ink);margin-bottom:12px}
-.section h2.big{font-family:var(--disp);font-size:60px;font-weight:700;line-height:60px;letter-spacing:-.025em}
-.section .lead{font-size:20px;line-height:32px;color:var(--muted);max-width:64ch;margin-top:18px;font-weight:400}
+.section{padding:100px 0}
+.eyebrow{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.18em;color:var(--cyan);text-transform:uppercase;margin-bottom:14px}
+.section h2.big{font-family:var(--disp);font-size:56px;font-weight:700;line-height:1.06;letter-spacing:-.025em}
+.section .lead{font-size:19px;line-height:31px;color:var(--muted);max-width:64ch;margin-top:18px;font-weight:400}
 .section .lead strong{color:var(--ink);font-weight:700}
 
-/* feature trio */
-.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:56px}
-.trio-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 26px;
+/* features sheet */
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:56px 52px}
+.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:46px}
+.trio-card{background:var(--card2);border:1px solid var(--line);border-radius:16px;padding:26px 24px;
   transition:transform .2s,border-color .2s}
 .trio-card:hover{transform:translateY(-4px);border-color:rgba(56,189,248,.4)}
 .trio-card .ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;margin-bottom:18px;
@@ -115,17 +148,26 @@ img,svg{display:block;max-width:100%}
 .trio-card p code{font-family:var(--mono);font-size:12.5px;color:var(--cyan);background:rgba(56,189,248,.1);
   padding:1px 6px;border-radius:6px}
 
+/* how it works */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:48px}
+.step{display:flex;gap:16px;align-items:flex-start}
+.step .num{width:34px;height:34px;flex:none;border-radius:50%;border:1px solid rgba(56,189,248,.5);color:var(--cyan);
+  display:grid;place-items:center;font-family:var(--disp);font-weight:700;font-size:15px}
+.step h3{font-family:var(--disp);font-size:17px;font-weight:600;margin-bottom:6px}
+.step p{font-size:14px;line-height:22px;color:var(--muted)}
+
 /* pricing */
 .pricing-head{text-align:center}
 .pricing-head .lead{margin-left:auto;margin-right:auto}
+.pricing-head .eyebrow{text-align:center}
 .billing-row{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:28px}
 .billing-row .annual{font-size:16px;color:var(--ink)}
 .free-badge{display:inline-block;font-size:11px;font-weight:600;line-height:20px;letter-spacing:.04em;text-transform:uppercase;
   background:var(--cyan);color:#04121c;border-radius:999px;padding:4px 10px;white-space:nowrap}
 .plans{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:52px auto 0;align-items:stretch;max-width:880px}
-.plan{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px 24px;
+.plan{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px 24px;
   display:flex;flex-direction:column;transition:transform .2s,border-color .2s,background .2s;position:relative}
-.plan:hover{transform:translateY(-4px);border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.055)}
+.plan:hover{transform:translateY(-4px);border-color:rgba(255,255,255,.22)}
 .plan.live{border-color:rgba(56,189,248,.45)}
 .plan .live-tag{position:absolute;top:-13px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;
   letter-spacing:.08em;background:var(--cyan);color:#04121c;padding:4px 14px;border-radius:999px;
@@ -140,23 +182,21 @@ img,svg{display:block;max-width:100%}
 .plan li{display:flex;gap:10px;align-items:flex-start;font-size:12px;font-weight:500;line-height:16px;color:#d7dbe2}
 .plan li svg{width:15px;height:15px;flex:none;margin-top:1px;color:var(--cyan)}
 .plan .btn{width:100%;font-size:16px;font-weight:600;line-height:28px;padding:8px 16px}
-.plan .btn[disabled]{opacity:.45;cursor:default;transform:none!important;box-shadow:none!important}
+.plan .btn[disabled]{opacity:.45;cursor:default;transform:none!important}
 
 /* ---------- CTA ---------- */
-.cta-panel{position:relative;text-align:center;padding:90px 32px;border-radius:24px;overflow:hidden;
-  border:1px solid var(--line);background:radial-gradient(600px 300px at 50% 0%,rgba(56,189,248,.16),transparent 70%),#050505}
-.cta-panel h2{font-family:var(--disp);font-size:clamp(40px,5.5vw,64px);font-weight:700;letter-spacing:-.03em;
-  line-height:1.08;position:relative;
-  background:linear-gradient(to right bottom,#fff 30%,rgba(255,255,255,.45));
-  -webkit-background-clip:text;background-clip:text;color:transparent}
-.cta-panel p{color:var(--muted);font-size:18px;margin:16px auto 0;max-width:46ch;position:relative}
-.cta-panel .cta-row{margin-top:32px;position:relative;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.cta-panel{text-align:center;padding:84px 32px;border-radius:24px;border:1px solid var(--line);background:#0a0a0a}
+.cta-panel h2{font-family:var(--disp);font-size:clamp(38px,5.5vw,60px);font-weight:700;letter-spacing:-.03em;line-height:1.08}
+.cta-panel h2 .cy{color:var(--cyan)}
+.cta-panel p{color:var(--muted);font-size:18px;margin:16px auto 0;max-width:46ch}
+.cta-panel .cta-row{margin-top:32px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 
 /* ---------- footer ---------- */
 footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
-.foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:40px}
-.foot-brand p{font-size:14px;color:var(--muted);margin-top:12px;font-weight:450}
-.foot-col h3{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);margin-bottom:18px}
+.foot-grid{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:40px}
+.foot-brand p{font-size:14px;color:var(--muted);margin-top:12px;font-weight:450;max-width:30ch}
+.foot-social{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.foot-col h3{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:18px}
 .foot-col ul{list-style:none;display:flex;flex-direction:column;gap:12px}
 .foot-col a{font-size:14px;font-weight:450;color:var(--muted);transition:color .16s}
 .foot-col a:hover{color:var(--ink)}
@@ -170,42 +210,43 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
 .reveal[data-d="1"]{transition-delay:.08s}.reveal[data-d="2"]{transition-delay:.16s}
 .reveal[data-d="3"]{transition-delay:.24s}.reveal[data-d="4"]{transition-delay:.32s}
 
-/* toast */
-.toast{position:fixed;bottom:28px;left:50%;transform:translate(-50%,80px);background:#1a1a1a;color:#fff;
-  border:1px solid var(--line);font-size:14px;font-weight:500;padding:13px 22px;border-radius:12px;
-  box-shadow:0 14px 34px rgba(0,0,0,.5);opacity:0;transition:.35s cubic-bezier(.2,.7,.2,1);z-index:100;
-  pointer-events:none;max-width:90vw;text-align:center}
-.toast.show{transform:translate(-50%,0);opacity:1}
 
 /* ---------- responsive ---------- */
 @media (max-width:1024px){
-  .hero h1{font-size:64px;line-height:68px}
+  .hero h1{font-size:64px}
   .plans{grid-template-columns:repeat(2,1fr)}
   .trio{grid-template-columns:1fr;max-width:560px;margin-left:auto;margin-right:auto}
-  .section h2.big{font-size:48px;line-height:52px}
+  .trio-cards{grid-template-columns:1fr;max-width:520px}
+  .tcard.tilt-l,.tcard.tilt-r{transform:none}
+  .steps{grid-template-columns:1fr;max-width:560px}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .section h2.big{font-size:44px}
+  .sheet{padding:40px 28px}
 }
 @media (max-width:768px){
-  .main-nav{position:fixed;top:57px;left:0;right:0;background: #000000;border-bottom:1px solid var(--line);
+  .main-nav{position:fixed;top:57px;left:0;right:0;background:#000000;border-bottom:1px solid var(--line);
     flex-direction:column;align-items:stretch;gap:0;padding:8px 16px 16px;display:none}
   .main-nav.open{display:flex}
   .main-nav a{padding:13px 8px;font-size:15px;border-bottom:1px solid var(--line)}
   .menu-toggle{display:inline-flex}
   .btn-login{display:none}
-  .hero{padding:110px 0 48px}
-  .hero h1{font-size:44px;line-height:48px}
-  .hero .sub{font-size:17px}
+  .hero{padding:110px 0 20px}
+  .hero h1{font-size:46px}
+  .hero .sub{font-size:17px;line-height:26px}
+  .tc-big{font-size:58px}
+  .tc-big small{display:block;margin-top:8px}
   .section{padding:72px 0}
-  .section h2.big{font-size:36px;line-height:40px}
+  .section h2.big{font-size:34px}
   .plans{grid-template-columns:1fr;max-width:420px;margin-left:auto;margin-right:auto}
   .cta-panel{padding:64px 22px}
   .foot-grid{grid-template-columns:1fr 1fr}
   .wrap{padding:0 20px}
 }
 @media (max-width:600px){
-  .hero h1{font-size:38px;line-height:42px}
-  .hero h1 br{display:none}
+  .hero h1{font-size:40px}
   .foot-grid{grid-template-columns:1fr;gap:28px}
   .foot-bottom{flex-direction:column;align-items:flex-start}
+  .stats{grid-template-columns:repeat(2,1fr)}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
@@ -219,7 +260,7 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="#top" aria-label="Nexus home">
-      <span class="bchip" aria-hidden="true"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#0a0a0a"/></svg></span>
+      <span class="bchip" aria-hidden="true"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L17,16 L10,20 Z" fill="#0a0a0a"/></svg></span>
       Nexus
     </a>
     <nav class="main-nav" id="mainNav" aria-label="Primary">
@@ -230,7 +271,7 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
     </nav>
     <div class="header-actions">
       <a class="btn-login" href="#login">Log in</a>
-      <a class="btn btn-light" href="/login" data-open>Get Nexus</a>
+      <a class="btn btn-cyan" href="/login" data-open>Get Nexus</a>
       <button class="menu-toggle" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="mainNav">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
@@ -242,24 +283,61 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
   <!-- HERO -->
   <section class="hero" id="features">
     <div class="wrap">
-      <span class="pill reveal"><span class="dot" aria-hidden="true"></span> Introducing Nexus</span>
-      <h1 class="reveal" data-d="1">Chat with every AI,<br>from one <span class="cy">Nexus.</span></h1>
-      <p class="sub reveal" data-d="2">One conversation across <strong>Groq, Claude, Gemini, ChatGPT</strong> and more. Shared memory and automatic failover keep the chat alive — even when a provider goes down.</p>
-      <div class="cta-row reveal" data-d="3">
+      <h1 class="reveal in">Every AI.<br>One <span class="cy">conversation.</span></h1>
+      <p class="sub reveal in" data-d="1">ChatGPT, Claude, Gemini, Groq and 19 more — from one Nexus. <strong>One login, one shared memory</strong>, and failover that keeps the chat alive even when a provider goes down.</p>
+      <div class="cta-row reveal in" data-d="2">
         <a class="btn btn-cyan btn-lg" href="/login" data-open>Start chatting for free</a>
-        <a class="btn btn-light btn-lg" href="#providers" style="background:transparent;color:var(--ink);border:1px solid var(--line)">See providers</a>
+        <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
       </div>
-      <figure class="hero-shot reveal" data-d="4">
-        <video src="/nexus-demo.mp4" width="1336" height="800" autoplay muted loop playsinline preload="metadata"></video>
-      </figure>
+      <p class="note reveal in" data-d="3">Free forever — no card needed</p>
+
+      <!-- TILTED TRIO -->
+      <div class="trio-cards reveal in" data-d="4">
+        <article class="tcard tilt-l">
+          <div class="tc-head"><span class="dot"></span>Conversation</div>
+          <div class="tc-chat">
+            <div class="tc-user">Write a haiku about the moon</div>
+            <div class="tc-ai">Silent moon above,<br>Silver light on sleeping seas,<br>Dreams drift through the night.</div>
+            <div class="tc-meta"><span>Answered by OpenRouter</span><span class="spill cy">1.0s</span></div>
+          </div>
+          <p class="tc-cont">Follow-up lands on <strong>Claude</strong> — same thread, nothing re-explained.</p>
+        </article>
+        <article class="tcard">
+          <div class="tc-head"><span class="dot"></span>Shared memory</div>
+          <div class="tc-big">100K <small>/ chars of context</small></div>
+          <div class="tc-chart" aria-hidden="true">
+            <svg viewBox="0 0 300 70" width="100%" height="70" fill="none"><polyline points="0,58 36,50 72,54 108,40 144,44 180,30 216,34 252,18 300,8" stroke="#38bdf8" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>
+          </div>
+          <p class="tc-note">Identical memory on every lane. Newest turns verbatim, older ones compressed — never dropped silently.</p>
+        </article>
+        <article class="tcard tilt-r">
+          <div class="tc-head"><span class="dot"></span>Live lanes</div>
+          <div class="tc-row"><div><div class="nm">Groq</div><div class="md">gpt-oss-20b</div></div><span class="spill cy">Online</span></div>
+          <div class="tc-bar"><i style="width:82%"></i></div>
+          <div class="tc-row"><div><div class="nm">Claude</div><div class="md">sonnet-4-5</div></div><span class="spill cy">Online</span></div>
+          <div class="tc-bar"><i style="width:64%"></i></div>
+          <div class="tc-row"><div><div class="nm">Gemini</div><div class="md">3.5 flash-lite</div></div><span class="spill ol">Failover</span></div>
+          <div class="tc-bar"><i style="width:45%"></i></div>
+          <div class="tc-row"><div><div class="nm">OpenAI</div><div class="md">gpt-5-mini</div></div><span class="spill cy">Online</span></div>
+          <div class="tc-bar"><i style="width:71%"></i></div>
+        </article>
+      </div>
+
+      <!-- STATS -->
+      <div class="stats reveal in">
+        <div class="stat"><div class="v">23</div><div class="l">AI lanes</div></div>
+        <div class="stat"><div class="v">100K</div><div class="l">Shared memory chars</div></div>
+        <div class="stat"><div class="v">4&times;</div><div class="l">Failover tries per chat</div></div>
+        <div class="stat"><div class="v">$0</div><div class="l">To start, forever</div></div>
+      </div>
     </div>
 
     <!-- PROVIDERS -->
     <div class="trusted" id="providers">
       <div class="wrap">
-        <h2 class="reveal">Works with the AI you already use</h2>
+        <h2 class="reveal in">Works with the AI you already use</h2>
       </div>
-      <div class="logo-marquee reveal" aria-label="Supported providers">
+      <div class="logo-marquee reveal in" aria-label="Supported providers">
         <div class="logo-track" id="logoTrack">
           <span class="logo-item"><span class="pdot" style="background:#f97316"></span>Groq</span>
           <span class="logo-item"><span class="pdot" style="background:#d97757"></span>Claude</span>
@@ -272,28 +350,61 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
     </div>
   </section>
 
-  <!-- WHY NEXUS -->
+  <!-- VIDEO -->
+  <section class="video-sec">
+    <div class="wrap">
+      <p class="sec-label reveal in">Watch Nexus work</p>
+      <div class="video-frame reveal in">
+        <video src="/nexus-demo.mp4" autoplay muted loop playsinline preload="metadata"></video>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHY NEXUS / FEATURES SHEET -->
   <section class="section" id="why">
     <div class="wrap">
-      <p class="eyebrow reveal">Why Nexus</p>
-      <h2 class="big reveal" data-d="1">Built for chats that<br>outlive any one model.</h2>
-      <p class="lead reveal" data-d="2">Other apps lock your history to a single provider. Nexus keeps <strong>one shared memory</strong> — so when a lane goes down or hits a limit, the conversation just continues somewhere else.</p>
-      <div class="trio">
-        <article class="trio-card reveal" data-d="1">
-          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z"/></svg></div>
-          <h3>Automatic failover</h3>
-          <p>When a provider errors or rate-limits, Nexus hands the chat to the next healthy lane with a <code>[Handover]</code> note. You never retype, never re-explain.</p>
-        </article>
-        <article class="trio-card reveal" data-d="2">
-          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 3"/><path d="M17 3.5c1.5 1 2.5 2 3 3.5"/></svg></div>
-          <h3>Shared memory</h3>
-          <p>Up to <code>100K chars</code> of context per chat — newest turns verbatim, older ones compressed locally. Identical on every provider, so switching lanes loses nothing.</p>
-        </article>
-        <article class="trio-card reveal" data-d="3">
-          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
-          <h3>Bring your own keys</h3>
-          <p>Connect your own provider accounts into your encrypted vault. Your keys stay yours — chat prefers them, and revoking is one tap.</p>
-        </article>
+      <div class="sheet reveal in">
+        <p class="eyebrow">Why Nexus</p>
+        <h2 class="big">Built for chats that outlive any one model.</h2>
+        <p class="lead">Other apps lock your history to a single provider. Nexus keeps <strong>one shared memory</strong> — so when a lane goes down or hits a limit, the conversation just continues somewhere else.</p>
+        <div class="trio">
+          <article class="trio-card">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z"/></svg></div>
+            <h3>Automatic failover</h3>
+            <p>When a provider errors or rate-limits, Nexus hands the chat to the next healthy lane with a <code>[Handover]</code> note. You never retype, never re-explain.</p>
+          </article>
+          <article class="trio-card">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 3"/><path d="M17 3.5c1.5 1 2.5 2 3 3.5"/></svg></div>
+            <h3>Shared memory</h3>
+            <p>Up to <code>100K chars</code> of context per chat — newest turns verbatim, older ones compressed locally. Identical on every provider, so switching lanes loses nothing.</p>
+          </article>
+          <article class="trio-card">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+            <h3>Bring your own keys</h3>
+            <p>Connect your own provider accounts into your encrypted vault. Your keys stay yours — chat prefers them, and revoking is one tap.</p>
+          </article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="section" id="how" style="padding-top:30px">
+    <div class="wrap">
+      <h2 class="big reveal in">How it works</h2>
+      <div class="steps">
+        <div class="step reveal in" data-d="1">
+          <div class="num">1</div>
+          <div><h3>Log in once</h3><p>One Nexus account signs you into every AI. No stack of subscriptions to juggle.</p></div>
+        </div>
+        <div class="step reveal in" data-d="2">
+          <div class="num">2</div>
+          <div><h3>Pick any AI</h3><p>23 lanes with the strongest model preselected. Switch mid-chat whenever you like.</p></div>
+        </div>
+        <div class="step reveal in" data-d="3">
+          <div class="num">3</div>
+          <div><h3>Keep the thread</h3><p>The conversation and its memory move with you — the new AI answers like it was there all along.</p></div>
+        </div>
       </div>
     </div>
   </section>
@@ -302,16 +413,16 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
   <section class="section" id="pricing" style="padding-top:40px">
     <div class="wrap">
       <div class="pricing-head">
-        <p class="eyebrow reveal">Pricing</p>
-        <h2 class="big reveal" data-d="1">Simple pricing for everyone.</h2>
-        <p class="lead reveal" data-d="2">Nexus is <strong>free</strong> — no paid tiers, no subscriptions, no card. Real chats on real free lanes, and your own keys when you want more.</p>
-        <div class="billing-row reveal" data-d="3">
+        <p class="eyebrow reveal in">Pricing</p>
+        <h2 class="big reveal in" data-d="1">Simple pricing for everyone.</h2>
+        <p class="lead reveal in" data-d="2">Nexus is <strong>free</strong> — no paid tiers, no subscriptions, no card. Real chats on real free lanes, and your own keys when you want more.</p>
+        <div class="billing-row reveal in" data-d="3">
           <span class="annual">Free to start</span>
           <span class="free-badge">Free forever plan ✨</span>
         </div>
       </div>
       <div class="plans" id="plans">
-        <article class="plan live reveal" data-d="1">
+        <article class="plan live reveal in" data-d="1">
           <span class="live-tag">Live now</span>
           <h3>Free</h3>
           <p class="desc">Chat on shared free lanes — the full Nexus experience</p>
@@ -323,9 +434,9 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>16+ provider lanes</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Android app included</li>
           </ul>
-          <button class="btn btn-cyan" data-plan="Free">Start free</button>
+          <a class="btn btn-cyan" href="/login" data-open>Start free</a>
         </article>
-        <article class="plan live reveal" data-d="2">
+        <article class="plan live reveal in" data-d="2">
           <span class="live-tag">Live now</span>
           <h3>BYOK</h3>
           <p class="desc">Bring your own keys — your accounts, your limits</p>
@@ -339,7 +450,7 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Chat prefers your keys first</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>One-tap revoke</li>
           </ul>
-          <button class="btn btn-light" data-plan="BYOK">Connect keys</button>
+          <a class="btn btn-light" href="/login" data-open>Connect keys</a>
         </article>
       </div>
     </div>
@@ -348,12 +459,12 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
   <!-- CTA -->
   <section class="section" id="download" style="padding-top:40px">
     <div class="wrap">
-      <div class="cta-panel reveal">
-        <h2>Stop juggling AI apps.</h2>
+      <div class="cta-panel reveal in">
+        <h2>Stop juggling <span class="cy">AI apps.</span></h2>
         <p>Start your first chat. No credit card required.</p>
         <div class="cta-row">
           <a class="btn btn-cyan btn-lg" href="/login" data-open>Get Nexus</a>
-          <a class="btn btn-light btn-lg" href="#download" style="background:transparent;color:var(--ink);border:1px solid var(--line)">Download APK</a>
+          <a class="btn btn-ghost btn-lg" href="/Nexus.apk">Download APK</a>
         </div>
       </div>
     </div>
@@ -365,10 +476,14 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
     <div class="foot-grid">
       <div class="foot-brand">
         <a class="brand" href="#top" aria-label="Nexus home">
-          <span class="bchip" aria-hidden="true"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L67,18 L59,28 L54,22 L50,30 L46,22 L41,28 L33,18 L25,24 L17,16 L10,20 Z" fill="#0a0a0a"/></svg></span>
+          <span class="bchip" aria-hidden="true"><svg viewBox="0 0 100 36"><path d="M0,14 L24,3 L39,9 L44,1 L46.5,7 L50,5 L53.5,7 L56,1 L61,9 L76,3 L100,14 L90,20 L83,16 L75,24 L17,16 L10,20 Z" fill="#0a0a0a"/></svg></span>
           Nexus
         </a>
         <p>One chat. Every AI.</p>
+        <div class="foot-social">
+          <a class="btn btn-ghost" href="https://github.com/xorudra/Nexus-Local" target="_blank" rel="noopener">GitHub &#8599;</a>
+          <a class="btn btn-ghost" href="https://www.linkedin.com/in/rudra-pratap-singh-9699a938a/" target="_blank" rel="noopener">LinkedIn &#8599;</a>
+        </div>
       </div>
       <div class="foot-col">
         <h3>Product</h3>
@@ -376,31 +491,32 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
           <li><a href="#features">Features</a></li>
           <li><a href="#providers">Providers</a></li>
           <li><a href="#pricing">Pricing</a></li>
-          <li><a href="#download">Download APK</a></li>
+          <li><a href="/Nexus.apk">Download APK</a></li>
         </ul>
       </div>
       <div class="foot-col">
         <h3>Resources</h3>
         <ul>
           <li><a href="#why">Why Nexus</a></li>
+          <li><a href="#how">How it works</a></li>
           <li><a href="#faq">FAQ</a></li>
         </ul>
       </div>
       <div class="foot-col">
         <h3>Legal</h3>
         <ul>
-          <li><a href="#terms">Terms</a></li>
-          <li><a href="#privacy">Privacy</a></li>
+          <li><a href="/terms">Terms of Service</a></li>
+          <li><a href="/privacy">Privacy Policy</a></li>
         </ul>
       </div>
     </div>
     <div class="foot-bottom">
       <p>Copyright © 2026 Nexus. All Rights Reserved.</p>
+      <p>One login. Every AI. One shared memory.</p>
     </div>
   </div>
 </footer>
 
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 (function(){
@@ -415,17 +531,6 @@ footer{border-top:1px solid var(--line);padding:60px 0 30px;margin-top:40px}
 
   var track=document.getElementById('logoTrack');
   track.innerHTML+=track.innerHTML;
-
-  var toast=document.getElementById('toast'),tt=null;
-  function showToast(msg){
-    toast.textContent=msg;toast.classList.add('show');
-    clearTimeout(tt);tt=setTimeout(function(){toast.classList.remove('show');},2600);
-  }
-  document.querySelectorAll('[data-plan]').forEach(function(btn){
-    btn.addEventListener('click',function(){
-      showToast('Demo only — the '+btn.dataset.plan+' plan has no backend here yet.');
-    });
-  });
 
   var io=new IntersectionObserver(function(entries){
     entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});
