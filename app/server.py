@@ -6257,9 +6257,13 @@ class Handler(BaseHTTPRequestHandler):
             # Self-hosted webfonts (were Google Fonts until
             # 2026-11-13): no visitor IP leaves for Google at load.
             _frel = parsed.path.lstrip("/")
-            if not re.fullmatch(r"fonts\.css|fonts/[a-z0-9-]+\.woff2", _frel):
-                self.send_error(404)
-                return
+            if _frel != "fonts.css":
+                _stem = (_frel[6:-6] if _frel.startswith("fonts/")
+                         and _frel.endswith(".woff2") else "")
+                if not _stem or not all(
+                        c.isalnum() or c == "-" for c in _stem):
+                    self.send_error(404)
+                    return
             try:
                 _data = (Path(__file__).parent / _frel).read_bytes()
             except OSError:
