@@ -326,7 +326,7 @@ class Console2Tests(unittest.TestCase):
         self.assertIn(b"Join Nexus", payload)
         status, body, headers, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"code": code, "label": "newpal", "password": "newpal-pass-1"})
+            {"age_ok": True, "code": code, "label": "newpal", "password": "newpal-pass-1"})
         self.assertEqual(status, 200, body)
         self.assertEqual(body["label"], "newpal")
         cookie = headers.get("set-cookie", "").split(";")[0]
@@ -335,7 +335,7 @@ class Console2Tests(unittest.TestCase):
         # Codes are single-use.
         status, body, _, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"code": code, "label": "otherpal",
+            {"age_ok": True, "code": code, "label": "otherpal",
              "password": "otherpal-pass-1"})
         self.assertEqual(status, 400)
         # Closed registration refuses even a fresh code.
@@ -345,7 +345,7 @@ class Console2Tests(unittest.TestCase):
         self._set({"registration": "closed"})
         status, body, _, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"code": code2, "label": "latepal",
+            {"age_ok": True, "code": code2, "label": "latepal",
              "password": "latepal-pass-1"})
         self.assertEqual(status, 403)
         self._set({"registration": "invite"})

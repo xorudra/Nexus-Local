@@ -244,7 +244,7 @@ class Wave18RestoreHttpTests(_FixtureServerBase):
             def run_redeem():
                 out["r"] = self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": label, "password": pw, "code": code},
+                    {"age_ok": True, "label": label, "password": pw, "code": code},
                     headers={"X-Forwarded-For":
                              f"198.51.100.{20 + k}"})
 

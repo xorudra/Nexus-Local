@@ -589,7 +589,7 @@ class Wave16FaultHarness(_FixtureServerBase):
         # before validation and wiped them).
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "prelink16", "password": "prelink16-new-pw",
+            {"age_ok": True, "label": "prelink16", "password": "prelink16-new-pw",
              "code": "BOGUSW16"})
         self.assertEqual(status, 400, body)
         settings = self._settings(admin)
@@ -604,7 +604,7 @@ class Wave16FaultHarness(_FixtureServerBase):
         self.assertEqual(status, 200, body)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "prelink16", "password": "prelink16-new-pw",
+            {"age_ok": True, "label": "prelink16", "password": "prelink16-new-pw",
              "code": body["code"]})
         self.assertEqual(status, 200, body)
         status, body, _ = self._login("prelink16-new-pw")

@@ -1252,7 +1252,7 @@ class AuditFixHarness(unittest.TestCase):
         def redeem(i):
             results[i] = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": f"racer{i}", "password": f"racer-pass-{i}-xyz",
+                {"age_ok": True, "label": f"racer{i}", "password": f"racer-pass-{i}-xyz",
                  "code": code})[0]
         # 4 racers (not 8): the endpoint's per-IP budget is 10/15 min
         # and the later wave-2 tests redeem from the same fixture IP.
@@ -1321,13 +1321,13 @@ class AuditFixHarness(unittest.TestCase):
         code = self._invite(admin)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "collide2", "password": MASTER, "code": code})
+            {"age_ok": True, "label": "collide2", "password": MASTER, "code": code})
         self.assertEqual(status, 400, body)
         self.assertIn("already in use", body.get("error", ""))
         # The refused redemption did not consume the invite.
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "collide2", "password": "collide-two-pass",
+            {"age_ok": True, "label": "collide2", "password": "collide-two-pass",
              "code": code})
         self.assertEqual(status, 200, body)
         # Password reset onto the master is refused the same way.
@@ -1348,7 +1348,7 @@ class AuditFixHarness(unittest.TestCase):
         _, _, admin = self._login(MASTER)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "oracle1", "password": SHARED_PW,
+            {"age_ok": True, "label": "oracle1", "password": SHARED_PW,
              "code": "bogus-code-000000"})
         self.assertEqual(status, 400, body)
         self.assertIn("invite code is invalid", body.get("error", ""))
@@ -1356,14 +1356,14 @@ class AuditFixHarness(unittest.TestCase):
         code = self._invite(admin)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "_owner", "password": "owner-pass-123",
+            {"age_ok": True, "label": "_owner", "password": "owner-pass-123",
              "code": code})
         self.assertEqual(status, 400, body)
         self.assertIn("reserved", body.get("error", ""))
         # The reserved-label refusal did not consume the invite either.
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "invitedpal", "password": "invited-pass-1",
+            {"age_ok": True, "label": "invitedpal", "password": "invited-pass-1",
              "code": code})
         self.assertEqual(status, 200, body)
         status, body, _ = self._access(
@@ -2422,14 +2422,14 @@ class AuditFixHarness(unittest.TestCase):
         for i in range(10):
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": f"probe41_{i}", "password": SHARED_PW,
+                {"age_ok": True, "label": f"probe41_{i}", "password": SHARED_PW,
                  "code": code},
                 headers={"X-Forwarded-For": f"10.41.0.{i + 1}"})
             self.assertEqual(status, 400, (i, body))
             self.assertIn("already in use", json.dumps(body))
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "probe41_z", "password": SHARED_PW, "code": code},
+            {"age_ok": True, "label": "probe41_z", "password": SHARED_PW, "code": code},
             headers={"X-Forwarded-For": "10.41.9.9"})
         self.assertEqual(status, 429, body)
         # Run-9 (S5): the budget is consumed BEFORE the verdict, so
@@ -2441,7 +2441,7 @@ class AuditFixHarness(unittest.TestCase):
         # budget on a fresh code.
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "real41", "password": "real41-unique-pw",
+            {"age_ok": True, "label": "real41", "password": "real41-unique-pw",
              "code": code},
             headers={"X-Forwarded-For": "10.41.9.10"})
         self.assertEqual(status, 429, body)
@@ -2451,7 +2451,7 @@ class AuditFixHarness(unittest.TestCase):
         self.assertEqual(status, 200, body)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "real41", "password": "real41-unique-pw",
+            {"age_ok": True, "label": "real41", "password": "real41-unique-pw",
              "code": body["code"]},
             headers={"X-Forwarded-For": "10.41.9.11"})
         self.assertEqual(status, 200, body)
@@ -2539,7 +2539,7 @@ class AuditFixHarness(unittest.TestCase):
         for i in range(10):
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": f"probe45_{i}", "password": SHARED_PW,
+                {"age_ok": True, "label": f"probe45_{i}", "password": SHARED_PW,
                  "code": code},
                 headers={"X-Forwarded-For": f"10.45.0.{i + 1}"})
             self.assertEqual(status, 400, (i, body))
@@ -2549,13 +2549,13 @@ class AuditFixHarness(unittest.TestCase):
         # receives the identical generic 429 as a taken candidate.
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "sneak45", "password": "sneak45-unique-pw",
+            {"age_ok": True, "label": "sneak45", "password": "sneak45-unique-pw",
              "code": code},
             headers={"X-Forwarded-For": "10.45.0.99"})
         self.assertEqual(status, 429, body)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "probe45_z", "password": SHARED_PW, "code": code},
+            {"age_ok": True, "label": "probe45_z", "password": SHARED_PW, "code": code},
             headers={"X-Forwarded-For": "10.45.0.98"})
         self.assertEqual(status, 429, body)
         # No account was created by the refused free attempt.
@@ -2569,7 +2569,7 @@ class AuditFixHarness(unittest.TestCase):
         self.assertEqual(status, 200, body)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "legit45", "password": "legit45-unique-pw",
+            {"age_ok": True, "label": "legit45", "password": "legit45-unique-pw",
              "code": body["code"]},
             headers={"X-Forwarded-For": "10.45.0.97"})
         self.assertEqual(status, 200, body)
@@ -3084,7 +3084,7 @@ class Wave11Harness(_FixtureServerBase):
                 # A handed-out code must actually redeem.
                 st2, body2, _ = self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": f"race49_{trial}",
+                    {"age_ok": True, "label": f"race49_{trial}",
                      "password": f"race49-pw-{trial}", "code": body["code"]},
                     headers={"X-Forwarded-For": f"10.49.1.{trial + 1}"})
                 self.assertEqual(st2, 200, (trial, body2))
@@ -3104,7 +3104,7 @@ class Wave11Harness(_FixtureServerBase):
             for i in range(10):
                 status, body, _ = self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": f"junk50_{i}",
+                    {"age_ok": True, "label": f"junk50_{i}",
                      "password": f"junk50-pw-{i}"},
                     headers={"X-Forwarded-For": f"10.50.0.{i + 1}"})
                 self.assertEqual(status, 200, (i, body))
@@ -3112,7 +3112,7 @@ class Wave11Harness(_FixtureServerBase):
             # junk above and this legitimate signup got a 429.
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": "legit50", "password": "legit50-pw"},
+                {"age_ok": True, "label": "legit50", "password": "legit50-pw"},
                 headers={"X-Forwarded-For": "10.50.9.1"})
             self.assertEqual(status, 200, body)
             # A same-source oracle still exhausts: ten taken verdicts
@@ -3121,12 +3121,12 @@ class Wave11Harness(_FixtureServerBase):
             for i in range(10):
                 status, body, _ = self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": f"orc50_{i}", "password": FRIEND_PW},
+                    {"age_ok": True, "label": f"orc50_{i}", "password": FRIEND_PW},
                     headers={"X-Forwarded-For": "10.50.7.7"})
                 self.assertEqual(status, 400, (i, body))
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": "orc50_free", "password": "orc50-free-pw"},
+                {"age_ok": True, "label": "orc50_free", "password": "orc50-free-pw"},
                 headers={"X-Forwarded-For": "10.50.7.7"})
             self.assertEqual(status, 429, body)
         finally:
@@ -4057,7 +4057,7 @@ class Wave12FaultHarness(_FixtureServerBase):
         try:
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": "claim61", "password": "claim61-pw",
+                {"age_ok": True, "label": "claim61", "password": "claim61-pw",
                  "code": code},
                 headers={"X-Forwarded-For": "10.61.0.1"})
             # Pre-fix: 200 ok, and the SAME code minted a second
@@ -4071,7 +4071,7 @@ class Wave12FaultHarness(_FixtureServerBase):
         # The claim was rolled back: the code still redeems, once.
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "claim61b", "password": "claim61b-pw",
+            {"age_ok": True, "label": "claim61b", "password": "claim61b-pw",
              "code": code},
             headers={"X-Forwarded-For": "10.61.0.2"})
         self.assertEqual(status, 200, body)
@@ -4086,7 +4086,7 @@ class Wave12FaultHarness(_FixtureServerBase):
         self.assertEqual(status, 401)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "claim61c", "password": "claim61c-pw",
+            {"age_ok": True, "label": "claim61c", "password": "claim61c-pw",
              "code": code},
             headers={"X-Forwarded-For": "10.61.0.3"})
         self.assertEqual(status, 400, body)
@@ -4342,7 +4342,7 @@ class Wave12OpenHarness(_FixtureServerBase):
                 pw = f"{label}-pw"
                 status, body, _ = self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": label, "password": pw},
+                    {"age_ok": True, "label": label, "password": pw},
                     headers={"X-Forwarded-For": f"10.91.0.{i + 1}"})
                 self.assertEqual(status, 200, (label, body))
                 cands.append(pw)
@@ -4351,7 +4351,7 @@ class Wave12OpenHarness(_FixtureServerBase):
                 pw = f"cand91-pw-{i}"
                 status, body, _ = self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": label, "password": pw},
+                    {"age_ok": True, "label": label, "password": pw},
                     headers={"X-Forwarded-For": f"10.91.2.{i}"})
                 self.assertEqual(status, 200, (label, body))
                 cands.append(pw)
@@ -4361,7 +4361,7 @@ class Wave12OpenHarness(_FixtureServerBase):
                 ci, k = job
                 return self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": f"taken91_{ci}_{k}", "password": cands[ci]},
+                    {"age_ok": True, "label": f"taken91_{ci}_{k}", "password": cands[ci]},
                     headers={"X-Forwarded-For":
                              f"10.91.1.{ci * 9 + k}"})[0]
             jobs = [(ci, k) for ci in range(25) for k in range(9)]
@@ -4373,12 +4373,12 @@ class Wave12OpenHarness(_FixtureServerBase):
             # source — is the same generic 429.
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": "taken91_x", "password": FRIEND_PW},
+                {"age_ok": True, "label": "taken91_x", "password": FRIEND_PW},
                 headers={"X-Forwarded-For": "10.91.9.9"})
             self.assertEqual(status, 429, body)
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": "free91", "password": "free91-pw-999"},
+                {"age_ok": True, "label": "free91", "password": "free91-pw-999"},
                 headers={"X-Forwarded-For": "10.91.9.10"})
             self.assertEqual(status, 429, body)
         finally:
@@ -4968,7 +4968,7 @@ class Wave13FaultHarness(_FixtureServerBase):
         try:
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": "role13", "password": "role13-pw",
+                {"age_ok": True, "label": "role13", "password": "role13-pw",
                  "code": code},
                 headers={"X-Forwarded-For": "10.13.0.1"})
             # Pre-fix: 200 ok, and the moderator role silently
@@ -5057,14 +5057,14 @@ class Wave13OpenHarness(_FixtureServerBase):
             # open signup (the verifier's leg M).
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": "burnsrc13", "password": "burn-cand-13"},
+                {"age_ok": True, "label": "burnsrc13", "password": "burn-cand-13"},
                 headers={"X-Forwarded-For": "10.31.0.1"})
             self.assertEqual(status, 200, body)
             codes = []
             for i in range(15):
                 status, _b, _ = self._req(
                     "POST", "/api/invite/redeem",
-                    {"label": f"burn13_{i}", "password": "burn-cand-13"},
+                    {"age_ok": True, "label": f"burn13_{i}", "password": "burn-cand-13"},
                     headers={"X-Forwarded-For": f"10.31.1.{i}"})
                 codes.append(status)
             # 10 verdicts (the creation already spent 1 sub-bucket
@@ -5075,7 +5075,7 @@ class Wave13OpenHarness(_FixtureServerBase):
             # free signup from a fresh source still succeeds.
             status, body, _ = self._req(
                 "POST", "/api/invite/redeem",
-                {"label": "free13", "password": "free13-pw-999"},
+                {"age_ok": True, "label": "free13", "password": "free13-pw-999"},
                 headers={"X-Forwarded-For": "10.31.9.9"})
             self.assertEqual(status, 200, body)
         finally:
@@ -5862,7 +5862,7 @@ class Wave15FaultHarness(_FixtureServerBase):
         code = body["code"]
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "ghost15", "password": "ghost15-new-pw",
+            {"age_ok": True, "label": "ghost15", "password": "ghost15-new-pw",
              "code": code})
         self.assertEqual(status, 200, body)
         status, body, _ = self._login("ghost15-new-pw")
@@ -5882,7 +5882,7 @@ class Wave15FaultHarness(_FixtureServerBase):
         self.assertEqual(status, 200, body)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "brick15", "password": "brick15-new-pw",
+            {"age_ok": True, "label": "brick15", "password": "brick15-new-pw",
              "code": body["code"]})
         self.assertEqual(status, 200, body)
         status, body, _ = self._login("brick15-new-pw")
@@ -5896,7 +5896,7 @@ class Wave15FaultHarness(_FixtureServerBase):
         self.assertEqual(status, 200, body)
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "mod15", "password": "mod15-new-pw",
+            {"age_ok": True, "label": "mod15", "password": "mod15-new-pw",
              "code": body["code"]})
         self.assertEqual(status, 200, body)
         status, body, _ = self._login("mod15-new-pw")

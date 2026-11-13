@@ -5499,11 +5499,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
-        # CSP: allow self + Google Fonts (used by pages); no inline scripts from other origins
+        # CSP: self only (fonts self-hosted since 2026-11-13); no inline scripts from other origins
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                         "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+                         "style-src 'self' 'unsafe-inline'; "
+                         "font-src 'self'; img-src 'self' data:; "
                          "connect-src 'self'; frame-ancestors 'none'")
         super().end_headers()
 
@@ -6248,6 +6248,25 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/javascript")
+            self.send_header("Cache-Control", "public, max-age=604800")
+            self.send_header("Content-Length", str(len(_data)))
+            self.end_headers()
+            self._send_body(_data)
+            return
+        if parsed.path == "/fonts.css" or parsed.path.startswith("/fonts/"):
+            # Self-hosted webfonts (were Google Fonts until
+            # 2026-11-13): no visitor IP leaves for Google at load.
+            _frel = parsed.path.lstrip("/")
+            if not re.fullmatch(r"fonts\.css|fonts/[a-z0-9-]+\.woff2", _frel):
+                self.send_error(404)
+                return
+            try:
+                _data = (Path(__file__).parent / _frel).read_bytes()
+            except OSError:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/css" if _frel == "fonts.css" else "font/woff2")
             self.send_header("Cache-Control", "public, max-age=604800")
             self.send_header("Content-Length", str(len(_data)))
             self.end_headers()
@@ -10518,6 +10537,12 @@ class Handler(BaseHTTPRequestHandler):
             if _SETTINGS.get("maintenance"):
                 self._set_json_headers(403)
                 self.wfile.write(json.dumps({"error": "maintenance mode is on — try again later"}).encode())
+                return
+            if data.get("age_ok") is not True:
+                # DPDP basics (2026-11-13): self-service signup is
+                # 18+ only, confirmed by the signup form's checkbox.
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"error": "please confirm you are 18 or older"}).encode())
                 return
             label = (data.get("label") or "").strip().lower()
             password = data.get("password") or ""

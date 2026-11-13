@@ -316,7 +316,7 @@ class Wave17RaceHttpTests(_FixtureServerBase):
         t0 = time.time()
         status, body, _ = cls._req(
             "POST", "/api/invite/redeem",
-            {"label": "solo17v", "password": "solo17v-pw-1",
+            {"age_ok": True, "label": "solo17v", "password": "solo17v-pw-1",
              "code": code},
             headers={"X-Forwarded-For": "198.51.100.1"})
         assert status == 200, body
@@ -352,7 +352,7 @@ class Wave17RaceHttpTests(_FixtureServerBase):
 
     def _redeem(self, label, pw, code, ip):
         return self._req("POST", "/api/invite/redeem",
-                         {"label": label, "password": pw,
+                         {"age_ok": True, "label": label, "password": pw,
                           "code": code},
                          headers={"X-Forwarded-For": ip})
 
@@ -565,7 +565,7 @@ class Wave17DecryptCountHttpTests(_FixtureServerBase):
         before = self._count()
         status, body, _ = self._req(
             "POST", "/api/invite/redeem",
-            {"label": "cleanr17", "password": "cleanr17-pw-1",
+            {"age_ok": True, "label": "cleanr17", "password": "cleanr17-pw-1",
              "code": body["code"]},
             headers={"X-Forwarded-For": "198.51.100.200"})
         self.assertEqual(status, 200, body)
