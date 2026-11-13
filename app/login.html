@@ -382,7 +382,7 @@ function tfaSuccess(){
 }
 tfaReset();
 btn.addEventListener('click',submit);
-pw.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+pw.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing)submit();});
 </script>
 <script>
 /* Dot-grid background — the shader from the modern-login-signup design
