@@ -1460,6 +1460,33 @@ def _read_audit(limit=200):
     return out[-limit:][::-1]
 
 
+# ---- Consent records (DPDP, owner order 2026-11-18) ----
+# Permanent proof of consent: who agreed, to what, and when.
+# Separate from audit.jsonl on purpose — the audit log trims to
+# ~30 days, while the DPDP Rules 2025 require processing logs to
+# be kept for a minimum of one year. This file is append-only and
+# is NEVER trimmed. It holds labels and agreement names only,
+# never secrets.
+CONSENT_PATH = Path(__file__).parent / "consent.jsonl"
+
+_CONSENT_LOCK = threading.RLock()
+
+
+def _consent(label, kind, agreed):
+    try:
+        row = {
+            "ts": datetime.datetime.now().isoformat(),
+            "user": str(label)[:30],
+            "kind": str(kind)[:24],
+            "agreed": str(agreed)[:200],
+        }
+        with _CONSENT_LOCK:
+            with open(CONSENT_PATH, "a") as f:
+                f.write(json.dumps(row) + "\n")
+    except Exception:
+        pass
+
+
 # ---- Durable telemetry (owner order 2026-10-10, post-review) ----
 # usage.jsonl / audit.jsonl live on Render's ephemeral disk, so every
 # deploy used to zero the console's numbers AND the daily caps (which
@@ -10796,6 +10823,15 @@ class Handler(BaseHTTPRequestHandler):
                             _SETTINGS["roles"] = roles
                             _new_roles13 = dict(roles)
                             _w10_role = True
+                    # DPDP consent proof (2026-11-18): a successful
+                    # signup is the consent event — the 18+ box was
+                    # ticked (enforced above) and the form links the
+                    # Terms and Privacy Policy. Record it in the
+                    # never-trimmed consent log.
+                    if _w10_seen:
+                        _consent(label, "signup",
+                                 "18+ confirmed; Terms and Privacy Policy "
+                                 "agreed at invite signup")
                     # S2: saves after the lock releases (one save
                     # persists both mutations; the old code saved
                     # after each — same final state on disk).
