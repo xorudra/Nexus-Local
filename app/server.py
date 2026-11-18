@@ -1487,6 +1487,26 @@ def _consent(label, kind, agreed):
         pass
 
 
+def _read_consent(limit=500):
+    out = []
+    try:
+        if CONSENT_PATH.exists():
+            with open(CONSENT_PATH) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(e, dict) and e.get("ts"):
+                        out.append(e)
+    except Exception:
+        pass
+    return out[-limit:][::-1]
+
+
 # ---- Durable telemetry (owner order 2026-10-10, post-review) ----
 # usage.jsonl / audit.jsonl live on Render's ephemeral disk, so every
 # deploy used to zero the console's numbers AND the daily caps (which
@@ -7252,6 +7272,20 @@ class Handler(BaseHTTPRequestHandler):
                 "events": _events,
                 "failovers_today": _audit_count_today("Failover handled", "Providers"),
                 "fails_today": _audit_count_today("Attempt failed", "Providers"),
+            }).encode())
+            return
+        if parsed.path == "/api/consent":
+            # DPDP consent proof, visible to staff (owner + moderators)
+            # in the admin console. Viewers and plain friends never see
+            # who consented — the rows name users.
+            _ckind = self._console_kind()[0]
+            if _ckind not in ("admin", "moderator"):
+                return self._require_admin()
+            if not self._ip_gate():
+                return
+            self._set_json_headers()
+            self._send_body(json.dumps({
+                "records": _read_consent(500),
             }).encode())
             return
         if parsed.path == "/api/analytics":

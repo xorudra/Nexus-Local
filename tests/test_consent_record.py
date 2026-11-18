@@ -67,6 +67,23 @@ class ConsentRecordHttpTests(_FixtureServerBase):
         self.assertIn("18+", rows[0]["agreed"])
         self.assertTrue(rows[0]["ts"])
 
+    def test_admin_sees_consent_records_friend_cannot(self):
+        code = self._invite()
+        status, body, _ = self._req(
+            "POST", "/api/invite/redeem",
+            {"age_ok": True, "label": "consentvis",
+             "password": "consentvis-pw-1", "code": code},
+            headers={"X-Forwarded-For": "198.51.100.9"})
+        self.assertEqual(status, 200, body)
+        status, body, _ = self._req("GET", "/api/consent", ck=self.admin)
+        self.assertEqual(status, 200, body)
+        users = [r.get("user") for r in body["records"]]
+        self.assertIn("consentvis", users)
+        _, _, friend = self._login(_a16.FRIEND_PW)
+        self.assertTrue(friend)
+        status, body, _ = self._req("GET", "/api/consent", ck=friend)
+        self.assertNotEqual(status, 200, body)
+
     def test_refused_signup_writes_nothing(self):
         code = self._invite()
         status, body, _ = self._req(

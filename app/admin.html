@@ -166,6 +166,7 @@ html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-
 <div class="p s12"><h2>Latency over time</h2><svg id="anl" viewBox="0 0 600 140" preserveAspectRatio="none" style="width:100%;height:140px;display:block" role="img" aria-label="Average latency over time"></svg><div class="sub mono" id="anc" style="margin-top:0.5rem"></div></div></div></section>
 
 <section class="view" id="au"><div class="head"><div class="sub mono">EVERY ADMIN &amp; SYSTEM EVENT</div><h1>Audit log</h1></div><div class="bento"><div class="p s12"><div class="row" id="af" style="margin-bottom:0.875rem;flex-wrap:wrap"></div><input id="aq" class="srch" type="search" placeholder="Search events" aria-label="Search audit log"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr><th>Time</th><th>Category</th><th>Event</th></tr></thead><tbody id="at"></tbody></table></div><div class="sub" style="margin-top:0.625rem"><span id="auCap">Newest first, last 200.</span></div></div></div></section>
+<section class="view" id="cn"><div class="head"><div class="sub mono">DPDP CONSENT PROOF — KEPT 1 YEAR+</div><h1>Consent records</h1></div><div class="bento"><div class="p s12"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px"><thead><tr><th>Time</th><th>User</th><th>Agreed</th></tr></thead><tbody id="ct"></tbody></table></div><div class="sub" style="margin-top:0.625rem"><span id="cnCap">Newest first. Records sync to Drive and are wiped from the server after each confirmed upload.</span></div></div></div></section>
 
 <section class="view" id="pv"><div class="head"><div class="sub mono">FAILOVER ORDER · TOP TO BOTTOM</div><h1>Providers</h1><button class="btn" data-x="ap" data-mut style="display:inline-block;margin-top:0.875rem">+ Add provider</button></div><div class="row" id="pfl" style="margin-bottom:0.875rem;flex-wrap:wrap"></div><div class="row" style="margin-bottom:0.875rem;flex-wrap:wrap;align-items:center"><input id="ps" class="srch" style="margin:0" type="search" placeholder="Search providers" aria-label="Search providers"><button class="ib" data-x="pta" data-mut>Test all</button><button class="ib" data-x="pea" data-mut>Enable all</button><button class="ib" data-x="pda" data-mut>Disable all</button></div><div class="pgrid" id="pgrid"></div></section>
 
@@ -208,7 +209,7 @@ const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=n=>Number(n||0).toLocaleString();
 const LS={g:k=>{try{return localStorage.getItem(k)}catch(e){return null}},s:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
-let S=null,SYS=null,L=null,Q=null,AU=[],V1=null,AN7=null,AN24=null,UT=null,FO=0,_mpw='',RG='7d',AF='All',PF='All',PS='',UF='',AQ='',GRANTS=[],INVITES=[];
+let S=null,SYS=null,L=null,Q=null,AU=[],CN=[],V1=null,AN7=null,AN24=null,UT=null,FO=0,_mpw='',RG='7d',AF='All',PF='All',PS='',UF='',AQ='',GRANTS=[],INVITES=[];
 let ME={kind:'admin',label:'Rudra'};
 const ADMIN=()=>ME.kind==='admin', MOD=()=>ME.kind==='moderator', VIEWER=()=>ME.kind==='viewer';
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove("on"),2600)}
@@ -290,6 +291,7 @@ async function loadAll(){
   if(sg.j&&sg.j.ok){S=sg.j.settings;SYS=sg.j.system;FO=sg.j.failovers_today||0}
   const au=await jget('/api/audit');
   if(au){AU=au.events||[];FO=au.failovers_today||0}
+  if(!VIEWER()){const cnr=await jget('/api/consent');if(cnr)CN=cnr.records||[]}
   V1=await jget('/api/v1-access');
   if(!AN7)AN7=await jget('/api/analytics?range=7d');
   if(!AN24)AN24=await jget('/api/analytics?range=24h');
@@ -349,7 +351,7 @@ function renderAll(){
   const ann=(S&&S.announcement)||L.announcement||'';
   $("#bn").hidden=!ann;
   if(ann)$("#bnTx").textContent='📢 '+ann;
-  renderOverview();renderSide();renderProviders();renderFriends();if(ADMIN())renderSettings();renderAudit();
+  renderOverview();renderSide();renderProviders();renderFriends();if(ADMIN())renderSettings();renderAudit();renderConsent();
   window._P=Q.providers.map(p=>({n:p.display_name,s:p.down?'b':(p.disabled?'w':'ok'),req:p.history.requests[6]}));
   window._halo=Q.providers.map(p=>p.history.requests[6]);
 }
@@ -837,6 +839,10 @@ $("#sg").addEventListener('click',async e=>{
   if(k==='tz'){LS.s('nexus-tz',v);renderSettings();renderAudit();renderSide();toast('Timestamps: '+v);return}
   await setSettings({[k]:v},'Saved');
 });
+function renderConsent(){
+  const el=$("#ct");if(!el)return;
+  el.innerHTML=CN.length?CN.map(r=>`<tr><td class="mono sub">${esc(fmtTs(r.ts))}</td><td>${esc(r.user||'')}</td><td>${esc(r.agreed||'')}</td></tr>`).join(''):'<tr><td colspan="3" class="sub">No consent records yet. The first signup writes the first record.</td></tr>';
+}
 function renderAudit(){
   $("#af").innerHTML=['All','Providers','Users','Vault','System'].map(c=>`<button class="ib ${c===AF?'on':''}" data-f="${c}">${c}</button>`).join('')+'<button class="ib" data-x="acv" style="margin-left:auto">Copy CSV</button>';
   const ac=$("#auCap");if(ac)ac.textContent='History is mirrored encrypted and survives redeploys'+(SYS&&SYS.telemetry_saved?(' — persisted up to '+fmtTs(SYS.telemetry_saved)):' — not yet persisted this boot')+'. Newest first, last 200.';
@@ -1051,12 +1057,13 @@ $("#rsFile").addEventListener('change',async e=>{
   else toast((r2.j&&r2.j.error)||'Restore failed');
 });
 // ===== navigation =====
-const V=[["ov","Overview"],["an","Analytics"],["pv","Providers"],["fr","Users & Vaults"],["au","Audit log"],["se","Settings"]];
+const V=[["ov","Overview"],["an","Analytics"],["pv","Providers"],["fr","Users & Vaults"],["au","Audit log"],["cn","Consent records"],["se","Settings"]];
 const svg=d=>`<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
-const IC={an:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',pv:'<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>',fr:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14.8c2 .6 3.2 2.3 3.5 5.2"/>',au:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',se:'<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'};
+const IC={an:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',ov:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',pv:'<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>',fr:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14.8c2 .6 3.2 2.3 3.5 5.2"/>',au:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',cn:'<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/>',se:'<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'};
 $("#nav").innerHTML=V.map(v=>`<button data-v="${v[0]}" data-tip="${v[1]}">${svg(IC[v[0]])}<span>${v[1]}</span><em></em></button>`).join('');
 function go(v){
   if(v==='se'&&!ADMIN()){toast('Settings are owner-only');return}
+  if(v==='cn'&&!ADMIN()&&!MOD()){toast('Consent records are staff-only');return}
   $$(".view").forEach(e2=>e2.classList.toggle("on",e2.id===v));
   $$("#nav>button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
   const item=V.find(x=>x[0]===v);
